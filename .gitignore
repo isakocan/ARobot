@@ -1,0 +1,26 @@
+# Unity
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+MemoryCaptures/
+*.csproj
+*.sln
+*.pidb
+*.suo
+*.apk
+*.aab
+*.unityproj
+
+# IDE / OS
+.vs/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/settings.local.json
