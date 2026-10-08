@@ -4,7 +4,7 @@ Durum: [x] bitti · [ ] bekliyor
 
 - [x] Jetson: Ubuntu, Docker, ROS 2 kuruldu
 - [x] Theta S telefonla çalışıyor
-- [ ] Unity 6 LTS + Android modülü kurulumu, proje iskeleti
+- [x] Unity 6.3 LTS kuruldu, proje iskeleti (unity/)
 - [ ] Tasarım sistemi (görsel yön seçimi → tema)
 - [ ] MockRobot + sürüş simülasyonu (üstten görünüm, diferansiyel sürüş)
 - [ ] Protokol tanımı (komut/telemetri)

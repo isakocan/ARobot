@@ -19,7 +19,7 @@ Not: motor sürücüler Arduino uyumlu; hocada tek noktalı lidar ve yakınlık 
 - Son kullanıcı terminal kullanamaz: bağlantı akışı (Wi-Fi) tek dokunuş/QR olmalı.
 
 ## Kesin kararlar
-- Telefon: Samsung S21+ (Android). Önce Unity Editor'de PC'de geliştirilir, telefona sonra geçilir.
+- Unity 6.3 LTS (6000.3.26f1), proje: `unity/`, URP + Input System. Telefon: Samsung S21+ (Android). Önce Unity Editor'de PC'de geliştirilir, telefona sonra geçilir.
 - Yarış modu elenmedi; keşif/hayatta kalma ile birlikte seçenek olarak kalır.
 
 ## Henüz seçilmedi (kullanıcıyla konuşulacak)
