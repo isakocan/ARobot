@@ -16,13 +16,14 @@ Jetson Nano (P3450, JetPack 4.6 / Ubuntu 18.04, Docker + ROS 2 Humble kurulu), s
 - Hedef platform önce Android, iOS sonra (ekipte Mac var).
 - Son kullanıcı terminal kullanamaz: bağlantı akışı (Wi-Fi) tek dokunuş/QR olmalı.
 
-## Kararlar / yönler (güncel)
-- Telefon: Samsung S21+ (Android). Önce Unity Editor'de PC üzerinde geliştirilir, telefona sonra geçilir.
-- Oyun modları aynı motorda "görev tipi": keşif/hayatta kalma + yarış (marker kapıları, tur süresi). Yarış elenmedi.
-- Tema henüz seçilmedi; çekirdek tema-bağımsız, görsel yön "skin" olarak sonradan. Taslaklar: soğuk telemetri / paslı saha terminali / maket dünyası.
-- Bağlantı: varsayılan Jetson AP (robotun kendi Wi-Fi'si); ortak ev Wi-Fi'si isteğe bağlı ve sonra (provisioning gerekir).
-- Görev/hikaye üretimi: LLM (bulut, Jetson'da değil) yapılandırılmış JSON üretir, kural motoru doğrular; çevrimdışı şablon yedeği.
-- Görüntü işleme: ArUco → hafif YOLO (TensorRT) ; ışık dayanıklılığı için ön işleme + augmentation.
+## Kesin kararlar
+- Telefon: Samsung S21+ (Android). Önce Unity Editor'de PC'de geliştirilir, telefona sonra geçilir.
+- Yarış modu elenmedi; keşif/hayatta kalma ile birlikte seçenek olarak kalır.
+
+## Henüz seçilmedi (kullanıcıyla konuşulacak)
+- Görsel tema/yön (uzay / savaş sonrası / maket / başka).
+- Wi-Fi: robotun kendi ağı kurulum için, günlük kullanım ev Wi-Fi'sinde (menzil için) fikri var; test edilecek.
+- Görev/hikaye üretimi için LLM (NVIDIA API vb.) denenecek; derinlik/mesafe sensörü seçimi.
 
 ## Kurallar
 - UI/UX profesyonel ve özgün olmalı; "AI slop" jenerik görünüm istenmiyor.
