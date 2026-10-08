@@ -4,6 +4,9 @@
 EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
-  m_Scenes: []
+  m_Scenes:
+  - enabled: 1
+    path: Assets/_Project/Scenes/DriveSim.unity
+    guid: 70fe83d1d282fbf41b92bb95bad4d890
   m_configObjects: {}
   m_UseUCBPForAssetBundles: 0
