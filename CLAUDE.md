@@ -7,6 +7,8 @@ Fiziksel robot araç + Android uygulaması ile oynanan AR oyun. Oyuncu robotu te
 ## Donanım
 Jetson Nano (P3450, JetPack 4.6 / Ubuntu 18.04, Docker + ROS 2 Humble kurulu), sumo robot platformu (encoder yok, 12V, ~1-2 km/h), Ricoh Theta S (360, telefonla çalıştığı doğrulandı; Jetson'da henüz denenmedi), servo, LED, aday: IMU / mesafe / batarya sensörü. Araç henüz monte edilmedi.
 
+Not: motor sürücüler Arduino uyumlu; hocada tek noktalı lidar ve yakınlık sensörü var.
+
 ## Mimari kararlar
 - Video ROS'tan geçmez: GStreamer + donanımsal H.264 → doğrudan telefona.
 - Jetson: görüntü işleme, sensörler, motor kontrol. Telefon (Unity): oyun + arayüz.
