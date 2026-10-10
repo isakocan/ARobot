@@ -133,14 +133,14 @@ namespace ARaki.UI
             menuBest = kit.Label(g, "", monoFont, 13, SpaceTheme.TextDim, TextAnchor.LowerLeft, UiKit.BottomLeft, UiKit.BottomLeft, new Vector2(92f, 40f), new Vector2(480f, 18f));
 
             // sağ alt: kontroller
-            var card = kit.Card("Controls", g, UiKit.BottomRight, UiKit.BottomRight, new Vector2(-40f, 40f), new Vector2(310f, 212f));
+            var card = kit.Card("Controls", g, UiKit.BottomRight, UiKit.BottomRight, new Vector2(-40f, 40f), new Vector2(310f, 246f));
             kit.Label(card, "KONTROLLER", monoFont, 11, SpaceTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, -12f), new Vector2(200f, 16f));
             string[,] keys =
             {
                 { "W A S D", "Sür" }, { "Q E  /  SAĞ TIK", "Etrafa bak" }, { "L  /  SOL TIK", "LED (basılı tut)" },
-                { "R F", "Motor gücü" }, { "ESC", "Duraklat" },
+                { "R F", "Motor gücü" }, { "K", "Sesi aç / kapat" }, { "ESC", "Duraklat" },
             };
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < 6; i++)
             {
                 float y = -38f - i * 33f;
                 kit.Label(card, keys[i, 0], monoFont, 13, SpaceTheme.Text, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, y), new Vector2(160f, 18f));

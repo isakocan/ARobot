@@ -8,6 +8,24 @@ namespace ARaki.EditorTools
     /// <summary>İçe aktarılan modellerin boyutunu ve malzeme adlarını raporlar (kurulum kontrolü için).</summary>
     public static class AssetInspector
     {
+        public static void Diagnose()
+        {
+            UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/_Project/Scenes/DriveSim.unity");
+            var sb = new StringBuilder();
+            foreach (var id in new[] { "sofa_02", "modern_arm_chair_01", "modern_coffee_table_01", "potted_plant_02" })
+            {
+                var go = GameObject.Find(id);
+                if (go == null) { sb.AppendLine(id + ": YOK"); continue; }
+                sb.AppendLine($"{id}: root konum={go.transform.position} yerel={go.transform.localPosition} dönüş={go.transform.eulerAngles} ölçek={go.transform.localScale} ebeveyn={go.transform.parent?.name}");
+                foreach (var r in go.GetComponentsInChildren<Renderer>())
+                    sb.AppendLine($"    {r.name} dünya-merkez={r.bounds.center} boyut={r.bounds.size} konum={r.transform.position}");
+                var col = go.GetComponent<BoxCollider>();
+                if (col != null) sb.AppendLine($"    collider merkez(yerel)={col.center} boyut={col.size}");
+            }
+            Debug.Log("[Diag] " + sb);
+            File.WriteAllText(System.Environment.GetEnvironmentVariable("ARAKI_REPORT") ?? "diag.txt", sb.ToString());
+        }
+
         public static void Report()
         {
             var sb = new StringBuilder();

@@ -12,7 +12,7 @@ namespace ARaki.EditorTools
 
         public class PrintObjects
         {
-            public Transform[] Towers;
+            public Transform Station;     // ORBİT-9 maketi: AR istasyonunun gerçek karşılığı (3D baskı)
             public Transform Fuel;
             public Transform BasePad;
         }
@@ -149,37 +149,32 @@ namespace ARaki.EditorTools
             var tealDark = SceneBuilder.Mat("PrintTealDark", C("#0F7A70"), smooth: 0.3f);
             var pad = SceneBuilder.Mat("PrintPad", C("#3A424B"), smooth: 0.25f);
 
-            var result = new PrintObjects { Towers = new Transform[4] };
-            for (int i = 0; i < 4; i++)
+            var result = new PrintObjects();
+
+            // ORBİT-9 maketi: üst üste basılmış turuncu gövde, ince direk ve küçük bir çanak anten
+            var station = new GameObject("PrintStation").transform;
+            station.SetParent(room, false);
+            station.position = new Vector3(0.4f, 0f, 0.4f);
+            Cyl(station, "Plinth", new Vector3(0f, 0.012f, 0f), new Vector3(0.2f, 0.012f, 0.2f), orangeDark);
+            for (int l = 0; l < 6; l++)
             {
-                var tower = new GameObject("PrintTower" + (i + 1)).transform;
-                tower.SetParent(room, false);
-                tower.position = new Vector3(0.4f + i * 0.5f, 0f, 1.1f);
-                // üst üste basılmış katmanlar: hafif daralan, hafif döndürülmüş halkalar
-                for (int l = 0; l < 7; l++)
-                {
-                    var ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                    ring.name = "Layer" + l;
-                    Object.DestroyImmediate(ring.GetComponent<Collider>());
-                    ring.transform.SetParent(tower, false);
-                    float radius = Mathf.Lerp(0.062f, 0.036f, l / 6f);
-                    ring.transform.localScale = new Vector3(radius * 2f, 0.012f, radius * 2f);
-                    ring.transform.localPosition = new Vector3(0f, 0.012f + l * 0.022f, 0f);
-                    ring.transform.localRotation = Quaternion.Euler(0f, l * 11f, 0f);
-                    ring.GetComponent<MeshRenderer>().sharedMaterial = l % 2 == 0 ? orange : orangeDark;
-                }
-                var cap = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                cap.name = "Cap";
-                Object.DestroyImmediate(cap.GetComponent<Collider>());
-                cap.transform.SetParent(tower, false);
-                cap.transform.localScale = Vector3.one * 0.05f;
-                cap.transform.localPosition = new Vector3(0f, 0.18f, 0f);
-                cap.GetComponent<MeshRenderer>().sharedMaterial = orange;
-                var col = tower.gameObject.AddComponent<CapsuleCollider>();
-                col.radius = 0.06f; col.height = 0.2f; col.center = new Vector3(0f, 0.1f, 0f);
-                AssetPipeline.ContactShadow(room, new Bounds(new Vector3(0f, 0f, 0f), new Vector3(0.14f, 0.1f, 0.14f)), 0.5f, 1.6f);
-                result.Towers[i] = tower;
+                float radius = Mathf.Lerp(0.075f, 0.05f, l / 5f);
+                var layer = Cyl(station, "Layer" + l, new Vector3(0f, 0.034f + l * 0.021f, 0f), new Vector3(radius * 2f, 0.011f, radius * 2f), l % 2 == 0 ? orange : orangeDark);
+                layer.localRotation = Quaternion.Euler(0f, l * 13f, 0f);
             }
+            Cyl(station, "Mast", new Vector3(0f, 0.2f, 0f), new Vector3(0.012f, 0.05f, 0.012f), orange);
+            var dish = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            dish.name = "Dish";
+            Object.DestroyImmediate(dish.GetComponent<Collider>());
+            dish.transform.SetParent(station, false);
+            dish.transform.localPosition = new Vector3(0.01f, 0.265f, 0f);
+            dish.transform.localScale = new Vector3(0.09f, 0.022f, 0.09f);
+            dish.transform.localRotation = Quaternion.Euler(0f, 0f, 24f);
+            dish.GetComponent<MeshRenderer>().sharedMaterial = orange;
+            var sc = station.gameObject.AddComponent<CapsuleCollider>();
+            sc.radius = 0.1f; sc.height = 0.3f; sc.center = new Vector3(0f, 0.15f, 0f);
+            AssetPipeline.ContactShadow(room, new Bounds(Vector3.zero, new Vector3(0.22f, 0.1f, 0.22f)), 0.55f, 1.7f);
+            result.Station = station;
 
             // yakıt tankı: turkuaz silindir, koyu bantlar ve kapak
             var fuel = new GameObject("PrintFuel").transform;
@@ -225,6 +220,18 @@ namespace ARaki.EditorTools
             basePad.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
             result.BasePad = basePad.transform;
             return result;
+        }
+
+        static Transform Cyl(Transform parent, string name, Vector3 localPos, Vector3 scale, Material mat)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            go.name = name;
+            Object.DestroyImmediate(go.GetComponent<Collider>());
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPos;
+            go.transform.localScale = scale;
+            go.GetComponent<MeshRenderer>().sharedMaterial = mat;
+            return go.transform;
         }
 
         static void Place(string id, Transform parent, Vector3 pos, float yaw, float scale = 1f, bool collider = true, bool shadow = true)

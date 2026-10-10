@@ -19,7 +19,7 @@ namespace ARaki.EditorTools
     /// Sürüş simülasyonu sahnesini koddan üretir: ev odası, uzay gezgini robotu, 360° kamera hattı,
     /// AR hologramları, demo görevi ve arayüz. Tekrar çalıştırılabilir.
     /// </summary>
-    public static class SceneBuilder
+    public static partial class SceneBuilder
     {
         const string Root = "Assets/_Project";
         const string ScenePath = Root + "/Scenes/DriveSim.unity";
@@ -50,11 +50,8 @@ namespace ARaki.EditorTools
 
             var points = new[]
             {
-                MakePoint("TowerA", "KULE ALFA", PointKind.Tower, prints.Towers[0], 0.6f, rig, arRoot, HoloTower),
-                MakePoint("TowerB", "KULE BETA", PointKind.Tower, prints.Towers[1], 0.6f, rig, arRoot, HoloTower),
-                MakePoint("TowerC", "KULE GAMA", PointKind.Tower, prints.Towers[2], 0.6f, rig, arRoot, HoloTower),
-                MakePoint("TowerD", "KULE DELTA", PointKind.Tower, prints.Towers[3], 0.6f, rig, arRoot, HoloTower),
-                MakePoint("Fuel", "YAKIT İSTASYONU", PointKind.Fuel, prints.Fuel, 0.55f, rig, arRoot, HoloFuel),
+                MakeStationPoint("ORBİT-9 · TARAMA", prints.Station, rig, arRoot),
+                MakePoint("Fuel", "ENERJİ HÜCRESİ", PointKind.Fuel, prints.Fuel, 0.55f, rig, arRoot, HoloFuel),
                 MakePoint("Base", "ANA ÜS", PointKind.Base, prints.BasePad, 0.45f, rig, arRoot, HoloBase),
             };
             var threats = new[]
@@ -85,8 +82,16 @@ namespace ARaki.EditorTools
             SetRef(beam, "mission", mission);
             SetRef(beam, "robot", robot.transform);
 
+            var shelters = new[] { MakeShelter(0, rig, arRoot), MakeShelter(1, rig, arRoot) };
+            var hazard = new GameObject("Hazard").AddComponent<HazardController>();
+            SetRef(hazard, "robot", robot.transform);
+            SetRef(hazard, "link", link);
+            SetRef(hazard, "viewer", viewer);
+            SetRef(hazard, "stormVolume", BuildStormVolume());
+            SetRefs(hazard, "shelterProxies", shelters);
+
             var generator = new GameObject("MissionGenerator").AddComponent<MissionGenerator>();
-            var ignore = new System.Collections.Generic.List<Object>(prints.Towers) { prints.Fuel, prints.BasePad };
+            var ignore = new System.Collections.Generic.List<Object> { prints.Station, prints.Fuel, prints.BasePad };
             SetRefs(generator, "ignoreRoots", ignore.ToArray());
 
             var session = new GameObject("GameSession").AddComponent<GameSession>();
@@ -95,10 +100,12 @@ namespace ARaki.EditorTools
             SetRef(session, "mission", mission);
             SetRef(session, "generator", generator);
             SetRef(session, "viewer", viewer);
+            SetRef(session, "hazard", hazard);
 
             var sfx = new GameObject("Sfx").AddComponent<SfxPlayer>();
             SetRef(sfx, "link", link);
             SetRef(sfx, "mission", mission);
+            SetRef(sfx, "hazard", hazard);
 
             var hudGo = new GameObject("SpaceHud");
             var hud = hudGo.AddComponent<SpaceHud>();
@@ -107,6 +114,7 @@ namespace ARaki.EditorTools
             SetRef(hud, "viewer", viewer);
             SetRef(hud, "rig", rig);
             SetRef(hud, "session", session);
+            SetRef(hud, "hazard", hazard);
             SetRef(hud, "titleFont", LoadFont("Rajdhani-Bold"));
             SetRef(hud, "bodyFont", LoadFont("Rajdhani-Medium"));
             SetRef(hud, "monoFont", LoadFont("ShareTechMono-Regular"));
@@ -385,31 +393,6 @@ namespace ARaki.EditorTools
             return mp;
         }
 
-        static Threat MakeThreat(string id, Vector3 pos, Transform robot, MockRobotLink link, ARRig rig, Transform arRoot)
-        {
-            var go = new GameObject("Threat_" + id);
-            go.transform.position = pos;
-            var th = go.AddComponent<Threat>();
-            SetRef(th, "robot", robot);
-            SetRef(th, "link", link);
-
-            var vis = new GameObject("AR_Threat" + id).transform;
-            vis.SetParent(arRoot, false);
-            HoloThreat(vis, th, out var core, out var sector);
-            var tint = vis.gameObject.AddComponent<HoloTint>();
-
-            var mirror = go.AddComponent<ARMirror>();
-            SetRef(mirror, "rig", rig);
-            SetRef(mirror, "visual", vis);
-
-            var tv = vis.gameObject.AddComponent<ThreatVisual>();
-            SetRef(tv, "threat", th);
-            SetRef(tv, "holo", tint);
-            SetRef(tv, "sector", sector);
-            SetRef(tv, "core", core);
-            return th;
-        }
-
         static HoloBurst MakeBurst(Transform parent)
         {
             var go = new GameObject("Burst");
@@ -421,40 +404,6 @@ namespace ARaki.EditorTools
             return burst;
         }
 
-        static Material HoloLineMat() => AdditiveMat("HoloLine", C("#5FE3FF") * 1.3f);
-
-        static void HoloTower(Transform p)
-        {
-            var mat = HoloLineMat();
-            Glow(p, "Glow", 0.55f, 0.003f);
-            Ring(p, "RingBase", 0.15f, 0.004f, 40, 0.006f, mat);
-            Ring(p, "RingMid", 0.11f, 0.17f, 40, 0.005f, mat);
-            Ring(p, "RingTop", 0.07f, 0.34f, 40, 0.005f, mat);
-            var sweep = Ring(p, "Sweep", 0.1f, 0.01f, 40, 0.003f, mat);
-            sweep.gameObject.AddComponent<HoloSweep>();
-            for (int i = 0; i < 4; i++)
-            {
-                float a = i * Mathf.PI / 2f;
-                Line(p, "Strut", new[]
-                {
-                    new Vector3(Mathf.Cos(a) * 0.15f, 0.004f, Mathf.Sin(a) * 0.15f),
-                    new Vector3(Mathf.Cos(a) * 0.07f, 0.34f, Mathf.Sin(a) * 0.07f),
-                }, 0.003f, mat);
-            }
-            Line(p, "Beam", new[] { new Vector3(0f, 0.34f, 0f), new Vector3(0f, 1.0f, 0f) }, 0.004f, mat);
-            var gem = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            gem.name = "Gem";
-            Object.DestroyImmediate(gem.GetComponent<Collider>());
-            gem.transform.SetParent(p, false);
-            gem.transform.localPosition = new Vector3(0f, 0.5f, 0f);
-            gem.transform.localScale = Vector3.one * 0.055f;
-            gem.transform.localRotation = Quaternion.Euler(35f, 0f, 45f);
-            var gemRenderer = gem.GetComponent<MeshRenderer>();
-            gemRenderer.sharedMaterial = mat;
-            gemRenderer.shadowCastingMode = ShadowCastingMode.Off;
-            gem.AddComponent<Spin>();
-            Motes(p, 0.09f, 0.1f, 16);
-        }
 
         static void HoloFuel(Transform p)
         {
@@ -497,65 +446,6 @@ namespace ARaki.EditorTools
                     new Vector3(Mathf.Cos(a) * 0.3f, 0.004f, Mathf.Sin(a) * 0.3f),
                 }, 0.003f, mat);
             }
-        }
-
-        // Düşman sonda: parlayan çekirdek, dönen halkalar ve yerde görüş sektörü. Hepsi tek renkte durum bildirir.
-        static void HoloThreat(Transform p, Threat threat, out Transform coreTransform, out GameObject sector)
-        {
-            var mat = AdditiveMat("HoloThreat", C("#FF5C5C") * 1.6f);
-            float hover = threat.HoverHeight;
-
-            var core = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            core.name = "Core";
-            Object.DestroyImmediate(core.GetComponent<Collider>());
-            core.transform.SetParent(p, false);
-            core.transform.localScale = Vector3.one * 0.075f;
-            var coreRenderer = core.GetComponent<MeshRenderer>();
-            coreRenderer.sharedMaterial = mat;
-            coreRenderer.shadowCastingMode = ShadowCastingMode.Off;
-            coreTransform = core.transform;
-
-            for (int i = 0; i < 2; i++)
-            {
-                var pivot = new GameObject("Orbit" + i).transform;
-                pivot.SetParent(p, false);
-                pivot.localRotation = Quaternion.Euler(i * 55f, 0f, i * 30f);
-                Ring(pivot, "Ring", 0.1f + i * 0.025f, 0f, 32, 0.005f, mat);
-                var spin = pivot.gameObject.AddComponent<Spin>();
-                var so = new SerializedObject(spin);
-                so.FindProperty("degreesPerSecond").vector3Value = i == 0 ? new Vector3(0f, 140f, 0f) : new Vector3(60f, -110f, 0f);
-                so.ApplyModifiedPropertiesWithoutUndo();
-            }
-
-            // Algı yönü: küçük bir sensör çubuğu
-            Line(p, "Sensor", new[] { new Vector3(0f, 0f, 0.05f), new Vector3(0f, 0f, 0.14f) }, 0.008f, mat);
-
-            // Yer işaretleri: ışık hâlesi ve görüş sektörü (yalnızca yerde, düşmanın altında)
-            var floor = new GameObject("Floor").transform;
-            floor.SetParent(p, false);
-            floor.localPosition = new Vector3(0f, -hover, 0f);
-            Glow(floor, "Glow", 0.5f, 0.003f);
-
-            var sectorGo = new GameObject("Sector");
-            sectorGo.transform.SetParent(floor, false);
-            float dist = threat.ViewDistance, half = threat.ViewHalfAngle * Mathf.Deg2Rad;
-            foreach (float sign in new[] { -1f, 1f })
-                Line(sectorGo.transform, "Edge", new[]
-                {
-                    new Vector3(0f, 0.004f, 0f),
-                    new Vector3(Mathf.Sin(half) * sign * dist, 0.004f, Mathf.Cos(half) * dist),
-                }, 0.002f, mat).name = "Edge";
-            foreach (float k in new[] { 1f, 0.5f })
-            {
-                var pts = new Vector3[17];
-                for (int i = 0; i < pts.Length; i++)
-                {
-                    float a = Mathf.Lerp(-half, half, i / 16f);
-                    pts[i] = new Vector3(Mathf.Sin(a) * dist * k, 0.004f, Mathf.Cos(a) * dist * k);
-                }
-                Line(sectorGo.transform, "Arc", pts, 0.002f, mat);
-            }
-            sector = sectorGo;
         }
 
         // Yükselen toz parçacıkları: hologramın "canlı" durmasını sağlar.
@@ -955,6 +845,7 @@ namespace ARaki.EditorTools
             var rt = new RenderTexture(1280, 720, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             cam.targetTexture = rt;
             viewer.Bind();
+            bool arOnly = view == "ar";   // yalnızca AR sahnesini dışarıdan göster (kürenin içinden değil)
             Physics.SyncTransforms();
 
             hud.Build();
@@ -969,6 +860,22 @@ namespace ARaki.EditorTools
                 var v = pose.Split(',');
                 link.Teleport(new Vector3(float.Parse(v[0], inv), 0f, float.Parse(v[1], inv)), float.Parse(v[2], inv));
             }
+            // ARAKI_FACE = "station:2.0" ya da "threat:1.5": robotu hedefe verilen uzaklıkta, ona bakar şekilde koyar
+            string face = Env("ARAKI_FACE");
+            if (!string.IsNullOrEmpty(face))
+            {
+                var parts = face.Split(':');
+                float d = float.Parse(parts[1], inv);
+                Vector3 target;
+                if (parts[0] == "station") target = mission.Points[0].transform.position;
+                else target = System.Linq.Enumerable.First(Object.FindObjectsByType<Threat>(FindObjectsSortMode.None)).transform.position;
+                Vector3 dir = link.transform.position - target;
+                dir.y = 0f;
+                if (dir.sqrMagnitude < 0.01f) dir = Vector3.back;
+                dir.Normalize();
+                Vector3 pos = target + dir * d;
+                link.Teleport(new Vector3(pos.x, 0f, pos.z), Mathf.Atan2(-dir.x, -dir.z) * Mathf.Rad2Deg);
+            }
             if (Env("ARAKI_LED") == "1") link.SetLed(true);
 
             string tick = Env("ARAKI_TICK");
@@ -982,6 +889,14 @@ namespace ARaki.EditorTools
                 }
             }
 
+            string hazardEnv = Env("ARAKI_HAZARD");
+            var hazardObj = Object.FindFirstObjectByType<HazardController>();
+            if (!string.IsNullOrEmpty(hazardEnv))
+            {
+                hazardObj.ForcePhase(hazardEnv == "storm" ? HazardPhase.Storm : HazardPhase.Warning);
+                for (int i = 0; i < 12; i++) hazardObj.Tick(0.2f);
+            }
+
             switch (state)
             {
                 case "win": session.ForceWin(); break;
@@ -990,6 +905,7 @@ namespace ARaki.EditorTools
                 case "pause": break;
             }
             screens.Show(state == "pause" ? GameState.Paused : session.State);
+            if (view == "ar") hud.SetVisible(false);
 
             foreach (var mp in Object.FindObjectsByType<MissionPoint>(FindObjectsSortMode.None)) mp.RefreshVisual();
             foreach (var tv in Object.FindObjectsByType<ThreatVisual>(FindObjectsSortMode.None)) tv.Refresh();
@@ -998,6 +914,24 @@ namespace ARaki.EditorTools
             Object.FindFirstObjectByType<ScanBeam>().Tick();
             if (!string.IsNullOrEmpty(look)) viewer.SetLook(float.Parse(look, inv), viewer.DefaultPitch);
             else viewer.SetLook(state == "menu" ? 35f : 0f, viewer.DefaultPitch * (state == "menu" ? 0.6f : 1f));
+
+            if (arOnly)
+            {
+                var rigObj = Object.FindFirstObjectByType<ARRig>();
+                foreach (var r in rigObj.GetComponentsInChildren<MeshRenderer>())
+                    if (r.name == "PanoramaSphere") r.enabled = false;
+                viewer.ViewCamera.backgroundColor = new Color(0.04f, 0.05f, 0.07f);
+                viewer.ViewCamera.clearFlags = CameraClearFlags.SolidColor;
+                string[] a = (Env("ARAKI_AR") ?? "station").Split(':');
+                Vector3 focus = a[0] == "threat"
+                    ? System.Linq.Enumerable.First(Object.FindObjectsByType<Threat>(FindObjectsSortMode.None)).transform.position
+                    : mission.Points[0].transform.position;
+                float dist = a.Length > 1 ? float.Parse(a[1], inv) : 2.4f;
+                float height = a.Length > 2 ? float.Parse(a[2], inv) : 0.8f;
+                Vector3 focusRig = rigObj.ToRig(focus + Vector3.up * (a[0] == "threat" ? 0f : 0.7f));
+                viewer.ViewCamera.transform.position = focusRig + new Vector3(0f, height - 0.3f, -dist);
+                viewer.ViewCamera.transform.LookAt(focusRig);
+            }
 
             // Shader varyantları arka planda derlenir; hazır olana kadar turuncu yer tutucu çizilir.
             for (int i = 0; i < 80; i++)
@@ -1026,7 +960,7 @@ namespace ARaki.EditorTools
                 if (m.Visual != null) m.Visual.gameObject.SetActive(live);
                 if (live) m.Sync();
             }
-            viewer.Apply();
+            if (view != "ar") viewer.Apply();
             if (view != "top")
             {
                 hud.Tick(0.016f);

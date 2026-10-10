@@ -30,6 +30,7 @@ namespace ARaki.Game
         [SerializeField] MissionController mission;
         [SerializeField] MissionGenerator generator;
         [SerializeField] PanoramaViewer viewer;
+        [SerializeField] HazardController hazard;
         [SerializeField] bool startInMenu = true;
 
         public event Action<GameState> StateChanged;
@@ -42,7 +43,7 @@ namespace ARaki.Game
         public MissionResult Result { get; private set; }
         public IReadOnlyList<UpgradeId> Offers => offers;
         public int BestScore => PlayerPrefs.GetInt("ARaki.BestScore", 0);
-        public float ParSeconds => 40f * (Spec.TowerCount + 1) + 30f;
+        public float ParSeconds => 28f * Spec.SectorCount + 50f;
         public MissionController Mission => mission;
 
         readonly List<UpgradeId> offers = new List<UpgradeId>();
@@ -78,7 +79,8 @@ namespace ARaki.Game
             PrepareMission(seed == int.MinValue ? PickSeed() : seed);
             Elapsed = 0f;
             SetPlayable(true, false);
-            mission.Begin(Spec.Title);
+            mission.Begin(Level);
+            if (hazard != null) hazard.Begin(Spec);
             SetState(GameState.Playing);
         }
 
@@ -144,23 +146,21 @@ namespace ARaki.Game
         {
             Spec = generator.Generate(Level, seed);
 
-            MissionPoint baseP = null, fuelP = null;
-            var towers = new List<MissionPoint>();
+            MissionPoint stationP = null, baseP = null, fuelP = null;
             foreach (var p in mission.Points)
             {
-                if (p.Kind == PointKind.Base) baseP = p;
-                else if (p.Kind == PointKind.Fuel) fuelP = p;
-                else towers.Add(p);
+                if (p.Kind == PointKind.Station) stationP = p;
+                else if (p.Kind == PointKind.Base) baseP = p;
+                else fuelP = p;
             }
 
+            stationP.SetInMission(true);
+            stationP.MoveTo(Spec.StationPosition);
+            stationP.ScanSeconds = Spec.SectorSeconds;
+            stationP.ConfigureSectors(Spec.SectorCount);
             baseP.SetInMission(true);
             baseP.MoveTo(Spec.BasePosition);
-            for (int i = 0; i < towers.Count; i++)
-            {
-                bool use = i < Spec.TowerCount;
-                towers[i].SetInMission(use);
-                if (use) towers[i].MoveTo(Spec.TowerPositions[i]);
-            }
+            fuelP.Optional = true;
             fuelP.SetInMission(Spec.HasFuel);
             if (Spec.HasFuel) fuelP.MoveTo(Spec.FuelPosition);
 
@@ -170,6 +170,7 @@ namespace ARaki.Game
                 bool use = i < Spec.ThreatCount;
                 threats[i].gameObject.SetActive(use);
                 if (!use) continue;
+                threats[i].SetKind(Spec.ThreatKinds[i]);
                 threats[i].SetDifficulty(Spec.ThreatSpeed);
                 threats[i].Respawn(Spec.ThreatPositions[i]);
             }
@@ -197,6 +198,7 @@ namespace ARaki.Game
                 robot.SetLed(false);
             }
             foreach (var t in mission.Threats) t.DrainEnabled = playing;
+            if (hazard != null) hazard.Active = playing;
             Time.timeScale = 1f;
             AudioListener.pause = false;
         }
@@ -254,7 +256,7 @@ namespace ARaki.Game
             foreach (var p in mission.Points)
             {
                 if (!p.gameObject.activeSelf || !p.Done) continue;
-                objective += p.Kind == PointKind.Tower ? 100 : p.Kind == PointKind.Fuel ? 60 : 150;
+                objective += p.Kind == PointKind.Station ? 250 : p.Kind == PointKind.Fuel ? 40 : 150;
             }
             int timeBonus = Mathf.Max(0, Mathf.RoundToInt((ParSeconds - Elapsed) * 2f));
             int fuelBonus = Mathf.RoundToInt(fuel * 300f);

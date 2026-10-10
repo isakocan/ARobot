@@ -27,6 +27,7 @@ Not: motor sürücüler Arduino uyumlu; hocada tek noktalı lidar ve yakınlık 
 - Görsel tema/yön (uzay / savaş sonrası / maket / başka).
 - Wi-Fi: robotun kendi ağı kurulum için, günlük kullanım ev Wi-Fi'sinde (menzil için) fikri var; test edilecek.
 - Görev/hikaye üretimi için LLM (NVIDIA API vb.) denenecek; derinlik/mesafe sensörü seçimi.
+- Demo hikayesi: ORBİT-9 istasyonu salona düştü (unity/Assets/_Project/Scripts/Game/Story.cs); beğenilmezse değişir.
 
 ## Kurallar
 - UI/UX profesyonel ve özgün olmalı; "AI slop" jenerik görünüm istenmiyor.

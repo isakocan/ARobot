@@ -20,6 +20,7 @@ namespace ARaki.UI
         [SerializeField] PanoramaViewer viewer;
         [SerializeField] ARRig rig;
         [SerializeField] GameSession session;
+        [SerializeField] HazardController hazard;
 
         [Header("Tasarım")]
         [SerializeField] Font titleFont;
@@ -33,7 +34,7 @@ namespace ARaki.UI
 
         class Row { public MissionPoint Point; public RectTransform Root; public Text Status; public RectTransform Fill; public float Width; public Text Label; }
         class Blip { public Transform Target; public Image Image; public bool Threat; }
-        class Tag { public Transform Target; public MissionPoint Point; public Threat Threat; public RectTransform Rt; public Image Frame; public Text Name; public Text Info; public float Lift; }
+        class Tag { public bool Shelter; public Transform Target; public MissionPoint Point; public Threat Threat; public RectTransform Rt; public Image Frame; public Text Name; public Text Info; public float Lift; }
 
         RectTransform root;
         Canvas canvas;
@@ -46,6 +47,9 @@ namespace ARaki.UI
         Image fuelImage, ledFillImage;
         Text fuelValue, powerValue, heading, noticeText, alertText, commsText, ledLabel;
         CanvasGroup commsGroup, rootGroup;
+        Text hazardText, shelterText;
+        Image stormOverlay;
+        readonly List<Image> signalBars = new List<Image>();
         RectTransform missionCard, commsCard;
         Text missionHeader, sectorLabel, radarLabel;
         float noticeTimer, ledLevel;
@@ -68,6 +72,11 @@ namespace ARaki.UI
             mission.Notice -= OnNotice;
             mission.Comms -= OnComms;
             mission.MissionStarted -= OnMissionStarted;
+            if (hazard != null)
+            {
+                hazard.Notice -= OnNotice;
+                hazard.Comms -= OnComms;
+            }
         }
 
         // ------------------------------------------------------------------ kurulum
@@ -93,6 +102,7 @@ namespace ARaki.UI
             root = go.GetComponent<RectTransform>();
             rootGroup = go.AddComponent<CanvasGroup>();
 
+            BuildStormOverlay();
             BuildCrosshair();
             BuildMissionCard();
             BuildStatusCard();
@@ -107,6 +117,11 @@ namespace ARaki.UI
             mission.Notice += OnNotice;
             mission.Comms += OnComms;
             mission.MissionStarted += OnMissionStarted;
+            if (hazard != null)
+            {
+                hazard.Notice += OnNotice;
+                hazard.Comms += OnComms;
+            }
         }
 
         /// <summary>Oyun menüde ya da sonuç ekranındayken arayüz gizlenir.</summary>
@@ -123,6 +138,22 @@ namespace ARaki.UI
             commsShown = commsHold = 0f;
             noticeTimer = 0f;
             if (commsGroup != null) commsGroup.alpha = 0f;
+        }
+
+        // Parlama sırasında ekranın kenarlarını turuncuya boyayan katman
+        void BuildStormOverlay()
+        {
+            var rt = kitStretch("StormOverlay");
+            stormOverlay = Img(rt, new Color(1f, 0.42f, 0.16f, 0f));
+        }
+
+        RectTransform kitStretch(string name)
+        {
+            var rt = Rt(name, root, Center, Center, Vector2.zero, Vector2.zero);
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = rt.offsetMax = Vector2.zero;
+            return rt;
         }
 
         void BuildComms()
@@ -215,8 +246,8 @@ namespace ARaki.UI
             for (int i = 0; i < 4; i++)
             {
                 float h = 5f + i * 4f;
-                Img(Rt("Bar", card, TopLeft, new Vector2(0f, 0f), new Vector2(170f + i * 11f, -111f), new Vector2(7f, h)),
-                    i < 3 ? SpaceTheme.Primary : SpaceTheme.Track);
+                signalBars.Add(Img(Rt("Bar", card, TopLeft, new Vector2(0f, 0f), new Vector2(170f + i * 11f, -111f), new Vector2(7f, h)),
+                    SpaceTheme.Primary));
             }
         }
 
@@ -259,6 +290,13 @@ namespace ARaki.UI
 
             foreach (var p in mission.Points) blips.Add(MakeBlip(c, p.transform, false));
             foreach (var t in mission.Threats) blips.Add(MakeBlip(c, t.transform, true));
+            if (hazard != null)
+                foreach (var sp in hazard.ShelterProxies)
+                {
+                    var b = MakeBlip(c, sp, false);
+                    b.Image.color = SpaceTheme.Success;
+                    blips.Add(b);
+                }
         }
 
         Blip MakeBlip(RectTransform parent, Transform target, bool threat)
@@ -272,7 +310,7 @@ namespace ARaki.UI
         {
             heading = Label(root, "", monoFont, 15, SpaceTheme.Text, TextAnchor.MiddleCenter, BottomCenter, BottomCenter, new Vector2(0f, 50f), new Vector2(520f, 24f));
             AddShadow(heading);
-            var hint = Label(root, "W A S D  SÜR     ·     Q E  ETRAFA BAK     ·     L  LED     ·     R F  GÜÇ     ·     ESC  DURAKLAT",
+            var hint = Label(root, "W A S D  SÜR     ·     Q E  ETRAFA BAK     ·     L  LED     ·     R F  GÜÇ     ·     K  SES     ·     ESC  DURAKLAT",
                 monoFont, 11, SpaceTheme.WithAlpha(SpaceTheme.Text, 0.6f), TextAnchor.MiddleCenter, BottomCenter, BottomCenter, new Vector2(0f, 24f), new Vector2(900f, 18f));
             AddShadow(hint);
         }
@@ -281,22 +319,29 @@ namespace ARaki.UI
         {
             noticeText = Label(root, "", titleFont, 32, SpaceTheme.Primary, TextAnchor.MiddleCenter, TopCenter, TopCenter, new Vector2(0f, -86f), new Vector2(800f, 44f));
             AddShadow(noticeText);
-            alertText = Label(root, "", bodyFont, 20, SpaceTheme.Danger, TextAnchor.MiddleCenter, TopCenter, TopCenter, new Vector2(0f, -136f), new Vector2(800f, 28f));
+            alertText = Label(root, "", bodyFont, 20, SpaceTheme.Danger, TextAnchor.MiddleCenter, TopCenter, TopCenter, new Vector2(0f, -176f), new Vector2(800f, 28f));
             AddShadow(alertText);
+            hazardText = Label(root, "", titleFont, 30, SpaceTheme.Warning, TextAnchor.MiddleCenter, TopCenter, TopCenter, new Vector2(0f, -132f), new Vector2(900f, 40f));
+            AddShadow(hazardText);
+            shelterText = Label(root, "", monoFont, 13, SpaceTheme.Success, TextAnchor.MiddleCenter, BottomCenter, BottomCenter, new Vector2(0f, 104f), new Vector2(420f, 16f));
+            AddShadow(shelterText);
         }
 
         void BuildTags()
         {
             foreach (var p in mission.Points)
-                tags.Add(MakeTag(p.transform, p, null, p.Kind == PointKind.Base ? 0.12f : 0.58f));
+                tags.Add(MakeTag(p.transform, p, null, p.Kind == PointKind.Base ? 0.12f : p.Kind == PointKind.Station ? 0.95f : 0.5f));
             foreach (var t in mission.Threats)
                 tags.Add(MakeTag(t.transform, null, t, 0.1f));
+            if (hazard != null)
+                foreach (var s in hazard.ShelterProxies)
+                    tags.Add(MakeTag(s, null, null, 0.2f, true));
         }
 
-        Tag MakeTag(Transform target, MissionPoint point, Threat threat, float lift)
+        Tag MakeTag(Transform target, MissionPoint point, Threat threat, float lift, bool shelter = false)
         {
             var rt = Rt("Tag", root, Center, Center, Vector2.zero, new Vector2(72f, 72f));
-            var tag = new Tag { Target = target, Point = point, Threat = threat, Rt = rt, Lift = lift };
+            var tag = new Tag { Target = target, Point = point, Threat = threat, Rt = rt, Lift = lift, Shelter = shelter };
             tag.Frame = Img(rt, SpaceTheme.Primary, bracket, Image.Type.Sliced);
             tag.Name = Label(rt, "", bodyFont, 17, SpaceTheme.Text, TextAnchor.MiddleCenter, Center, Center, new Vector2(0f, -52f), new Vector2(240f, 22f));
             tag.Info = Label(rt, "", monoFont, 12, SpaceTheme.Primary, TextAnchor.MiddleCenter, Center, Center, new Vector2(0f, -70f), new Vector2(240f, 16f));
@@ -341,6 +386,38 @@ namespace ARaki.UI
             UpdateBanners(dt);
             UpdateLed(dt);
             UpdateComms(dt);
+            UpdateHazard();
+        }
+
+        void UpdateHazard()
+        {
+            if (hazard == null) return;
+            float pulse = 0.65f + 0.35f * Mathf.Sin(Time.realtimeSinceStartup * 9f);
+            stormOverlay.color = new Color(1f, 0.42f, 0.16f, hazard.Intensity * (hazard.Exposed ? 0.22f : 0.08f) * pulse);
+
+            int lit = Mathf.Clamp(Mathf.CeilToInt(hazard.Signal * 4f - 0.001f), 0, 4);
+            for (int i = 0; i < signalBars.Count; i++)
+                signalBars[i].color = i < lit ? (lit <= 1 ? SpaceTheme.Danger : SpaceTheme.Primary) : SpaceTheme.Track;
+
+            float blink = 0.55f + 0.45f * Mathf.Abs(Mathf.Sin(Time.realtimeSinceStartup * 6f));
+            switch (hazard.Phase)
+            {
+                case HazardPhase.Warning:
+                    hazardText.text = "GÜNEŞ PARLAMASI  " + hazard.SecondsToStorm.ToString("0.0") + " SN";
+                    hazardText.color = SpaceTheme.WithAlpha(SpaceTheme.Warning, blink);
+                    break;
+                case HazardPhase.Storm:
+                    hazardText.text = hazard.Exposed ? "PARLAMA  ·  AÇIKTASIN" : "PARLAMA  ·  GÖLGEDESİN";
+                    hazardText.color = hazard.Exposed ? SpaceTheme.WithAlpha(SpaceTheme.Danger, blink) : SpaceTheme.Success;
+                    break;
+                default:
+                    hazardText.text = "";
+                    break;
+            }
+
+            bool storm = hazard.Phase != HazardPhase.Calm;
+            shelterText.text = storm ? (hazard.Exposed ? "GÖLGE: AÇIKTA  ·  SIĞINAĞA GİT" : "GÖLGE: KORUNAKLI") : "";
+            shelterText.color = hazard.Exposed ? SpaceTheme.Warning : SpaceTheme.Success;
         }
 
         void UpdateLed(float dt)
@@ -399,14 +476,16 @@ namespace ARaki.UI
                 r.Fill.sizeDelta = new Vector2(r.Width * (p.Done ? 1f : p.Progress), 3f);
                 if (p.Done) { r.Status.text = "TAMAM"; r.Status.color = SpaceTheme.Success; r.Label.color = SpaceTheme.TextDim; r.Fill.GetComponent<Image>().color = SpaceTheme.Success; }
                 else if (p.Locked) { r.Status.text = "KİLİTLİ"; r.Status.color = SpaceTheme.TextDim; r.Label.color = SpaceTheme.TextDim; }
+                else if (p.Kind == PointKind.Station && p.Progress > 0.01f) { r.Status.text = p.CompletedSectors + "/" + p.SectorCount; r.Status.color = SpaceTheme.Warning; r.Label.color = SpaceTheme.Text; r.Fill.GetComponent<Image>().color = SpaceTheme.Warning; }
                 else if (p.Progress > 0.01f) { r.Status.text = Mathf.RoundToInt(p.Progress * 100f) + "%"; r.Status.color = SpaceTheme.Warning; r.Label.color = SpaceTheme.Text; r.Fill.GetComponent<Image>().color = SpaceTheme.Warning; }
-                else { r.Status.text = "BEKLİYOR"; r.Status.color = SpaceTheme.TextDim; r.Label.color = SpaceTheme.Text; r.Fill.GetComponent<Image>().color = SpaceTheme.Primary; }
+                else { r.Status.text = p.Optional ? "İSTEĞE BAĞLI" : "BEKLİYOR"; r.Status.color = SpaceTheme.TextDim; r.Label.color = SpaceTheme.Text; r.Fill.GetComponent<Image>().color = SpaceTheme.Primary; }
             }
         }
 
         void UpdateRadar(float dt)
         {
             sweep.localRotation *= Quaternion.Euler(0f, 0f, -110f * dt);
+            float signal = hazard != null ? hazard.Signal : 1f;
             foreach (var b in blips)
             {
                 bool live = b.Target.gameObject.activeInHierarchy;
@@ -416,9 +495,10 @@ namespace ARaki.UI
                 Vector2 v = new Vector2(rel.x, rel.z) / RadarRange * RadarRadius;
                 bool outside = v.magnitude > RadarRadius * 0.96f;
                 if (outside) v = v.normalized * RadarRadius * 0.96f;
+                if (signal < 0.9f) v += new Vector2(Random.value - 0.5f, Random.value - 0.5f) * (1f - signal) * 22f;
                 b.Image.rectTransform.anchoredPosition = v;
                 Color c = b.Image.color;
-                c.a = outside ? 0.35f : 1f;
+                c.a = (outside ? 0.35f : 1f) * Mathf.Lerp(0.25f, 1f, signal) * (signal < 0.5f && Random.value < 0.25f ? 0f : 1f);
                 b.Image.color = c;
             }
         }
@@ -442,9 +522,15 @@ namespace ARaki.UI
                 float dist = MissionController.FlatDistance(robot.transform.position, tag.Target.position);
                 Color color;
                 string name, info;
-                if (tag.Threat != null)
+                if (tag.Shelter)
                 {
-                    name = "TEHDİT";
+                    name = "SIĞINAK";
+                    color = SpaceTheme.Success;
+                    info = dist < 0.35f ? "GÖLGEDESİN" : dist.ToString("0.0") + " m";
+                }
+                else if (tag.Threat != null)
+                {
+                    name = (tag.Threat.Kind == ThreatKind.Hunter ? "AVCI" : "SONDA");
                     switch (tag.Threat.State)
                     {
                         case ThreatState.Alert: color = SpaceTheme.Warning; info = "FARK ETTİ"; break;
@@ -456,8 +542,13 @@ namespace ARaki.UI
                 else
                 {
                     var p = tag.Point;
-                    name = p.Label;
-                    if (p.Done) { color = SpaceTheme.Success; info = "TAMAM"; }
+                    name = p.Kind == PointKind.Station ? Story.StationName : p.Label;
+                    if (p.Kind == PointKind.Station && !p.Done && !p.Locked)
+                    {
+                        color = p.Progress > 0.01f ? SpaceTheme.Warning : SpaceTheme.Primary;
+                        info = Story.StationStatus(p.CompletedSectors, p.SectorCount) + (p.ActiveSector >= 0 ? "  ·  %" + Mathf.RoundToInt(p.SectorProgress[p.ActiveSector] * 100f) : "  ·  " + dist.ToString("0.0") + " m");
+                    }
+                    else if (p.Done) { color = SpaceTheme.Success; info = "TAMAM"; }
                     else if (p.Locked) { color = SpaceTheme.TextDim; info = "KİLİTLİ"; }
                     else if (p.Progress > 0.01f) { color = SpaceTheme.Warning; info = "TARANIYOR " + Mathf.RoundToInt(p.Progress * 100f) + "%"; }
                     else { color = SpaceTheme.Primary; info = dist.ToString("0.0") + " m"; }

@@ -7,9 +7,9 @@ using UnityEngine;
 namespace ARaki.Game
 {
     /// <summary>
-    /// Görev mantığı: hedefleri tara, yakıt istasyonunda şarj ol, ana üsse dön.
-    /// Robot bir hedefin yarıçapında durdukça tarama dolar. Ana üs, diğerleri bitmeden kilitlidir.
-    /// Havuzdaki hedeflerden yalnızca aktif olanlar görevde sayılır (görev üreticisi hangilerinin kullanılacağını seçer).
+    /// Görev mantığı: ORBİT-9 istasyonunu sektör sektör tara, isteğe bağlı olarak enerji hücresinden şarj ol,
+    /// sonra ana üsse dön. Robot bir sektörde, istasyonun halkası içinde durdukça o sektörün taraması dolar.
+    /// Ana üs, zorunlu hedefler bitmeden kilitlidir.
     /// Olaylar iki kanala gider: Notice (ekranın üstündeki kısa başlık) ve Comms (merkezden gelen telsiz mesajı).
     /// </summary>
     public class MissionController : MonoBehaviour
@@ -23,11 +23,13 @@ namespace ARaki.Game
         public event Action<string> Notice;
         public event Action<string> Comms;
         public event Action<MissionPoint> PointCompleted;
+        public event Action<MissionPoint, int> SectorCompleted;
         public event Action MissionStarted;
 
         public IReadOnlyList<MissionPoint> Points => points;
         public IReadOnlyList<Threat> Threats => threats;
         public bool Complete { get; private set; }
+        public int Level { get; private set; } = 1;
 
         /// <summary>Kapalıyken tarama ilerlemez (menü, duraklatma, sonuç ekranı).</summary>
         public bool Running { get; set; } = true;
@@ -41,7 +43,7 @@ namespace ARaki.Game
         void Start()
         {
             foreach (var t in threats) t.StateChanged += OnThreatChanged;
-            foreach (var p in points) { p.RefreshVisual(); }
+            foreach (var p in points) p.RefreshVisual();
         }
 
         void OnDestroy()
@@ -49,25 +51,28 @@ namespace ARaki.Game
             foreach (var t in threats) if (t != null) t.StateChanged -= OnThreatChanged;
         }
 
-        /// <summary>Yeni görev: hedefleri sıfırlar ve açılış telsiz mesajlarını başlatır.</summary>
-        public void Begin(string sectorTitle = null)
+        /// <summary>Yeni görev: hedefleri sıfırlar ve bölümün açılış hikayesini başlatır.</summary>
+        public void Begin(int level)
         {
+            Level = level;
             Complete = false;
             toldAboutLed = toldAboutScare = toldReturn = false;
             foreach (var p in points) if (p.gameObject.activeSelf) p.ResetState();
             Running = true;
             if (intro != null) StopCoroutine(intro);
-            intro = StartCoroutine(Intro(sectorTitle));
+            intro = StartCoroutine(Intro(Story.For(level)));
             MissionStarted?.Invoke();
         }
 
-        IEnumerator Intro(string sectorTitle)
+        IEnumerator Intro(Chapter chapter)
         {
             yield return new WaitForSeconds(0.8f);
-            Notice?.Invoke(string.IsNullOrEmpty(sectorTitle) ? "KEŞİF BAŞLADI" : sectorTitle + "  ·  KEŞİF BAŞLADI");
-            Comms?.Invoke("Bağlantı kuruldu. Hedefler işaretlendi: yaklaş, dur ve tara.");
-            yield return new WaitForSeconds(6f);
-            if (!toldAboutLed) Comms?.Invoke("Devriye sondalarına dikkat. Yakıtı izle.");
+            Notice?.Invoke(chapter.Title);
+            for (int i = 0; i < chapter.Lines.Length; i++)
+            {
+                if (i > 0) yield return new WaitForSeconds(6.5f);
+                Comms?.Invoke(chapter.Lines[i]);
+            }
         }
 
         void Update()
@@ -78,32 +83,19 @@ namespace ARaki.Game
 
         public void Tick(float dt)
         {
-            bool othersDone = true;
+            bool required = true;
             foreach (var p in points)
-                if (p.gameObject.activeSelf && p.Kind != PointKind.Base && !p.Done) othersDone = false;
+                if (p.gameObject.activeSelf && p.Kind != PointKind.Base && !p.Optional && !p.Done) required = false;
 
             foreach (var p in points)
             {
                 if (!p.gameObject.activeSelf) continue;
                 bool wasLocked = p.Locked;
-                p.Locked = p.Kind == PointKind.Base && !othersDone;
+                p.Locked = p.Kind == PointKind.Base && !required;
                 if (p.Done) continue;
 
-                float dist = FlatDistance(robot.position, p.transform.position);
-                bool inside = !p.Locked && dist < p.Radius;
-                float before = p.Progress;
-                float scanSeconds = Mathf.Max(0.2f, p.ScanSeconds * ScanTimeMultiplier);
-                p.Progress = inside
-                    ? Mathf.Min(1f, p.Progress + dt / scanSeconds)
-                    : Mathf.Max(0f, p.Progress - dt * 0.6f);
-
-                if (p.Progress >= 1f)
-                {
-                    p.Done = true;
-                    OnPointDone(p);
-                }
-                if (wasLocked != p.Locked || p.Done || (before > 0.01f) != (p.Progress > 0.01f)) p.RefreshVisual();
-                else p.RefreshIntensity();
+                TickPoint(p, dt);
+                if (wasLocked != p.Locked) p.RefreshVisual();
             }
 
             if (!Complete && AllDone())
@@ -114,14 +106,67 @@ namespace ARaki.Game
             }
         }
 
+        void TickPoint(MissionPoint p, float dt)
+        {
+            float dist = FlatDistance(robot.position, p.transform.position);
+            bool inRing = !p.Locked && dist < p.Radius && dist >= p.MinRadius;
+            int sector = p.SectorOf(robot.position);
+            p.ActiveSector = inRing ? sector : -1;
+
+            float scanSeconds = Mathf.Max(0.2f, p.ScanSeconds * ScanTimeMultiplier);
+            float before = p.Progress;
+            float sum = 0f;
+            bool anyNewSector = false;
+
+            for (int s = 0; s < p.SectorCount; s++)
+            {
+                if (!p.SectorDone[s])
+                {
+                    if (inRing && s == sector) p.SectorProgress[s] = Mathf.Min(1f, p.SectorProgress[s] + dt / scanSeconds);
+                    else p.SectorProgress[s] = Mathf.Max(0f, p.SectorProgress[s] - dt * 0.45f);
+
+                    if (p.SectorProgress[s] >= 1f)
+                    {
+                        p.SectorDone[s] = true;
+                        anyNewSector = true;
+                        OnSectorDone(p, s);
+                    }
+                }
+                sum += p.SectorDone[s] ? 1f : p.SectorProgress[s];
+            }
+            p.Progress = sum / p.SectorCount;
+
+            if (p.CompletedSectors >= p.SectorCount)
+            {
+                p.Done = true;
+                p.Progress = 1f;
+                OnPointDone(p);
+            }
+
+            if (p.Done || anyNewSector || (before > 0.01f) != (p.Progress > 0.01f)) p.RefreshVisual();
+            else p.RefreshIntensity();
+        }
+
+        void OnSectorDone(MissionPoint p, int sector)
+        {
+            SectorCompleted?.Invoke(p, sector);
+            if (p.Kind != PointKind.Station || p.SectorCount <= 1) return;
+            int done = p.CompletedSectors;
+            if (done < p.SectorCount)
+            {
+                Notice?.Invoke("SEKTÖR " + done + "/" + p.SectorCount + "  TARANDI");
+                Comms?.Invoke("Veri parçası alındı. İstasyonun etrafında sıradaki yöne geç.");
+            }
+        }
+
         void OnPointDone(MissionPoint p)
         {
             PointCompleted?.Invoke(p);
             switch (p.Kind)
             {
-                case PointKind.Tower:
-                    Notice?.Invoke(p.Label + "  TARANDI");
-                    Comms?.Invoke("Veri alındı: " + p.Label.ToLowerInvariant() + ".");
+                case PointKind.Station:
+                    Notice?.Invoke(Story.StationName + "  ÇEVRİMİÇİ");
+                    Comms?.Invoke("İstasyon enerjisi bağlandı. Şimdi ana üsse dön.");
                     break;
                 case PointKind.Fuel:
                     link.AddBattery(refuelAmount);
@@ -133,10 +178,10 @@ namespace ARaki.Game
                     break;
             }
 
-            if (!toldReturn && p.Kind != PointKind.Base && OthersDone())
+            if (!toldReturn && p.Kind != PointKind.Base && RequiredDone())
             {
                 toldReturn = true;
-                Comms?.Invoke("Tüm noktalar tarandı. Ana üsse dön.");
+                Comms?.Invoke("Tüm hedefler tamam. Ana üsse dön.");
             }
         }
 
@@ -146,7 +191,7 @@ namespace ARaki.Game
             if (state == ThreatState.Alert && !toldAboutLed)
             {
                 toldAboutLed = true;
-                Comms?.Invoke("Devriye sondası seni fark etti. LED'i tut: ışıktan kaçar, ama yakıt harcar.");
+                Comms?.Invoke("Bir sonda seni fark etti. LED'i tut: ışıktan kaçar, ama yakıt harcar.");
             }
             else if (state == ThreatState.Scared && !toldAboutScare)
             {
@@ -155,9 +200,10 @@ namespace ARaki.Game
             }
         }
 
-        bool OthersDone()
+        bool RequiredDone()
         {
-            foreach (var p in points) if (p.gameObject.activeSelf && p.Kind != PointKind.Base && !p.Done) return false;
+            foreach (var p in points)
+                if (p.gameObject.activeSelf && p.Kind != PointKind.Base && !p.Optional && !p.Done) return false;
             return true;
         }
 
@@ -166,7 +212,7 @@ namespace ARaki.Game
             bool any = false;
             foreach (var p in points)
             {
-                if (!p.gameObject.activeSelf) continue;
+                if (!p.gameObject.activeSelf || p.Optional) continue;
                 any = true;
                 if (!p.Done) return false;
             }

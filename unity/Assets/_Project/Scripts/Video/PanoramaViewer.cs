@@ -25,6 +25,9 @@ namespace ARaki.Video
         /// <summary>Menüde kullanıcı girişi yerine yavaş dönen "tanıtım" bakışı.</summary>
         public bool AutoRotate { get; set; }
 
+        /// <summary>Dışarıdan eklenen sarsıntı (derece): güneş parlaması, elektrik şoku...</summary>
+        public float ExtraShake { get; set; }
+
         public float Yaw { get; private set; }
         public float Pitch { get; private set; }
         public Camera ViewCamera => viewCamera;
@@ -95,14 +98,15 @@ namespace ARaki.Video
 
         public void Apply()
         {
-            Vector3 shake = Vector3.zero;
+            float amplitude = ExtraShake;
             if (motion != null)
             {
                 var t = motion.Telemetry;
                 float speed = Mathf.Clamp01(Mathf.Abs(t.ForwardSpeed) / 0.3f + Mathf.Abs(t.LeftSpeed - t.RightSpeed) / 0.4f);
-                float n = Time.time * 17f;
-                shake = new Vector3(Mathf.PerlinNoise(n, 0.3f) - 0.5f, Mathf.PerlinNoise(0.7f, n) - 0.5f, Mathf.PerlinNoise(n, n) - 0.5f) * (shakeDegrees * speed);
+                amplitude += shakeDegrees * speed;
             }
+            float n = Time.time * 17f;
+            Vector3 shake = new Vector3(Mathf.PerlinNoise(n, 0.3f) - 0.5f, Mathf.PerlinNoise(0.7f, n) - 0.5f, Mathf.PerlinNoise(n, n) - 0.5f) * amplitude;
             viewCamera.transform.localRotation = Quaternion.Euler(Pitch + shake.x, Yaw + shake.y, shake.z);
             if (worldAlignedRobot != null)
                 sphere.transform.localRotation = Quaternion.Euler(0f, -worldAlignedRobot.eulerAngles.y, 0f);

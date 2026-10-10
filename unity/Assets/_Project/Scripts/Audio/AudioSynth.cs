@@ -24,6 +24,78 @@ namespace ARaki.Audio
 
         static float Sin(float hz, float t) => Mathf.Sin(Tau * hz * t);
 
+        /// <summary>Çok hafif hava akımı (alçak geçişli gürültü). 6 sn, kesintisiz döngü.</summary>
+        public static AudioClip AmbientSoft()
+        {
+            int n = Rate * 6;
+            var data = new float[n];
+            uint seed = 12345u;
+            float lp = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                seed = seed * 1664525u + 1013904223u;
+                float white = ((seed >> 9) / (float)(1 << 23)) * 2f - 1f;
+                lp += (white - lp) * 0.03f;
+                float breathe = 0.6f + 0.4f * Mathf.Sin(Tau * (i / (float)n));
+                data[i] = lp * 0.55f * breathe;
+            }
+            // son 0.4 sn'yi başa doğru karıştır: döngü sesi atlamasın
+            int fade = (int)(Rate * 0.4f);
+            for (int i = 0; i < fade; i++)
+            {
+                float t = i / (float)fade;
+                data[n - fade + i] = data[n - fade + i] * (1f - t) + data[i] * t;
+            }
+            var clip = AudioClip.Create("ambientSoft", n, 1, Rate, false);
+            clip.SetData(data, 0);
+            return clip;
+        }
+
+        /// <summary>Güneş parlaması: derin, yavaş gümbürtü. 3 sn, kesintisiz döngü.</summary>
+        public static AudioClip Rumble()
+        {
+            int n = Rate * 3;
+            var data = new float[n];
+            uint seed = 777u;
+            float lp = 0f, lp2 = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                seed = seed * 1664525u + 1013904223u;
+                float white = ((seed >> 9) / (float)(1 << 23)) * 2f - 1f;
+                lp += (white - lp) * 0.012f;
+                lp2 += (lp - lp2) * 0.05f;
+                float t = i / (float)Rate;
+                data[i] = (lp2 * 5f + 0.25f * Mathf.Sin(Tau * 40f * t)) * (0.7f + 0.3f * Mathf.Sin(Tau * (i / (float)n) * 2f));
+            }
+            int fade = (int)(Rate * 0.3f);
+            for (int i = 0; i < fade; i++)
+            {
+                float t = i / (float)fade;
+                data[n - fade + i] = data[n - fade + i] * (1f - t) + data[i] * t;
+            }
+            for (int i = 0; i < n; i++) data[i] = Mathf.Clamp(data[i], -1f, 1f);
+            var clip = AudioClip.Create("rumble", n, 1, Rate, false);
+            clip.SetData(data, 0);
+            return clip;
+        }
+
+        /// <summary>Parlama uyarısı: iki kez yükselip alçalan siren.</summary>
+        public static AudioClip Siren() => Make("siren", 2.4f, t =>
+        {
+            float cycle = (t % 1.2f) / 1.2f;
+            float hz = 520f + 380f * Mathf.Sin(cycle * Mathf.PI);
+            float phase = hz * t;
+            float env = Mathf.Clamp01(t * 8f) * Mathf.Clamp01((2.4f - t) * 8f);
+            return 0.22f * Mathf.Sin(Tau * phase) * env + 0.07f * Mathf.Sin(Tau * phase * 2f) * env;
+        });
+
+        /// <summary>Elektrik şoku: kısa, çıtırtılı.</summary>
+        public static AudioClip Zap() => Make("zap", 0.35f, t =>
+        {
+            float crackle = Mathf.Sign(Mathf.Sin(Tau * 190f * t + 9f * Mathf.Sin(Tau * 53f * t)));
+            return 0.28f * crackle * Mathf.Exp(-t * 9f) + 0.1f * Mathf.Sin(Tau * 1400f * t) * Mathf.Exp(-t * 14f);
+        });
+
         /// <summary>Alçak, yavaş nefes alan uğultu: uzay aracının içi. 4 sn, kesintisiz döngü.</summary>
         public static AudioClip Ambient() => Make("ambient", 4f, t =>
         {
@@ -35,8 +107,8 @@ namespace ARaki.Audio
         public static AudioClip Motor() => Make("motor", 1f, t =>
         {
             float v = 0f;
-            for (int k = 1; k <= 6; k++) v += Sin(110f * k, t) / k;
-            return 0.22f * v + 0.03f * Sin(330f, t);
+            for (int k = 1; k <= 3; k++) v += Sin(110f * k, t) / (k * k);
+            return 0.13f * v;
         });
 
         /// <summary>Tarama sırasında tıkırtı.</summary>

@@ -13,6 +13,9 @@ namespace ARaki.AR
         [SerializeField] float pulseSpeed = 3f;
         [SerializeField] bool flicker = true;
 
+        [SerializeField] bool useInitialColor;
+        [SerializeField] Color initialColor = Color.white;
+
         public float Intensity { get; set; } = 1f;
 
         readonly List<Material> materials = new List<Material>();
@@ -22,6 +25,11 @@ namespace ARaki.AR
         float phase, nextFlicker, flickerUntil;
 
         void Awake() => phase = Random.value * 6.28f;
+
+        void OnEnable()
+        {
+            if (useInitialColor) SetColor(initialColor);
+        }
 
         public void SetColor(Color color)
         {
@@ -37,8 +45,9 @@ namespace ARaki.AR
             foreach (var r in GetComponentsInChildren<Renderer>(true))
             {
                 if (r.GetComponentInParent<HoloBurst>(true) != null) continue; // patlama halkası kendi rengini yönetir
+                if (r.name.StartsWith("Sector")) continue;                      // istasyon sektörlerini StationVisual boyar
                 materials.Add(r.material);
-                weights.Add(r.name.StartsWith("Glow") ? 0.22f : (r.name == "Edge" || r.name == "Arc") ? 0.45f : 1f);
+                weights.Add(r.name.StartsWith("Glow") ? 0.22f : r.name == "Fan" ? 0.5f : (r.name == "Edge" || r.name == "Arc") ? 0.45f : 1f);
             }
         }
 

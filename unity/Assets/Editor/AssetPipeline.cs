@@ -229,18 +229,17 @@ namespace ARaki.EditorTools
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             if (prefab == null) { Debug.LogWarning("[Assets] model yok: " + modelId); return default; }
 
-            var go = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
-            go.name = modelId;
+            // Modelin kendi kök dönüşümü (FBX içe aktarma ölçeği ve dönüşü) korunur; konum, yön ve ölçeği bir sarmalayıcı taşır.
+            var go = new GameObject(modelId);
             go.transform.SetParent(parent, false);
             go.transform.position = position;
             go.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
             go.transform.localScale = Vector3.one * scale;
+            PrefabUtility.InstantiatePrefab(prefab, go.transform);
 
             var renderers = go.GetComponentsInChildren<Renderer>();
-            Bounds bounds = renderers[0].bounds;
             foreach (var r in renderers)
             {
-                bounds.Encapsulate(r.bounds);
                 var mats = r.sharedMaterials;
                 for (int i = 0; i < mats.Length; i++)
                     mats[i] = ModelMaterial(modelId, mats[i] != null ? mats[i].name : modelId);
@@ -249,13 +248,29 @@ namespace ARaki.EditorTools
                 r.receiveShadows = true;
             }
 
+            // Sınırları mesh köşelerinden hesapla (Renderer.bounds editörde güncel olmayabiliyor)
+            Vector3 lmin = Vector3.one * float.MaxValue, lmax = Vector3.one * float.MinValue;
+            Vector3 wmin = Vector3.one * float.MaxValue, wmax = Vector3.one * float.MinValue;
+            foreach (var mf in go.GetComponentsInChildren<MeshFilter>())
+            {
+                if (mf.sharedMesh == null) continue;
+                var mb = mf.sharedMesh.bounds;
+                for (int c = 0; c < 8; c++)
+                {
+                    var corner = mb.center + Vector3.Scale(mb.extents, new Vector3((c & 1) == 0 ? -1f : 1f, (c & 2) == 0 ? -1f : 1f, (c & 4) == 0 ? -1f : 1f));
+                    Vector3 world = mf.transform.TransformPoint(corner);
+                    Vector3 local = go.transform.InverseTransformPoint(world);
+                    lmin = Vector3.Min(lmin, local); lmax = Vector3.Max(lmax, local);
+                    wmin = Vector3.Min(wmin, world); wmax = Vector3.Max(wmax, world);
+                }
+            }
+            var bounds = new Bounds((wmin + wmax) * 0.5f, wmax - wmin);
+
             if (collider)
             {
                 var box = go.AddComponent<BoxCollider>();
-                box.center = go.transform.InverseTransformPoint(bounds.center);
-                var ls = go.transform.lossyScale;
-                var size = go.transform.InverseTransformVector(bounds.size);
-                box.size = new Vector3(Mathf.Abs(size.x), Mathf.Abs(size.y), Mathf.Abs(size.z));
+                box.center = (lmin + lmax) * 0.5f;
+                box.size = lmax - lmin;
             }
             if (contactShadow) ContactShadow(parent, bounds);
             return new Placed { Go = go, WorldBounds = bounds };
