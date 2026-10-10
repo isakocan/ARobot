@@ -1,19 +1,26 @@
 using ARaki.Robot;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace ARaki.Dev
 {
-    /// <summary>Geliştirici paneli (oyuncu arayüzü değildir): motorlara giden komut ve robotun durumu.</summary>
+    /// <summary>Geliştirici paneli (oyuncu arayüzü değildir), F1 ile açılıp kapanır.</summary>
     public class DebugOverlay : MonoBehaviour
     {
         [SerializeField] MockRobotLink robot;
 
+        bool visible;
         GUIStyle label, header;
         Texture2D white;
 
+        void Update()
+        {
+            if (Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame) visible = !visible;
+        }
+
         void OnGUI()
         {
-            if (robot == null) return;
+            if (!visible || robot == null) return;
             EnsureStyles();
 
             var t = robot.Telemetry;
@@ -21,18 +28,17 @@ namespace ARaki.Dev
             float scale = Screen.height / 720f;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
 
-            var box = new Rect(16, 16, 250, 270);
+            var box = new Rect(16, 120, 250, 250);
             DrawRect(box, new Color(0f, 0f, 0f, 0.55f));
             GUILayout.BeginArea(new Rect(box.x + 12, box.y + 10, box.width - 24, box.height - 20));
-            GUILayout.Label("ROBOT (SİMÜLASYON)", header);
-            Bar("Sol motor PWM", cmd.Left * robot.PwmLimit);
-            Bar("Sağ motor PWM", cmd.Right * robot.PwmLimit);
-            Bar("PWM limiti  [ ve ]", robot.PwmLimit, false);
+            GUILayout.Label("GELİŞTİRİCİ PANELİ (F1)", header);
+            Bar("Sol taraf PWM", cmd.Left * robot.PwmLimit);
+            Bar("Sağ taraf PWM", cmd.Right * robot.PwmLimit);
+            Bar("PWM limiti  R / F", robot.PwmLimit, false);
             Bar("Batarya", t.Battery01, false);
             GUILayout.Label($"Hız {t.ForwardSpeed * 3.6f:0.0} km/s    Yön {t.YawDegrees:0}°", label);
             if (robot.FailsafeActive) GUILayout.Label("Komut yok: motorlar durdu", label);
             if (robot.Blocked) GUILayout.Label("Engel: robot çarptı", label);
-            GUILayout.Label("C: kamera görünümünü değiştir", label);
             GUILayout.EndArea();
         }
 

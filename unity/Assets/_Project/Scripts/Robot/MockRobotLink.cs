@@ -3,20 +3,22 @@ using UnityEngine;
 namespace ARaki.Robot
 {
     /// <summary>
-    /// Gerçek robot gelene kadar kullanılan simülasyon: diferansiyel sürüş, motor gecikmesi,
-    /// batarya, PWM limiti ve Arduino'daki gibi "komut kesilirse dur" güvenliği.
+    /// Gerçek robot gelene kadar kullanılan simülasyon: dört tekerlekli kızaklı (skid-steer) sürüş,
+    /// motor gecikmesi, batarya, PWM limiti ve Arduino'daki gibi "komut kesilirse dur" güvenliği.
     /// Birimler metre / saniye. Obje, robotun dünyadaki karşılığını hareket ettirir (XZ düzlemi).
+    /// Sağ ve sol taraftaki ikişer tekerlek aynı komutu alır; zıt yönde sürülürse robot olduğu yerde döner.
     /// </summary>
     public class MockRobotLink : MonoBehaviour, IRobotLink
     {
         [Header("Fiziksel model")]
         [SerializeField] float maxWheelSpeed = 0.5f;      // m/s (yaklaşık 1.8 km/h)
-        [SerializeField] float trackWidth = 0.20f;        // tekerlekler arası mesafe, m
+        [SerializeField] float trackWidth = 0.24f;        // sol ve sağ tekerlek hattı arası, m
         [SerializeField] float motorAcceleration = 1.2f;  // m/s², motor tepkisi
-
-        [SerializeField] float collisionRadius = 0.13f;   // engellere çarpma yarıçapı, m
+        [SerializeField, Range(0.3f, 1f)] float turnEfficiency = 0.75f; // kızaklı dönüşte tekerlek kayması
+        [SerializeField] float collisionRadius = 0.17f;   // engellere çarpma yarıçapı, m
 
         [Header("Batarya")]
+        [SerializeField, Range(0f, 1f)] float startBattery = 0.65f;
         [SerializeField] float batteryDrainPerSecond = 0.004f; // tam güçte
         [SerializeField] float batteryIdleDrain = 0.0003f;
 
@@ -37,10 +39,14 @@ namespace ARaki.Robot
         float lastCommandTime = -999f;
         float left, right;      // gerçekleşen tekerlek hızları
         float yawDegrees;
-        float battery = 1f;
+        float battery;
 
-        void Awake()
+        void Awake() => Initialize();
+
+        /// <summary>Başlangıç durumunu kurar (Awake çalışmayan editör çekimleri için ayrıca açık).</summary>
+        public void Initialize()
         {
+            battery = startBattery;
             yawDegrees = transform.eulerAngles.y;
             Publish(0f);
         }
@@ -51,6 +57,9 @@ namespace ARaki.Robot
             LastCommand = command;
             lastCommandTime = Time.time;
         }
+
+        /// <summary>Simülasyon: oyun olayları (yakıt istasyonu, düşman hasarı) bataryayı değiştirir.</summary>
+        public void AddBattery(float delta) => battery = Mathf.Clamp01(battery + delta);
 
         void Update()
         {
@@ -63,7 +72,7 @@ namespace ARaki.Robot
             right = Mathf.MoveTowards(right, active.Right * PwmLimit * maxWheelSpeed, step);
 
             float forward = (left + right) * 0.5f;
-            float omega = (right - left) / trackWidth; // rad/s, sağ hızlıysa sola döner
+            float omega = (right - left) / trackWidth * turnEfficiency; // rad/s, sağ hızlıysa sola döner
 
             // Unity'de Y ekseni etrafındaki pozitif dönüş saat yönüdür, o yüzden eksi.
             yawDegrees -= omega * Mathf.Rad2Deg * dt;

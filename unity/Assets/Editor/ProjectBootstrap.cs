@@ -15,6 +15,7 @@ namespace ARaki.EditorTools
             "com.unity.render-pipelines.universal",
             "com.unity.inputsystem",
             "com.unity.test-framework",
+            "com.unity.ugui",
         };
 
         public static void InstallPackages()
