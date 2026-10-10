@@ -53,6 +53,7 @@ namespace ARaki.UI
         RectTransform missionCard, commsCard;
         Text missionHeader, sectorLabel, radarLabel;
         float noticeTimer, ledLevel;
+        int shownFuel = -1, shownPower = -1, shownHeading = int.MinValue;
         const float BarWidth = 202f;
         const float MotorTrack = 150f;
         const float LedBarWidth = 120f;
@@ -354,24 +355,32 @@ namespace ARaki.UI
 
         public void Tick(float dt)
         {
-            if (!built) return;
+            if (!built || rootGroup.alpha < 0.01f) return;     // görünmezken (menü, sonuç ekranı, yarış) iş yapma
             var t = robot.Telemetry;
             var cmd = robot.LastCommand;
 
             // yakıt
             fuelFill.sizeDelta = new Vector2(BarWidth * t.Battery01, 6f);
-            fuelValue.text = Mathf.RoundToInt(t.Battery01 * 100f) + "%";
+            int fuelPct = Mathf.RoundToInt(t.Battery01 * 100f);
+            if (fuelPct != shownFuel) { shownFuel = fuelPct; fuelValue.text = fuelPct + "%"; }
             Color fuelColor = t.Battery01 < 0.15f ? SpaceTheme.Danger : t.Battery01 < 0.3f ? SpaceTheme.Warning : SpaceTheme.Primary;
             fuelImage.color = fuelColor;
             fuelValue.color = fuelColor == SpaceTheme.Primary ? SpaceTheme.Text : fuelColor;
 
             powerFill.sizeDelta = new Vector2(BarWidth * robot.PwmLimit, 6f);
-            powerValue.text = Mathf.RoundToInt(robot.PwmLimit * 100f) + "%";
+            int powerPct = Mathf.RoundToInt(robot.PwmLimit * 100f);
+            if (powerPct != shownPower) { shownPower = powerPct; powerValue.text = powerPct + "%"; }
 
             SetMotor(motorLeft, cmd.Left * robot.PwmLimit);
             SetMotor(motorRight, cmd.Right * robot.PwmLimit);
 
-            heading.text = $"YÖN {Mathf.RoundToInt(t.YawDegrees):000}°     BAKIŞ {(viewer.Yaw >= 0 ? "+" : "-")}{Mathf.Abs(Mathf.RoundToInt(viewer.Yaw)):000}°";
+            int yawInt = Mathf.RoundToInt(t.YawDegrees), lookInt = Mathf.RoundToInt(viewer.Yaw);
+            int headingKey = yawInt * 1000 + lookInt + 500;
+            if (headingKey != shownHeading)
+            {
+                shownHeading = headingKey;
+                heading.text = $"YÖN {yawInt:000}°     BAKIŞ {(lookInt >= 0 ? "+" : "-")}{Mathf.Abs(lookInt):000}°";
+            }
 
             Relayout();
             if (session != null)
@@ -613,6 +622,7 @@ namespace ARaki.UI
         RectTransform Card(string name, Vector2 anchor, Vector2 pivot, Vector2 pos, Vector2 size)
         {
             var rt = Rt(name, root, anchor, pivot, pos, size);
+            rt.gameObject.AddComponent<Canvas>();
             Img(rt, SpaceTheme.Panel);
             var frame = Rt("Frame", rt, Center, Center, Vector2.zero, Vector2.zero);
             frame.anchorMin = Vector2.zero;

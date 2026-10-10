@@ -15,6 +15,7 @@ namespace ARaki.UI
     {
         [SerializeField] GameSession session;
         [SerializeField] SpaceHud hud;
+        [SerializeField] RaceHud raceHud;
 
         [Header("Tasarım")]
         [SerializeField] Font titleFont;
@@ -43,6 +44,9 @@ namespace ARaki.UI
         bool built;
         readonly Dictionary<GameState, Screen> screens = new Dictionary<GameState, Screen>();
         GameState shown = (GameState)(-1);
+        Screen current, raceWin;
+        Text rwSub, rwTitle, rwMedal, rwTotal, rwBest, rwRecord, rwBadge;
+        readonly Text[] rwLaps = new Text[3];
 
         // dinamik içerik
         Text menuBest, winTitle, winSub, winTime, winFuel, winObjective, winTimeBonus, winFuelBonus, winTotal, winBest, pauseSub, loseSub;
@@ -91,8 +95,10 @@ namespace ARaki.UI
             BuildWin();
             BuildLose();
             BuildUpgrade();
+            BuildRaceWin();
 
             foreach (var s in screens.Values) SetGroup(s.Group, false);
+            SetGroup(raceWin.Group, false);
             session.StateChanged += OnState;
         }
 
@@ -100,13 +106,13 @@ namespace ARaki.UI
 
         // ------------------------------------------------------------------ ekranlar
 
-        Screen NewScreen(GameState state, float dim)
+        Screen NewScreen(GameState state, float dim, bool register = true)
         {
             var group = kit.Stretch(state + "Screen", root);
             var cg = group.gameObject.AddComponent<CanvasGroup>();
             if (dim > 0f) kit.Img(kit.Stretch("Dim", group), new Color(0.01f, 0.03f, 0.05f, dim));
             var s = new Screen { Group = cg };
-            screens[state] = s;
+            if (register) screens[state] = s;
             return s;
         }
 
@@ -124,11 +130,12 @@ namespace ARaki.UI
             kit.Label(g, "BİTİRME PROJESİ  ·  AR KEŞİF OYUNU", monoFont, 12, SpaceTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(88f, -128f), new Vector2(500f, 18f));
             var title = kit.Label(g, "ARAKI", titleFont, 168, SpaceTheme.Text, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(80f, -150f), new Vector2(520f, 190f));
             UiKit.Shadow(title);
-            kit.Label(g, "UZAK KEŞİF GÖREVİ", titleFont, 30, SpaceTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(92f, -330f), new Vector2(500f, 36f));
+            kit.Label(g, "KEŞİF  ·  YARIŞ", titleFont, 30, SpaceTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(92f, -330f), new Vector2(500f, 36f));
             kit.Img(kit.Rt("Rule", g, UiKit.TopLeft, UiKit.TopLeft, new Vector2(92f, -380f), new Vector2(420f, 1f)), SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.4f));
 
-            AddButton(s, "GÖREVE BAŞLA", "ENTER", new Vector2(92f, -420f), new Vector2(380f, 54f), SpaceTheme.Primary, () => session.StartGame(), g, UiKit.TopLeft);
-            AddButton(s, "ÇIKIŞ", "ESC", new Vector2(92f, -486f), new Vector2(380f, 54f), SpaceTheme.TextDim, () => session.QuitGame(), g, UiKit.TopLeft);
+            AddButton(s, "KEŞİF GÖREVİ", "ENTER", new Vector2(92f, -420f), new Vector2(380f, 54f), SpaceTheme.Primary, () => session.StartGame(), g, UiKit.TopLeft);
+            AddButton(s, "YARIŞ MODU", "R", new Vector2(92f, -486f), new Vector2(380f, 54f), RaceTheme.Primary, () => session.StartRaceGame(), g, UiKit.TopLeft);
+            AddButton(s, "ÇIKIŞ", "ESC", new Vector2(92f, -552f), new Vector2(380f, 54f), SpaceTheme.TextDim, () => session.QuitGame(), g, UiKit.TopLeft);
 
             menuBest = kit.Label(g, "", monoFont, 13, SpaceTheme.TextDim, TextAnchor.LowerLeft, UiKit.BottomLeft, UiKit.BottomLeft, new Vector2(92f, 40f), new Vector2(480f, 18f));
 
@@ -195,6 +202,34 @@ namespace ARaki.UI
             return kit.Label(card, "", monoFont, 18, SpaceTheme.Text, TextAnchor.MiddleRight, UiKit.TopLeft, UiKit.TopLeft, new Vector2(300f, y), new Vector2(260f, 28f));
         }
 
+        void BuildRaceWin()
+        {
+            var s = NewScreen(GameState.Won, 0.55f, false);
+            raceWin = s;
+            var g = s.Group.GetComponent<RectTransform>();
+            var card = kit.Card("Card", g, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(620f, 540f), RaceTheme.Primary);
+            rwSub = kit.Label(card, "", monoFont, 12, RaceTheme.Primary, TextAnchor.MiddleCenter, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, -26f), new Vector2(560f, 16f));
+            rwTitle = kit.Label(card, "YARIŞ BİTTİ", titleFont, 50, RaceTheme.Text, TextAnchor.MiddleCenter, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, -48f), new Vector2(560f, 60f));
+            rwMedal = kit.Label(card, "", titleFont, 28, RaceTheme.Primary, TextAnchor.MiddleCenter, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, -112f), new Vector2(560f, 34f));
+            rwBadge = kit.Label(card, "", monoFont, 12, RaceTheme.Good, TextAnchor.MiddleCenter, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, -146f), new Vector2(560f, 16f));
+
+            float y0 = -184f;
+            rwTotal = RaceRow(card, "TOPLAM SÜRE", y0);
+            rwBest = RaceRow(card, "EN HIZLI TUR", y0 - 34f);
+            for (int i = 0; i < 3; i++) rwLaps[i] = RaceRow(card, "TUR " + (i + 1), y0 - 78f - i * 30f);
+            kit.Img(kit.Rt("Rule", card, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, y0 - 176f), new Vector2(500f, 1f)), new Color(RaceTheme.Primary.r, RaceTheme.Primary.g, RaceTheme.Primary.b, 0.5f));
+            rwRecord = kit.Label(card, "", monoFont, 13, RaceTheme.TextDim, TextAnchor.MiddleCenter, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, y0 - 194f), new Vector2(520f, 18f));
+
+            AddButton(s, "SONRAKİ PİST", "ENTER", new Vector2(0f, -432f), new Vector2(400f, 50f), RaceTheme.Primary, () => session.Continue(), card, UiKit.TopCenter);
+            AddButton(s, "ANA MENÜ", "M", new Vector2(0f, -488f), new Vector2(400f, 50f), SpaceTheme.TextDim, () => session.ToMenu(), card, UiKit.TopCenter);
+        }
+
+        Text RaceRow(RectTransform card, string label, float y)
+        {
+            kit.Label(card, label, bodyFont, 18, RaceTheme.TextDim, TextAnchor.MiddleLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(60f, y), new Vector2(240f, 28f));
+            return kit.Label(card, "", monoFont, 18, RaceTheme.Text, TextAnchor.MiddleRight, UiKit.TopLeft, UiKit.TopLeft, new Vector2(300f, y), new Vector2(260f, 28f));
+        }
+
         void BuildLose()
         {
             var s = NewScreen(GameState.Lost, 0.6f);
@@ -253,20 +288,33 @@ namespace ARaki.UI
         {
             if (!built) Build();
             shown = state;
-            foreach (var kv in screens) SetGroup(kv.Value.Group, kv.Key == state);
-            hud?.SetVisible(state == GameState.Playing || state == GameState.Paused);
+            bool race = session.Mode == GameMode.Race;
+            Screen active = null;
+            if (state == GameState.Won && race) active = raceWin;
+            else screens.TryGetValue(state, out active);
+            foreach (var kv in screens) SetGroup(kv.Value.Group, kv.Value == active);
+            SetGroup(raceWin.Group, raceWin == active);
+            current = active;
+            bool play = state == GameState.Playing || state == GameState.Paused;
+            hud?.SetVisible(play && !race);
+            raceHud?.SetVisible(play && race);
 
             switch (state)
             {
                 case GameState.Menu:
-                    menuBest.text = session.BestScore > 0 ? "EN İYİ PUAN  " + session.BestScore : "HENÜZ PUAN YOK";
+                    string raceRecord = RaceController.BestTotalRecord > 0f ? "   ·   YARIŞ REKORU  " + RaceController.FormatLap(RaceController.BestTotalRecord) : "";
+                    menuBest.text = (session.BestScore > 0 ? "EN İYİ PUAN  " + session.BestScore : "HENÜZ PUAN YOK") + raceRecord;
                     break;
                 case GameState.Paused:
-                    pauseSub.text = session.Spec.Title + "  ·  SEVİYE " + session.Level;
+                    pauseSub.text = (race ? session.RaceSpec.Title : session.Spec.Title) + "  ·  SEVİYE " + session.Level;
                     break;
-                case GameState.Won: FillWin(); break;
+                case GameState.Won:
+                    if (race) FillRaceWin(); else FillWin();
+                    break;
                 case GameState.Lost:
-                    loseSub.text = "Robot enerji kaybetti. LED'i kısa tut, düşmanlardan kaçın ve yakıt istasyonunu unutma.";
+                    loseSub.text = race
+                        ? "Yakıt yarış bitmeden tükendi. Daha düşük vites ve temiz bir çizgi daha az yakıt harcar."
+                        : "Robot enerji kaybetti. LED'i kısa tut, düşmanlardan kaçın ve yakıt istasyonunu unutma.";
                     break;
                 case GameState.Upgrade: FillUpgrades(); break;
             }
@@ -294,6 +342,27 @@ namespace ARaki.UI
             for (int i = 0; i < 3; i++) stars[i].color = i < r.Stars ? SpaceTheme.Warning : SpaceTheme.Track;
         }
 
+        void FillRaceWin()
+        {
+            var r = session.Race.Result;
+            var spec = session.Race.Spec;
+            rwSub.text = spec.Title + "  ·  " + spec.Laps + " TUR  ·  " + spec.Length.ToString("0.0") + " M";
+            rwTotal.text = RaceController.FormatLap(r.TotalSeconds);
+            rwBest.text = RaceController.FormatLap(r.BestLap);
+            for (int i = 0; i < 3; i++)
+            {
+                bool has = r.LapTimes != null && i < r.LapTimes.Length;
+                rwLaps[i].text = has ? RaceController.FormatLap(r.LapTimes[i]) : "--";
+                rwLaps[i].color = has && Mathf.Approximately(r.LapTimes[i], r.BestLap) ? RaceTheme.Good : RaceTheme.Text;
+            }
+            string[] names = { "", "BRONZ MADALYA", "GÜMÜŞ MADALYA", "ALTIN MADALYA" };
+            Color[] colors = { RaceTheme.Text, new Color32(0xCD, 0x7F, 0x32, 255), new Color32(0xC9, 0xD1, 0xD9, 255), RaceTheme.Primary };
+            rwMedal.text = names[(int)r.Medal];
+            rwMedal.color = colors[(int)r.Medal];
+            rwBadge.text = r.NewBestTotal ? "YENİ REKOR" : r.NewBestLap ? "YENİ EN HIZLI TUR" : "";
+            rwRecord.text = "REKOR  " + RaceController.FormatLap(r.BestTotalRecord) + "   ·   EN HIZLI TUR  " + RaceController.FormatLap(r.BestLapRecord);
+        }
+
         void FillUpgrades()
         {
             for (int i = 0; i < cards.Count; i++)
@@ -316,7 +385,8 @@ namespace ARaki.UI
 
         void Update()
         {
-            if (!screens.TryGetValue(shown, out var screen)) return;
+            var screen = current;
+            if (screen == null) return;
             var mouse = Mouse.current;
             if (mouse == null) return;
             Vector2 pos = mouse.position.ReadValue();

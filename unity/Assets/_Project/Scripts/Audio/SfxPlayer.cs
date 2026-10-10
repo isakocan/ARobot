@@ -15,13 +15,14 @@ namespace ARaki.Audio
         [SerializeField] MockRobotLink link;
         [SerializeField] MissionController mission;
         [SerializeField] HazardController hazard;
+        [SerializeField] RaceController race;
         [SerializeField, Range(0f, 1f)] float masterVolume = 0.6f;
 
         public bool Muted { get; private set; }
 
-        AudioSource ambient, motor, ledHum, rumble, effects, scan;
+        AudioSource ambient, motor, ledHum, rumble, effects, scan, beeps;
         AudioClip chime, alarm, blip, ledOn, scare, tick, siren, zap;
-        float scanTimer, alarmTimer, ledVolume, zapTimer;
+        float scanTimer, alarmTimer, ledVolume, zapTimer, ambientLevel = 0.35f;
         bool ledWasOn;
 
         void Awake()
@@ -41,6 +42,7 @@ namespace ARaki.Audio
             rumble = Loop("Rumble", AudioSynth.Rumble(), 0f);
             effects = Source("Effects");
             scan = Source("Scan");
+            beeps = Source("Beeps");
         }
 
         void Start()
@@ -49,6 +51,14 @@ namespace ARaki.Audio
             mission.Comms += OnComms;
             foreach (var t in mission.Threats) t.StateChanged += OnThreatChanged;
             if (hazard != null) hazard.PhaseChanged += OnHazardPhase;
+            if (race != null)
+            {
+                race.CountdownTick += OnCountdown;
+                race.GateCrossed += OnGate;
+                race.LapCompleted += OnLap;
+                race.Finished += OnRaceFinished;
+                race.WrongWay += OnWrongWay;
+            }
         }
 
         void OnDestroy()
@@ -58,6 +68,14 @@ namespace ARaki.Audio
             mission.Comms -= OnComms;
             foreach (var t in mission.Threats) if (t != null) t.StateChanged -= OnThreatChanged;
             if (hazard != null) hazard.PhaseChanged -= OnHazardPhase;
+            if (race != null)
+            {
+                race.CountdownTick -= OnCountdown;
+                race.GateCrossed -= OnGate;
+                race.LapCompleted -= OnLap;
+                race.Finished -= OnRaceFinished;
+                race.WrongWay -= OnWrongWay;
+            }
         }
 
         void Update()
@@ -66,6 +84,11 @@ namespace ARaki.Audio
             if (Keyboard.current != null && Keyboard.current.kKey.wasPressedThisFrame) SetMuted(!Muted);
 
             var tel = link.Telemetry;
+
+            // Yarışta uzay uğultusu kapanır; sadece motor ve olay sesleri kalır
+            bool racing = race != null && race.Phase != RacePhase.Idle;
+            ambientLevel = Mathf.MoveTowards(ambientLevel, racing ? 0.04f : 0.35f, dt * 0.5f);
+            ambient.volume = ambientLevel * masterVolume;
 
             // Motor: tekerlek hızına göre perde ve ses
             float load = (Mathf.Abs(tel.LeftSpeed) + Mathf.Abs(tel.RightSpeed)) * 0.5f / link.MaxWheelSpeed;
@@ -126,6 +149,22 @@ namespace ARaki.Audio
             if (state == ThreatState.Alert) effects.PlayOneShot(alarm, 0.4f * masterVolume);
             else if (state == ThreatState.Scared) effects.PlayOneShot(scare, 0.8f * masterVolume);
         }
+
+        void OnCountdown(int n)
+        {
+            beeps.pitch = n > 0 ? 0.9f : 1.7f;
+            beeps.PlayOneShot(blip, (n > 0 ? 0.7f : 1f) * masterVolume);
+        }
+
+        void OnGate(int gate, bool lapEnd)
+        {
+            beeps.pitch = lapEnd ? 1.5f : 1.25f;
+            beeps.PlayOneShot(blip, 0.8f * masterVolume);
+        }
+
+        void OnLap(int lap, float seconds, bool best) => effects.PlayOneShot(chime, 0.8f * masterVolume);
+        void OnRaceFinished() => effects.PlayOneShot(chime, 1f * masterVolume);
+        void OnWrongWay() => effects.PlayOneShot(alarm, 0.5f * masterVolume);
 
         void OnHazardPhase(HazardPhase phase)
         {

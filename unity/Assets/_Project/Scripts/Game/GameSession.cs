@@ -10,6 +10,9 @@ namespace ARaki.Game
 {
     public enum GameState { Menu, Playing, Paused, Won, Lost, Upgrade }
 
+    /// <summary>Keşif görevi (düşmanlar, parlama, istasyon) ya da yarış (kapılar, turlar, süre).</summary>
+    public enum GameMode { Explore, Race }
+
     public struct MissionResult
     {
         public float Seconds;
@@ -31,11 +34,14 @@ namespace ARaki.Game
         [SerializeField] MissionGenerator generator;
         [SerializeField] PanoramaViewer viewer;
         [SerializeField] HazardController hazard;
+        [SerializeField] RaceController race;
         [SerializeField] bool startInMenu = true;
 
         public event Action<GameState> StateChanged;
 
         public GameState State { get; private set; } = GameState.Menu;
+        public GameMode Mode { get; private set; } = GameMode.Explore;
+        public RaceController Race => race;
         public int Level { get; private set; } = 1;
         public MissionSpec Spec { get; private set; }
         public PlayerProfile Profile { get; } = new PlayerProfile();
@@ -59,6 +65,8 @@ namespace ARaki.Game
 
         public void ShowMenu()
         {
+            Mode = GameMode.Explore;
+            race?.Clear();
             Level = 1;
             Profile.Reset();
             PrepareMission(PickSeed());   // arka planda canlı bir sahne dursun
@@ -69,14 +77,27 @@ namespace ARaki.Game
 
         public void StartGame()
         {
+            Mode = GameMode.Explore;
             Level = 1;
             Profile.Reset();
             StartMission();
         }
 
+        public void StartRaceGame(int seed = int.MinValue)
+        {
+            Mode = GameMode.Race;
+            Level = 1;
+            Profile.Reset();
+            StartMission(seed);
+        }
+
         public void StartMission(int seed = int.MinValue)
         {
-            PrepareMission(seed == int.MinValue ? PickSeed() : seed);
+            int missionSeed = seed == int.MinValue ? PickSeed() : seed;
+            if (Mode == GameMode.Race) { StartRaceRound(missionSeed); return; }
+
+            race?.Clear();
+            PrepareMission(missionSeed);
             Elapsed = 0f;
             SetPlayable(true, false);
             mission.Begin(Level);
@@ -134,6 +155,14 @@ namespace ARaki.Game
             NextMission();
         }
 
+        /// <summary>Kazanma ekranında Enter: keşifte yükseltme seçimi, yarışta sıradaki pist.</summary>
+        public void Continue()
+        {
+            if (State != GameState.Won) return;
+            if (Mode == GameMode.Race) NextMission();
+            else ShowUpgrades();
+        }
+
         void NextMission()
         {
             Level++;
@@ -187,18 +216,50 @@ namespace ARaki.Game
             foreach (var p in mission.Points) if (p.gameObject.activeSelf) p.ResetState();
         }
 
+        void StartRaceRound(int seed)
+        {
+            var spec = race.Generate(Level, seed);
+            RaceSpec = spec;
+            Spec = default;
+
+            // keşif öğelerini kapat: hedefler, düşmanlar, güneş parlaması
+            foreach (var p in mission.Points) p.SetInMission(false);
+            foreach (var t in mission.Threats) t.gameObject.SetActive(false);
+            if (hazard != null) hazard.Stop();
+
+            robot.MaxPwmLimit = 1f;
+            robot.PwmLimit = 0.8f;
+            robot.LedDrainMultiplier = 1f;
+            robot.SetBattery(spec.StartBattery);
+            robot.SetLed(false);
+            robot.Teleport(spec.StartPosition, spec.StartYaw);
+
+            Elapsed = 0f;
+            SetPlayable(true, false);
+            mission.Running = false;
+            race.Begin(spec);
+            driveInput.enabled = false;      // geri sayım bitene kadar sürüş kapalı
+            SetState(GameState.Playing);
+        }
+
+        public RaceSpec RaceSpec { get; private set; }
+
+        /// <summary>Kapalıysa oyun sürüş girişini açıp kapatmaz (testler robotu kendileri sürer).</summary>
+        public bool ControlDriveInput { get; set; } = true;
+
         void SetPlayable(bool playing, bool attract)
         {
+            bool explore = Mode == GameMode.Explore;
             driveInput.enabled = playing;
-            mission.Running = playing;
+            mission.Running = playing && explore;
             viewer.AutoRotate = attract;
             if (!playing)
             {
                 robot.SendDrive(DriveCommand.Stop);
                 robot.SetLed(false);
             }
-            foreach (var t in mission.Threats) t.DrainEnabled = playing;
-            if (hazard != null) hazard.Active = playing;
+            foreach (var t in mission.Threats) t.DrainEnabled = playing && explore;
+            if (hazard != null) hazard.Active = playing && explore;
             Time.timeScale = 1f;
             AudioListener.pause = false;
         }
@@ -214,12 +275,20 @@ namespace ARaki.Game
             {
                 case GameState.Menu:
                     if (Pressed(k => k.enterKey) || Pressed(k => k.spaceKey)) StartGame();
+                    else if (Pressed(k => k.rKey)) StartRaceGame();
                     else if (Pressed(k => k.escapeKey)) Quit();
                     break;
 
                 case GameState.Playing:
                     Elapsed += Time.deltaTime;
                     if (Pressed(k => k.escapeKey)) { Pause(); break; }
+                    if (Mode == GameMode.Race)
+                    {
+                        if (ControlDriveInput) driveInput.enabled = race.Phase == RacePhase.Running;
+                        if (race.Phase == RacePhase.Finished) WinRace();
+                        else if (robot.Telemetry.Battery01 <= 0.0005f) Lose();
+                        break;
+                    }
                     if (mission.Complete) Win();
                     else if (robot.Telemetry.Battery01 <= 0.0005f) Lose();
                     break;
@@ -230,7 +299,7 @@ namespace ARaki.Game
                     break;
 
                 case GameState.Won:
-                    if (Pressed(k => k.enterKey) || Pressed(k => k.spaceKey)) ShowUpgrades();
+                    if (Pressed(k => k.enterKey) || Pressed(k => k.spaceKey)) Continue();
                     else if (Pressed(k => k.mKey)) ToMenu();
                     break;
 
@@ -278,6 +347,21 @@ namespace ARaki.Game
                 Stars = 1 + (fuel >= 0.3f ? 1 : 0) + (Elapsed <= ParSeconds ? 1 : 0),
             };
             SetState(GameState.Won);
+        }
+
+        void WinRace()
+        {
+            SetPlayable(false, false);
+            Result = new MissionResult { Seconds = race.Result.TotalSeconds, Fuel = robot.Telemetry.Battery01, Stars = (int)race.Result.Medal };
+            SetState(GameState.Won);
+        }
+
+        /// <summary>Testler ve ekran görüntüleri için: yarışı bitirip sonuç ekranına geçer.</summary>
+        public void ForceRaceFinish(float totalSeconds = 0f)
+        {
+            if (Mode != GameMode.Race) return;
+            race.ForceFinish(totalSeconds);
+            WinRace();
         }
 
         void Lose()

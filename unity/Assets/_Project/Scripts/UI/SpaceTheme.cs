@@ -19,4 +19,15 @@ namespace ARaki.UI
 
         public static Color WithAlpha(Color c, float a) { c.a = a; return c; }
     }
+    /// <summary>Yarış modunun renkleri: sinyal sarısı, kırmızı ve beyaz (zamanlama ekranı havası).</summary>
+    public static class RaceTheme
+    {
+        public static readonly Color Primary = new Color32(0xFF, 0xC2, 0x1A, 255);   // sinyal sarısı
+        public static readonly Color Accent = new Color32(0xFF, 0x3B, 0x30, 255);    // yarış kırmızısı
+        public static readonly Color Text = new Color32(0xF6, 0xF6, 0xF2, 255);
+        public static readonly Color TextDim = new Color32(0xA9, 0xA9, 0xA2, 255);
+        public static readonly Color Good = new Color32(0x4B, 0xE3, 0x8A, 255);
+        public static readonly Color Panel = new Color32(0x0C, 0x0C, 0x0F, 190);
+        public static readonly Color Track = new Color32(0xFF, 0xFF, 0xFF, 30);
+    }
 }

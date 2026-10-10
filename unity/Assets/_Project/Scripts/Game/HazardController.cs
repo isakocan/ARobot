@@ -61,6 +61,15 @@ namespace ARaki.Game
             Active = true;
         }
 
+        /// <summary>Parlamaları tamamen kapatır (yarış modu, menü).</summary>
+        public void Stop()
+        {
+            Active = false;
+            if (Phase != HazardPhase.Calm) SetPhase(HazardPhase.Calm);
+            StormSecondsLeft = 0f;
+            HideShelters();
+        }
+
         void Update() => Tick(Time.deltaTime);
 
         public void Tick(float dt)

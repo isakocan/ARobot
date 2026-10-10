@@ -38,6 +38,12 @@ namespace ARaki.Video
             Pitch = defaultPitch;
             Bind();
             Apply();
+            source.TargetsRecreated += Bind;     // kalite değişince doku yeniden bağlanır
+        }
+
+        void OnDestroy()
+        {
+            if (source != null) source.TargetsRecreated -= Bind;
         }
 
         public void Bind()

@@ -32,6 +32,9 @@ namespace ARaki.EditorTools
         {
             PlayerSettings.colorSpace = ColorSpace.Linear;
             SetupPipeline();
+            Optimizer.ConfigurePipelines();
+            Optimizer.ConfigureImports();
+            Optimizer.ConfigureAndroid();
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             RenderSettings.fog = false;
@@ -94,6 +97,8 @@ namespace ARaki.EditorTools
             var ignore = new System.Collections.Generic.List<Object> { prints.Station, prints.Fuel, prints.BasePad };
             SetRefs(generator, "ignoreRoots", ignore.ToArray());
 
+            var race = BuildRace(robot.transform, link, rig, arRoot);
+
             var session = new GameObject("GameSession").AddComponent<GameSession>();
             SetRef(session, "robot", link);
             SetRef(session, "driveInput", robot.GetComponent<KeyboardDriveInput>());
@@ -101,11 +106,13 @@ namespace ARaki.EditorTools
             SetRef(session, "generator", generator);
             SetRef(session, "viewer", viewer);
             SetRef(session, "hazard", hazard);
+            SetRef(session, "race", race);
 
             var sfx = new GameObject("Sfx").AddComponent<SfxPlayer>();
             SetRef(sfx, "link", link);
             SetRef(sfx, "mission", mission);
             SetRef(sfx, "hazard", hazard);
+            SetRef(sfx, "race", race);
 
             var hudGo = new GameObject("SpaceHud");
             var hud = hudGo.AddComponent<SpaceHud>();
@@ -121,14 +128,21 @@ namespace ARaki.EditorTools
             SetRef(hud, "bracket", MakeBracketSprite());
             SetRef(hud, "ring", MakeRingSprite());
 
+            var raceHud = BuildRaceHud(link, race, viewer, session);
+
             var screens = new GameObject("ScreenUi").AddComponent<ScreenUi>();
             SetRef(screens, "session", session);
             SetRef(screens, "hud", hud);
+            SetRef(screens, "raceHud", raceHud);
             SetRef(screens, "titleFont", LoadFont("Rajdhani-Bold"));
             SetRef(screens, "bodyFont", LoadFont("Rajdhani-Medium"));
             SetRef(screens, "monoFont", LoadFont("ShareTechMono-Regular"));
             SetRef(screens, "bracket", MakeBracketSprite());
             SetRef(screens, "ring", MakeRingSprite());
+
+            var runtime = new GameObject("RuntimeSettings").AddComponent<RuntimeSettings>();
+            SetRef(runtime, "video", cam360);
+            SetRef(runtime, "viewer", viewer);
 
             BuildTopCamera(robot.transform, viewCam);
             BuildPostProcessing();
@@ -289,7 +303,7 @@ namespace ARaki.EditorTools
             go.transform.localPosition = DomeLocal;
             var cam = go.AddComponent<Camera>();
             cam.nearClipPlane = 0.03f;
-            cam.farClipPlane = 40f;
+            cam.farClipPlane = 14f;           // oda küçük: uzağı çizmeye gerek yok
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = C("#14171B");
             cam.enabled = false;
@@ -316,7 +330,7 @@ namespace ARaki.EditorTools
             viewCam = camGo.AddComponent<Camera>();
             viewCam.fieldOfView = 70f; // dikey; 16:9'da yaklaşık 102° yatay görüş
             viewCam.nearClipPlane = 0.03f;
-            viewCam.farClipPlane = 200f;
+            viewCam.farClipPlane = 200f;     // panorama küresi büyük; yakın kesme siyah alan bırakır
             viewCam.clearFlags = CameraClearFlags.SolidColor;
             viewCam.backgroundColor = Color.black;
             var data = camGo.AddComponent<UniversalAdditionalCameraData>();
@@ -849,11 +863,31 @@ namespace ARaki.EditorTools
             Physics.SyncTransforms();
 
             hud.Build();
+            var race = Object.FindFirstObjectByType<RaceController>();
+            Object.FindFirstObjectByType<RaceHud>().Build();
+            bool raceMode = Env("ARAKI_MODE") == "race";
             screens.Build();
             session.SetLevel(Env("ARAKI_LEVEL") != null ? int.Parse(Env("ARAKI_LEVEL"), inv) : 1);
             int seed = Env("ARAKI_SEED") != null ? int.Parse(Env("ARAKI_SEED"), inv) : 1234;
             if (state == "menu") session.ShowMenu();
+            else if (raceMode)
+            {
+                session.StartRaceGame(seed);
+                if (state != "countdown") race.SkipCountdown();
+            }
             else session.StartMission(seed);
+
+            // ARAKI_GATE = "n:uzaklık": robotu n. kapının önüne, kapıya bakar şekilde koyar (yarış modu)
+            string gateEnv = Env("ARAKI_GATE");
+            if (raceMode && !string.IsNullOrEmpty(gateEnv))
+            {
+                var gp = gateEnv.Split(':');
+                int gi = int.Parse(gp[0], inv);
+                float gd = float.Parse(gp[1], inv);
+                var gt = race.Spec.Tangents[gi];
+                var at = race.Spec.Gates[gi] - gt * gd;
+                link.Teleport(new Vector3(at.x, 0f, at.z), Mathf.Atan2(gt.x, gt.z) * Mathf.Rad2Deg);
+            }
 
             if (!string.IsNullOrEmpty(pose))
             {
@@ -884,7 +918,7 @@ namespace ARaki.EditorTools
                 float seconds = float.Parse(tick, inv);
                 for (float t = 0f; t < seconds; t += 0.1f)
                 {
-                    mission.Tick(0.1f);
+                    if (raceMode) race.Tick(0.1f); else mission.Tick(0.1f);
                     foreach (var th in Object.FindObjectsByType<Threat>(FindObjectsSortMode.None)) th.Tick(0.1f);
                 }
             }
@@ -901,6 +935,7 @@ namespace ARaki.EditorTools
             {
                 case "win": session.ForceWin(); break;
                 case "lose": session.ForceLose(); break;
+                case "racewin": session.ForceRaceFinish(); break;
                 case "upgrade": session.ForceWin(); session.ShowUpgrades(); break;
                 case "pause": break;
             }
@@ -961,9 +996,11 @@ namespace ARaki.EditorTools
                 if (live) m.Sync();
             }
             if (view != "ar") viewer.Apply();
+            Object.FindFirstObjectByType<RaceController>()?.SyncVisuals();
             if (view != "top")
             {
                 hud.Tick(0.016f);
+                Object.FindFirstObjectByType<RaceHud>()?.Tick(0.016f);
                 Canvas.ForceUpdateCanvases();
             }
             cam.Render();

@@ -166,7 +166,7 @@ namespace ARaki.Tests
         public IEnumerator FailsafeStopsRobotWhenCommandsStop()
         {
             Place(Base().transform.position, 0f);
-            for (int i = 0; i < 20; i++)
+            for (float t0 = Time.time; Time.time - t0 < 0.4f;)      // süre tabanlı: kare hızından bağımsız
             {
                 robot.SendDrive(new DriveCommand(1f, 1f));
                 yield return null;
@@ -184,7 +184,7 @@ namespace ARaki.Tests
         {
             Place(Base().transform.position, 0f);
             var start = robot.transform.position;
-            for (int i = 0; i < 60; i++)
+            for (float t0 = Time.time; Time.time - t0 < 0.8f;)
             {
                 robot.SendDrive(new DriveCommand(1f, -1f)); // sol ileri, sağ geri: yerinde sağa döner
                 yield return null;

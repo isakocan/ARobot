@@ -20,7 +20,8 @@ Not: motor sürücüler Arduino uyumlu; hocada tek noktalı lidar ve yakınlık 
 
 ## Kesin kararlar
 - Unity 6.3 LTS (6000.3.26f1), proje: `unity/`, URP + Input System. Telefon: Samsung S21+ (Android). Önce Unity Editor'de PC'de geliştirilir, telefona sonra geçilir.
-- Yarış modu elenmedi; keşif/hayatta kalma ile birlikte seçenek olarak kalır.
+- Yarış modu eklendi (menüde R): oda zemininde AR pist, kapılardan sırayla geç, 3 tur, süre/madalya. Gerçekte kapılar ArUco işaretli 3D baskı olacak, pist onların arasına oturur; simde RaceController üretir (unity/Assets/_Project/Scripts/Game/RaceController.cs). Keşif modu (uzay/ORBİT-9) da duruyor; hangi tema ana yön olur henüz seçilmedi.
+- Performans: 360 yakalama 30 Hz ile sınırlı, telefonda 2K; Editor/Optimizer.cs mobil URP profili, ASTC doku ve Android ayarlarını sahne kurulurken uygular.
 - Simülasyon: 360 kamera "equirect → küre içinden bakış" hattıyla modelleniyor (Sim360Camera → PanoramaViewer); AR nesneleri robota göre konumla (ARRig) çiziliyor. Gerçek robotta yalnızca görüntü kaynağı değişecek.
 
 ## Henüz seçilmedi (kullanıcıyla konuşulacak)

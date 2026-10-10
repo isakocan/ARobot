@@ -76,7 +76,21 @@ namespace ARaki.EditorTools
             Place("hanging_picture_frame_02", room, new Vector3(2.985f, 1.45f, -0.9f), 270f, 1f, false, false);
             Place("modern_ceiling_lamp_01", room, new Vector3(0f, h - 1.1f, 0.2f), 0f, 1f, false, false);
 
+            MarkStatic(room);
             return BuildPrints(room);
+        }
+
+        /// <summary>
+        /// Hareket etmeyen oda öğelerini "statik" işaretler: Unity bunları malzeme başına tek mesh'te birleştirir
+        /// (statik batching), böylece çizim çağrısı sayısı düşer. Görev nesneleri (3D baskılar) taşındığı için hariç tutulur.
+        /// </summary>
+        static void MarkStatic(Transform room)
+        {
+            foreach (var t in room.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.GetComponent<Light>() != null || t.GetComponent<ParticleSystem>() != null) continue;
+                GameObjectUtility.SetStaticEditorFlags(t.gameObject, StaticEditorFlags.BatchingStatic);
+            }
         }
 
         static void BuildWindow(Transform room)
