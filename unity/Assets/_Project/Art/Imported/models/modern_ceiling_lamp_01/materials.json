@@ -1,0 +1,20 @@
+{
+ "modern_ceiling_lamp_01_glass": {
+  "diff": "textures/modern_ceiling_lamp_01_diff_1k.jpg",
+  "arm": "textures/modern_ceiling_lamp_01_arm_1k.jpg",
+  "nor": "textures/modern_ceiling_lamp_01_nor_gl_1k.jpg",
+  "baseColor": null
+ },
+ "modern_ceiling_lamp_01": {
+  "diff": "textures/modern_ceiling_lamp_01_diff_1k.jpg",
+  "arm": "textures/modern_ceiling_lamp_01_arm_1k.jpg",
+  "nor": "textures/modern_ceiling_lamp_01_nor_gl_1k.jpg",
+  "baseColor": null
+ },
+ "modern_ceiling_globe": {
+  "diff": "textures/modern_ceiling_lamp_01_diff_1k.jpg",
+  "arm": "textures/modern_ceiling_lamp_01_arm_1k.jpg",
+  "nor": "textures/modern_ceiling_lamp_01_nor_gl_1k.jpg",
+  "baseColor": null
+ }
+}

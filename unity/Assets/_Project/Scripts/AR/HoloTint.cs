@@ -38,7 +38,7 @@ namespace ARaki.AR
             {
                 if (r.GetComponentInParent<HoloBurst>(true) != null) continue; // patlama halkası kendi rengini yönetir
                 materials.Add(r.material);
-                weights.Add(r.name.StartsWith("Glow") ? 0.4f : (r.name == "Edge" || r.name == "Arc") ? 0.45f : 1f);
+                weights.Add(r.name.StartsWith("Glow") ? 0.22f : (r.name == "Edge" || r.name == "Arc") ? 0.45f : 1f);
             }
         }
 

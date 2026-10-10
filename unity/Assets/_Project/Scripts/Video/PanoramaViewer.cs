@@ -22,6 +22,9 @@ namespace ARaki.Video
         [SerializeField] ARaki.Robot.MockRobotLink motion;   // doluysa robotun hızına göre hafif titreşim eklenir
         [SerializeField] float shakeDegrees = 0.35f;
 
+        /// <summary>Menüde kullanıcı girişi yerine yavaş dönen "tanıtım" bakışı.</summary>
+        public bool AutoRotate { get; set; }
+
         public float Yaw { get; private set; }
         public float Pitch { get; private set; }
         public Camera ViewCamera => viewCamera;
@@ -51,6 +54,14 @@ namespace ARaki.Video
             float dt = Time.deltaTime;
             var kb = Keyboard.current;
             var mouse = Mouse.current;
+
+            if (AutoRotate)
+            {
+                Yaw += 7f * dt;
+                Pitch = Mathf.Lerp(Pitch, defaultPitch * 0.6f, dt * 2f);
+                kb = null;
+                mouse = null;
+            }
 
             if (kb != null)
             {

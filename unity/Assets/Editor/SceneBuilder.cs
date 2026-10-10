@@ -25,7 +25,7 @@ namespace ARaki.EditorTools
         const string ScenePath = Root + "/Scenes/DriveSim.unity";
         static readonly Vector3 RigOrigin = new Vector3(2000f, 0f, 2000f);
 
-        static Color C(string hex) { ColorUtility.TryParseHtmlString(hex, out var c); return c; }
+        internal static Color C(string hex) { ColorUtility.TryParseHtmlString(hex, out var c); return c; }
 
         [MenuItem("ARaki/Kur/Sürüş sahnesi")]
         public static void BuildDriveSim()
@@ -34,14 +34,10 @@ namespace ARaki.EditorTools
             SetupPipeline();
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = C("#4A5873");
-            RenderSettings.ambientEquatorColor = C("#5E5A62");
-            RenderSettings.ambientGroundColor = C("#2E2A2C");
             RenderSettings.fog = false;
 
             BuildLighting();
-            BuildRoom();
+            var prints = RoomBuilder.Build();
             var robot = BuildRover();
             var link = robot.GetComponent<MockRobotLink>();
 
@@ -54,15 +50,19 @@ namespace ARaki.EditorTools
 
             var points = new[]
             {
-                MakePoint("TowerA", "KULE ALFA", PointKind.Tower, new Vector3(0.4f, 0f, 1.1f), 0.6f, rig, arRoot, HoloTower),
-                MakePoint("TowerB", "KULE BETA", PointKind.Tower, new Vector3(2.2f, 0f, 1.7f), 0.6f, rig, arRoot, HoloTower),
-                MakePoint("Fuel", "YAKIT İSTASYONU", PointKind.Fuel, new Vector3(1.9f, 0f, -1.7f), 0.55f, rig, arRoot, HoloFuel),
-                MakePoint("Base", "ANA ÜS", PointKind.Base, new Vector3(-2.15f, 0f, -1.9f), 0.45f, rig, arRoot, HoloBase),
+                MakePoint("TowerA", "KULE ALFA", PointKind.Tower, prints.Towers[0], 0.6f, rig, arRoot, HoloTower),
+                MakePoint("TowerB", "KULE BETA", PointKind.Tower, prints.Towers[1], 0.6f, rig, arRoot, HoloTower),
+                MakePoint("TowerC", "KULE GAMA", PointKind.Tower, prints.Towers[2], 0.6f, rig, arRoot, HoloTower),
+                MakePoint("TowerD", "KULE DELTA", PointKind.Tower, prints.Towers[3], 0.6f, rig, arRoot, HoloTower),
+                MakePoint("Fuel", "YAKIT İSTASYONU", PointKind.Fuel, prints.Fuel, 0.55f, rig, arRoot, HoloFuel),
+                MakePoint("Base", "ANA ÜS", PointKind.Base, prints.BasePad, 0.45f, rig, arRoot, HoloBase),
             };
             var threats = new[]
             {
                 MakeThreat("A", new Vector3(1.0f, 0.28f, 0.6f), robot.transform, link, rig, arRoot),
                 MakeThreat("B", new Vector3(-0.8f, 0.28f, 1.2f), robot.transform, link, rig, arRoot),
+                MakeThreat("C", new Vector3(1.8f, 0.28f, -0.4f), robot.transform, link, rig, arRoot),
+                MakeThreat("D", new Vector3(-1.8f, 0.28f, -0.6f), robot.transform, link, rig, arRoot),
             };
 
             var missionGo = new GameObject("Mission");
@@ -85,6 +85,17 @@ namespace ARaki.EditorTools
             SetRef(beam, "mission", mission);
             SetRef(beam, "robot", robot.transform);
 
+            var generator = new GameObject("MissionGenerator").AddComponent<MissionGenerator>();
+            var ignore = new System.Collections.Generic.List<Object>(prints.Towers) { prints.Fuel, prints.BasePad };
+            SetRefs(generator, "ignoreRoots", ignore.ToArray());
+
+            var session = new GameObject("GameSession").AddComponent<GameSession>();
+            SetRef(session, "robot", link);
+            SetRef(session, "driveInput", robot.GetComponent<KeyboardDriveInput>());
+            SetRef(session, "mission", mission);
+            SetRef(session, "generator", generator);
+            SetRef(session, "viewer", viewer);
+
             var sfx = new GameObject("Sfx").AddComponent<SfxPlayer>();
             SetRef(sfx, "link", link);
             SetRef(sfx, "mission", mission);
@@ -95,11 +106,21 @@ namespace ARaki.EditorTools
             SetRef(hud, "mission", mission);
             SetRef(hud, "viewer", viewer);
             SetRef(hud, "rig", rig);
+            SetRef(hud, "session", session);
             SetRef(hud, "titleFont", LoadFont("Rajdhani-Bold"));
             SetRef(hud, "bodyFont", LoadFont("Rajdhani-Medium"));
             SetRef(hud, "monoFont", LoadFont("ShareTechMono-Regular"));
             SetRef(hud, "bracket", MakeBracketSprite());
             SetRef(hud, "ring", MakeRingSprite());
+
+            var screens = new GameObject("ScreenUi").AddComponent<ScreenUi>();
+            SetRef(screens, "session", session);
+            SetRef(screens, "hud", hud);
+            SetRef(screens, "titleFont", LoadFont("Rajdhani-Bold"));
+            SetRef(screens, "bodyFont", LoadFont("Rajdhani-Medium"));
+            SetRef(screens, "monoFont", LoadFont("ShareTechMono-Regular"));
+            SetRef(screens, "bracket", MakeBracketSprite());
+            SetRef(screens, "ring", MakeRingSprite());
 
             BuildTopCamera(robot.transform, viewCam);
             BuildPostProcessing();
@@ -118,109 +139,47 @@ namespace ARaki.EditorTools
 
         static void BuildLighting()
         {
-            // Akşam: pencereden düşük, sıcak bir güneş ışığı
+            // Ortam ışığı ve yansımalar için yumuşak bir akşam gökyüzü
+            var skyMat = LoadOrCreateMaterial("EveningSky", "Skybox/Procedural");
+            skyMat.SetFloat("_SunSize", 0.02f);
+            skyMat.SetFloat("_AtmosphereThickness", 0.9f);
+            skyMat.SetColor("_SkyTint", C("#8E9BB8"));
+            skyMat.SetColor("_GroundColor", C("#8A7C70"));
+            skyMat.SetFloat("_Exposure", 0.85f);
+            EditorUtility.SetDirty(skyMat);
+            RenderSettings.skybox = skyMat;
+            RenderSettings.ambientMode = AmbientMode.Skybox;
+            RenderSettings.ambientIntensity = 1.0f;
+            RenderSettings.reflectionIntensity = 0.5f;
+            RenderSettings.defaultReflectionMode = DefaultReflectionMode.Skybox;
+            RenderSettings.subtractiveShadowColor = C("#42404A");
+
+            // Akşam güneşi pencereden içeri girer (doğu duvarından)
             var sun = new GameObject("Sun").AddComponent<Light>();
             sun.type = LightType.Directional;
-            sun.color = C("#FFC48A");
-            sun.intensity = 1.0f;
+            sun.color = C("#FFD6A8");
+            sun.intensity = 1.9f;
             sun.shadows = LightShadows.Soft;
-            sun.shadowStrength = 0.8f;
+            sun.shadowStrength = 0.9f;
+            sun.shadowNormalBias = 0.6f;
             sun.transform.rotation = Quaternion.Euler(30f, 262f, 0f);
 
+            // Tavan lambası: sıcak, yumuşak dolgu
             var lamp = new GameObject("RoomLamp").AddComponent<Light>();
             lamp.type = LightType.Point;
-            lamp.color = C("#FFD2A0");
-            lamp.intensity = 2.2f;
-            lamp.range = 9f;
+            lamp.color = C("#FFD6A0");
+            lamp.intensity = 3.6f;
+            lamp.range = 8f;
             lamp.shadows = LightShadows.None;
-            lamp.transform.position = new Vector3(0f, 1.9f, 0f);
-        }
+            lamp.transform.position = new Vector3(0f, 2.0f, 0.2f);
 
-        // ---------------------------------------------------------------- oda
-
-        static void BuildRoom()
-        {
-            var wall = Mat("Wall", C("#E7E2D8"), smooth: 0.05f);
-            var trim = Mat("Trim", C("#F6F3EC"), smooth: 0.15f);
-            var wood = Mat("FloorWood", Color.white, WoodTexture(), 6f, 5f, smooth: 0.35f);
-            var rug = Mat("Rug", C("#3F5D75"), smooth: 0.02f);
-            var sofa = Mat("Sofa", C("#7E9C97"), smooth: 0.05f);
-            var sofaDark = Mat("SofaDark", C("#5F7B77"), smooth: 0.05f);
-            var tableWood = Mat("TableWood", C("#B98A5C"), smooth: 0.3f);
-            var shelf = Mat("Shelf", C("#4F3E32"), smooth: 0.25f);
-            var book1 = Mat("BookA", C("#C94F3D"), smooth: 0.1f);
-            var book2 = Mat("BookB", C("#E3B341"), smooth: 0.1f);
-            var book3 = Mat("BookC", C("#3E6F8F"), smooth: 0.1f);
-            var orange = Mat("PrintOrange", C("#FF5A1F"), smooth: 0.4f);
-            var teal = Mat("PrintTeal", C("#19A99A"), smooth: 0.4f);
-            var window = Mat("Window", C("#FFD9A0"), emission: C("#FFB866") * 1.6f);
-
-            var room = new GameObject("Room").transform;
-            const float w = 6f, d = 5f, h = 2.5f, t = 0.1f;
-
-            var floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            floor.name = "Floor";
-            floor.transform.SetParent(room);
-            floor.transform.localScale = new Vector3(w / 10f, 1f, d / 10f);
-            floor.GetComponent<MeshRenderer>().sharedMaterial = wood;
-            Object.DestroyImmediate(floor.GetComponent<Collider>()); // zemin çarpma saymaz
-
-            Box("WallN", room, new Vector3(0f, h / 2f, d / 2f + t / 2f), new Vector3(w + 2 * t, h, t), wall);
-            Box("WallS", room, new Vector3(0f, h / 2f, -d / 2f - t / 2f), new Vector3(w + 2 * t, h, t), wall);
-            Box("WallE", room, new Vector3(w / 2f + t / 2f, h / 2f, 0f), new Vector3(t, h, d), wall);
-            Box("WallW", room, new Vector3(-w / 2f - t / 2f, h / 2f, 0f), new Vector3(t, h, d), wall);
-
-            Box("TrimN", room, new Vector3(0f, 0.05f, d / 2f - 0.01f), new Vector3(w, 0.1f, 0.02f), trim, false);
-            Box("TrimS", room, new Vector3(0f, 0.05f, -d / 2f + 0.01f), new Vector3(w, 0.1f, 0.02f), trim, false);
-            Box("TrimE", room, new Vector3(w / 2f - 0.01f, 0.05f, 0f), new Vector3(0.02f, 0.1f, d), trim, false);
-            Box("TrimW", room, new Vector3(-w / 2f + 0.01f, 0.05f, 0f), new Vector3(0.02f, 0.1f, d), trim, false);
-
-            Box("Ceiling", room, new Vector3(0f, h + 0.025f, 0f), new Vector3(w + 2 * t, 0.05f, d + 2 * t), Mat("Ceiling", C("#EDE8DD"), smooth: 0.05f), false);
-            room.Find("Ceiling").GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
-            room.Find("Ceiling").gameObject.layer = 2; // üstten kamera tavanı çizmez
-            Box("Window", room, new Vector3(w / 2f - 0.02f, 1.5f, 0.2f), new Vector3(0.02f, 1.1f, 1.6f), window, false);
-            Box("Rug", room, new Vector3(0.2f, 0.006f, 0f), new Vector3(2.6f, 0.012f, 1.8f), rug, false);
-
-            Box("SofaBase", room, new Vector3(-1.6f, 0.2f, 2.0f), new Vector3(2.0f, 0.4f, 0.85f), sofa);
-            Box("SofaBack", room, new Vector3(-1.6f, 0.6f, 2.35f), new Vector3(2.0f, 0.5f, 0.2f), sofaDark);
-            Box("SofaArmL", room, new Vector3(-2.55f, 0.35f, 2.0f), new Vector3(0.18f, 0.7f, 0.85f), sofaDark);
-            Box("SofaArmR", room, new Vector3(-0.65f, 0.35f, 2.0f), new Vector3(0.18f, 0.7f, 0.85f), sofaDark);
-
-            Box("TableTop", room, new Vector3(1.2f, 0.42f, -0.2f), new Vector3(1.0f, 0.04f, 0.6f), tableWood);
-            foreach (var sx in new[] { -0.44f, 0.44f })
-                foreach (var sz in new[] { -0.24f, 0.24f })
-                    Box("TableLeg", room, new Vector3(1.2f + sx, 0.2f, -0.2f + sz), new Vector3(0.05f, 0.4f, 0.05f), tableWood);
-
-            Box("Shelf", room, new Vector3(-2.7f, 0.9f, -1.0f), new Vector3(0.3f, 1.8f, 1.2f), shelf);
-            Box("BookA", room, new Vector3(-2.52f, 1.45f, -0.85f), new Vector3(0.1f, 0.28f, 0.5f), book1, false);
-            Box("BookB", room, new Vector3(-2.52f, 1.43f, -1.15f), new Vector3(0.1f, 0.24f, 0.4f), book2, false);
-            Box("BookC", room, new Vector3(-2.52f, 0.95f, -1.0f), new Vector3(0.1f, 0.3f, 0.6f), book3, false);
-
-            // Gerçek 3D baskı objeleri (kamera bunları görüp rol atayacak)
-            Cylinder("PrintTower1", room, new Vector3(0.4f, 0.09f, 1.1f), new Vector3(0.12f, 0.09f, 0.12f), orange);
-            Cylinder("PrintTower2", room, new Vector3(2.2f, 0.09f, 1.7f), new Vector3(0.12f, 0.09f, 0.12f), orange);
-            Cylinder("PrintFuel", room, new Vector3(1.9f, 0.12f, -1.7f), new Vector3(0.14f, 0.12f, 0.14f), teal);
-        }
-
-        static void Box(string name, Transform parent, Vector3 pos, Vector3 size, Material mat, bool collider = true)
-        {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            go.name = name;
-            go.transform.SetParent(parent);
-            go.transform.position = pos;
-            go.transform.localScale = size;
-            go.GetComponent<MeshRenderer>().sharedMaterial = mat;
-            if (!collider) Object.DestroyImmediate(go.GetComponent<Collider>());
-        }
-
-        static void Cylinder(string name, Transform parent, Vector3 pos, Vector3 scale, Material mat)
-        {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            go.name = name;
-            go.transform.SetParent(parent);
-            go.transform.position = pos;
-            go.transform.localScale = scale;
-            go.GetComponent<MeshRenderer>().sharedMaterial = mat;
+            // Pencere tarafından gelen soğuk gökyüzü ışığı (karşı yöne hafif mavi dolgu)
+            var skyFill = new GameObject("SkyFill").AddComponent<Light>();
+            skyFill.type = LightType.Directional;
+            skyFill.color = C("#8FA5D0");
+            skyFill.intensity = 0.35f;
+            skyFill.shadows = LightShadows.None;
+            skyFill.transform.rotation = Quaternion.Euler(50f, 82f, 0f);
         }
 
         // ---------------------------------------------------------------- uzay gezgini
@@ -402,10 +361,10 @@ namespace ARaki.EditorTools
 
         delegate void HoloBuilder(Transform parent);
 
-        static MissionPoint MakePoint(string id, string label, PointKind kind, Vector3 pos, float radius, ARRig rig, Transform arRoot, HoloBuilder build)
+        static MissionPoint MakePoint(string id, string label, PointKind kind, Transform physical, float radius, ARRig rig, Transform arRoot, HoloBuilder build)
         {
             var go = new GameObject("Point_" + id);
-            go.transform.position = new Vector3(pos.x, 0f, pos.z);
+            go.transform.position = new Vector3(physical.position.x, 0f, physical.position.z);
 
             var vis = new GameObject("AR_" + id).transform;
             vis.SetParent(arRoot, false);
@@ -422,6 +381,7 @@ namespace ARaki.EditorTools
             mp.Radius = radius;
             SetRef(mp, "holo", tint);
             SetRef(mp, "burst", MakeBurst(vis));
+            SetRef(mp, "physical", physical);
             return mp;
         }
 
@@ -647,7 +607,7 @@ namespace ARaki.EditorTools
             r.receiveShadows = false;
         }
 
-        static Texture2D GlowTexture()
+        internal static Texture2D GlowTexture()
         {
             const string path = Root + "/Art/Glow.png";
             if (!File.Exists(path))
@@ -676,7 +636,7 @@ namespace ARaki.EditorTools
             return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
-        static LineRenderer Ring(Transform parent, string name, float radius, float y, int segments, float width, Material mat)
+        internal static LineRenderer Ring(Transform parent, string name, float radius, float y, int segments, float width, Material mat)
         {
             var pts = new Vector3[segments];
             for (int i = 0; i < segments; i++)
@@ -689,7 +649,7 @@ namespace ARaki.EditorTools
             return lr;
         }
 
-        static LineRenderer Line(Transform parent, string name, Vector3[] points, float width, Material mat)
+        internal static LineRenderer Line(Transform parent, string name, Vector3[] points, float width, Material mat)
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -877,7 +837,7 @@ namespace ARaki.EditorTools
             return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
-        static Material Mat(string name, Color color, Texture2D map = null, float tilingX = 1f, float tilingY = 1f,
+        internal static Material Mat(string name, Color color, Texture2D map = null, float tilingX = 1f, float tilingY = 1f,
                             float smooth = 0.2f, Color? emission = null)
         {
             var mat = LoadOrCreateMaterial(name, "Universal Render Pipeline/Lit");
@@ -899,7 +859,7 @@ namespace ARaki.EditorTools
             return mat;
         }
 
-        static Material UnlitMat(string name, Color color)
+        internal static Material UnlitMat(string name, Color color)
         {
             var mat = LoadOrCreateMaterial(name, "Universal Render Pipeline/Unlit");
             mat.SetColor("_BaseColor", color);
@@ -908,7 +868,7 @@ namespace ARaki.EditorTools
         }
 
         // Yarı saydam, ışık ekleyen malzeme: hologramlar altındaki gerçek görüntüyle karışır, söndüğünde kaybolur.
-        static Material AdditiveMat(string name, Color color, Texture2D map = null, bool particle = false)
+        internal static Material AdditiveMat(string name, Color color, Texture2D map = null, bool particle = false)
         {
             var mat = LoadOrCreateMaterial(name, particle ? "Universal Render Pipeline/Particles/Unlit" : "Universal Render Pipeline/Unlit");
             mat.SetColor("_BaseColor", color);
@@ -920,6 +880,7 @@ namespace ARaki.EditorTools
             mat.SetFloat("_SrcBlendAlpha", (float)BlendMode.One);
             mat.SetFloat("_DstBlendAlpha", (float)BlendMode.One);
             mat.SetFloat("_ZWrite", 0f);
+            mat.SetFloat("_Cull", 0f);
             mat.SetOverrideTag("RenderType", "Transparent");
             mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             mat.renderQueue = (int)RenderQueue.Transparent;
@@ -928,7 +889,7 @@ namespace ARaki.EditorTools
             return mat;
         }
 
-        static Material LoadOrCreateMaterial(string name, string shader)
+        internal static Material LoadOrCreateMaterial(string name, string shader)
         {
             string dir = Root + "/Art/Materials";
             if (!AssetDatabase.IsValidFolder(dir)) AssetDatabase.CreateFolder(Root + "/Art", "Materials");
@@ -943,14 +904,14 @@ namespace ARaki.EditorTools
             return mat;
         }
 
-        static void SetRef(Object target, string field, Object value)
+        internal static void SetRef(Object target, string field, Object value)
         {
             var so = new SerializedObject(target);
             so.FindProperty(field).objectReferenceValue = value;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        static void SetRefs(Object target, string field, Object[] values)
+        internal static void SetRefs(Object target, string field, Object[] values)
         {
             var so = new SerializedObject(target);
             var prop = so.FindProperty(field);
@@ -963,30 +924,29 @@ namespace ARaki.EditorTools
 
         /// <summary>
         /// Sahneyi PNG olarak kaydeder (ARAKI_SHOT yoluna).
-        /// ARAKI_VIEW = pano | top | equirect (varsayılan pano). ARAKI_POSE = "x,z,yaw" robotu yerleştirir.
-        /// ARAKI_LOOK = bakış yaw'ı (derece).
+        /// ARAKI_VIEW = pano | top | equirect. ARAKI_STATE = menu | playing | pause | win | lose | upgrade.
+        /// ARAKI_SEED, ARAKI_LEVEL görevi seçer. ARAKI_POSE = "x,z,yaw" robotu yerleştirir. ARAKI_LOOK = bakış yaw'ı.
+        /// ARAKI_TICK = oyun mantığını ilerletilecek saniye. ARAKI_LED=1 LED'i yakar.
         /// </summary>
         public static void Screenshot()
         {
             EditorSceneManager.OpenScene(ScenePath);
-            string view = System.Environment.GetEnvironmentVariable("ARAKI_VIEW") ?? "pano";
-            string pose = System.Environment.GetEnvironmentVariable("ARAKI_POSE");
-            string look = System.Environment.GetEnvironmentVariable("ARAKI_LOOK");
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string Env(string k) => System.Environment.GetEnvironmentVariable(k);
+            string view = Env("ARAKI_VIEW") ?? "pano";
+            string state = Env("ARAKI_STATE") ?? "playing";
+            string pose = Env("ARAKI_POSE");
+            string look = Env("ARAKI_LOOK");
 
             var robot = GameObject.Find("Robot");
-            if (!string.IsNullOrEmpty(pose))
-            {
-                var v = pose.Split(',');
-                var inv = System.Globalization.CultureInfo.InvariantCulture;
-                robot.GetComponent<MockRobotLink>().Teleport(
-                    new Vector3(float.Parse(v[0], inv), 0f, float.Parse(v[1], inv)), float.Parse(v[2], inv));
-            }
-
-            robot.GetComponent<MockRobotLink>().Initialize();
+            var link = robot.GetComponent<MockRobotLink>();
+            link.Initialize();
             var cam360 = Object.FindFirstObjectByType<Sim360Camera>();
             var viewer = Object.FindFirstObjectByType<PanoramaViewer>();
             var hud = Object.FindFirstObjectByType<SpaceHud>();
+            var screens = Object.FindFirstObjectByType<ScreenUi>();
             var mission = Object.FindFirstObjectByType<MissionController>();
+            var session = Object.FindFirstObjectByType<GameSession>();
             var topCam = GameObject.Find("TopCam").GetComponent<Camera>();
             var cam = view == "top" ? topCam : viewer.ViewCamera;
             viewer.ViewCamera.enabled = view != "top";
@@ -995,52 +955,80 @@ namespace ARaki.EditorTools
             var rt = new RenderTexture(1280, 720, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             cam.targetTexture = rt;
             viewer.Bind();
+            Physics.SyncTransforms();
 
-            // Oyun mantığını belirli bir süre ilerlet (ARAKI_TICK="saniye"), LED'i yak (ARAKI_LED=1)
-            string tick = System.Environment.GetEnvironmentVariable("ARAKI_TICK");
-            var link = robot.GetComponent<MockRobotLink>();
-            if (System.Environment.GetEnvironmentVariable("ARAKI_LED") == "1") link.SetLed(true);
+            hud.Build();
+            screens.Build();
+            session.SetLevel(Env("ARAKI_LEVEL") != null ? int.Parse(Env("ARAKI_LEVEL"), inv) : 1);
+            int seed = Env("ARAKI_SEED") != null ? int.Parse(Env("ARAKI_SEED"), inv) : 1234;
+            if (state == "menu") session.ShowMenu();
+            else session.StartMission(seed);
+
+            if (!string.IsNullOrEmpty(pose))
+            {
+                var v = pose.Split(',');
+                link.Teleport(new Vector3(float.Parse(v[0], inv), 0f, float.Parse(v[1], inv)), float.Parse(v[2], inv));
+            }
+            if (Env("ARAKI_LED") == "1") link.SetLed(true);
+
+            string tick = Env("ARAKI_TICK");
             if (!string.IsNullOrEmpty(tick))
             {
-                float seconds = float.Parse(tick, System.Globalization.CultureInfo.InvariantCulture);
+                float seconds = float.Parse(tick, inv);
                 for (float t = 0f; t < seconds; t += 0.1f)
                 {
                     mission.Tick(0.1f);
                     foreach (var th in Object.FindObjectsByType<Threat>(FindObjectsSortMode.None)) th.Tick(0.1f);
                 }
             }
+
+            switch (state)
+            {
+                case "win": session.ForceWin(); break;
+                case "lose": session.ForceLose(); break;
+                case "upgrade": session.ForceWin(); session.ShowUpgrades(); break;
+                case "pause": break;
+            }
+            screens.Show(state == "pause" ? GameState.Paused : session.State);
+
             foreach (var mp in Object.FindObjectsByType<MissionPoint>(FindObjectsSortMode.None)) mp.RefreshVisual();
             foreach (var tv in Object.FindObjectsByType<ThreatVisual>(FindObjectsSortMode.None)) tv.Refresh();
             foreach (var ps in Object.FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None)) ps.Simulate(2.2f, true, true);
             foreach (var led in Object.FindObjectsByType<RobotLed>(FindObjectsSortMode.None)) led.Tick(1f);
             Object.FindFirstObjectByType<ScanBeam>().Tick();
-            if (!string.IsNullOrEmpty(look)) viewer.SetLook(float.Parse(look, System.Globalization.CultureInfo.InvariantCulture), viewer.DefaultPitch);
-            else viewer.SetLook(0f, viewer.DefaultPitch);
+            if (!string.IsNullOrEmpty(look)) viewer.SetLook(float.Parse(look, inv), viewer.DefaultPitch);
+            else viewer.SetLook(state == "menu" ? 35f : 0f, viewer.DefaultPitch * (state == "menu" ? 0.6f : 1f));
 
             // Shader varyantları arka planda derlenir; hazır olana kadar turuncu yer tutucu çizilir.
             for (int i = 0; i < 80; i++)
             {
-                RenderFrame(cam, cam360, viewer, hud, mission, view);
+                RenderFrame(cam, cam360, viewer, hud, view);
                 System.Threading.Thread.Sleep(250);
                 if (!ShaderUtil.anythingCompiling) break;
             }
-            RenderFrame(cam, cam360, viewer, hud, mission, view);
+            RenderFrame(cam, cam360, viewer, hud, view);
 
-            string outPath = System.Environment.GetEnvironmentVariable("ARAKI_SHOT") ?? "shot.png";
+            string outPath = Env("ARAKI_SHOT") ?? "shot.png";
             if (view == "equirect") SavePng(cam360.Equirect, outPath);
             else SavePng(rt, outPath);
             cam.targetTexture = null;
+            Time.timeScale = 1f;
             Debug.Log("[SceneBuilder] ekran görüntüsü: " + outPath);
         }
 
-        static void RenderFrame(Camera cam, Sim360Camera cam360, PanoramaViewer viewer, SpaceHud hud, MissionController mission, string view)
+        static void RenderFrame(Camera cam, Sim360Camera cam360, PanoramaViewer viewer, SpaceHud hud, string view)
         {
             cam360.Capture();
-            foreach (var m in Object.FindObjectsByType<ARMirror>(FindObjectsSortMode.None)) m.Sync();
+            // Editörde OnEnable/OnDisable çalışmaz: pasif noktaların görselini elle gizle
+            foreach (var m in Object.FindObjectsByType<ARMirror>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                bool live = m.gameObject.activeInHierarchy;
+                if (m.Visual != null) m.Visual.gameObject.SetActive(live);
+                if (live) m.Sync();
+            }
             viewer.Apply();
             if (view != "top")
             {
-                hud.Build();
                 hud.Tick(0.016f);
                 Canvas.ForceUpdateCanvases();
             }

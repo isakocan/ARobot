@@ -1,0 +1,8 @@
+{
+ "ceramic_vase_01": {
+  "diff": "textures/ceramic_vase_01_diff_1k.jpg",
+  "arm": "textures/ceramic_vase_01_arm_1k.jpg",
+  "nor": "textures/ceramic_vase_01_nor_gl_1k.jpg",
+  "baseColor": null
+ }
+}

@@ -1,0 +1,8 @@
+{
+ "modern_wooden_cabinet": {
+  "diff": "textures/modern_wooden_cabinet_diff_1k.jpg",
+  "arm": "textures/modern_wooden_cabinet_arm_1k.jpg",
+  "nor": "textures/modern_wooden_cabinet_nor_gl_1k.jpg",
+  "baseColor": null
+ }
+}

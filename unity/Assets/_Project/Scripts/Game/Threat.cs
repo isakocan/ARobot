@@ -42,6 +42,12 @@ namespace ARaki.Game
 
         public event Action<Threat, ThreatState> StateChanged;
 
+        /// <summary>Hız çarpanı (görev zorluğu). 1 = normal.</summary>
+        public float Difficulty { get; private set; } = 1f;
+
+        /// <summary>Kapalıyken temas yakıt yemez (menü ve sonuç ekranlarında).</summary>
+        public bool DrainEnabled { get; set; } = true;
+
         public ThreatState State { get; private set; } = ThreatState.Patrol;
         public bool Engaged { get; private set; }
         public bool Chasing => State == ThreatState.Chase || State == ThreatState.Alert;
@@ -62,6 +68,19 @@ namespace ARaki.Game
         }
 
         void Update() => Tick(Time.deltaTime);
+
+        public void SetDifficulty(float scale) => Difficulty = Mathf.Max(0.1f, scale);
+
+        /// <summary>Devriyeye yeniden başlar: konuma yerleşir, sakinleşir.</summary>
+        public void Respawn(Vector3 position)
+        {
+            transform.position = new Vector3(position.x, hoverHeight, position.z);
+            heading = Quaternion.Euler(0f, UnityEngine.Random.value * 360f, 0f) * Vector3.forward;
+            State = ThreatState.Patrol;
+            Engaged = false;
+            timer = lostTimer = 0f;
+            PickTarget();
+        }
 
         public void Tick(float dt)
         {
@@ -88,7 +107,7 @@ namespace ARaki.Game
             switch (State)
             {
                 case ThreatState.Patrol:
-                    move = Steer(flat, target, patrolSpeed, dt);
+                    move = Steer(flat, target, patrolSpeed * Difficulty, dt);
                     if ((flat - target).sqrMagnitude < 0.04f) PickTarget();
                     if (sees)
                     {
@@ -105,7 +124,7 @@ namespace ARaki.Game
                     break;
 
                 case ThreatState.Chase:
-                    move = Steer(flat, robotFlat, chaseSpeed, dt);
+                    move = Steer(flat, robotFlat, chaseSpeed * Difficulty, dt);
                     Engaged = dist < engageDistance;
                     lostTimer = dist > loseTrackDistance ? lostTimer + dt : 0f;
                     if (lostTimer > loseTrackSeconds) { PickTarget(); SetState(ThreatState.Patrol); }
@@ -126,7 +145,7 @@ namespace ARaki.Game
             transform.position = new Vector3(next.x, hoverHeight + Mathf.Sin(phase) * 0.03f, next.z);
             transform.rotation = Quaternion.LookRotation(heading, Vector3.up);
 
-            if (Engaged) link.AddBattery(-drainPerSecond * dt);
+            if (Engaged && DrainEnabled) link.AddBattery(-drainPerSecond * dt);
         }
 
         Vector3 Steer(Vector3 from, Vector3 to, float speed, float dt)

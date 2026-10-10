@@ -1,0 +1,8 @@
+{
+ "throw_pillows_01": {
+  "diff": "textures/throw_pillows_01_diff_1k.jpg",
+  "arm": "textures/throw_pillows_01_rough_1k.jpg",
+  "nor": "textures/throw_pillows_01_nor_gl_1k.jpg",
+  "baseColor": null
+ }
+}

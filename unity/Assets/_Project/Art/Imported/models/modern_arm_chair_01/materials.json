@@ -1,0 +1,14 @@
+{
+ "modern_arm_chair_01_legs": {
+  "diff": "textures/modern_arm_chair_01_legs_diff_1k.jpg",
+  "arm": "textures/modern_arm_chair_01_legs_arm_1k.jpg",
+  "nor": "textures/modern_arm_chair_01_legs_nor_gl_1k.jpg",
+  "baseColor": null
+ },
+ "modern_arm_chair_01_pillow": {
+  "diff": "textures/modern_arm_chair_01_pillow_diff_1k.jpg",
+  "arm": "textures/modern_arm_chair_01_pillow_arm_1k.jpg",
+  "nor": "textures/modern_arm_chair_01_pillow_nor_gl_1k.jpg",
+  "baseColor": null
+ }
+}

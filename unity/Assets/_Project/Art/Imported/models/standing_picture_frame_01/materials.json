@@ -1,0 +1,20 @@
+{
+ "standing_picture_frame_01_glass": {
+  "diff": "textures/standing_picture_frame_01_diff_1k.jpg",
+  "arm": "textures/standing_picture_frame_01_arm_1k.jpg",
+  "nor": "textures/standing_picture_frame_01_nor_gl_1k.jpg",
+  "baseColor": null
+ },
+ "standing_picture_frame_01_artwork": {
+  "diff": "textures/standing_picture_frame_01_artwork_diff_1k.jpg",
+  "arm": "textures/standing_picture_frame_01_artwork_rough_1k.jpg",
+  "nor": "textures/standing_picture_frame_01_artwork_nor_gl_1k.jpg",
+  "baseColor": null
+ },
+ "standing_picture_frame_01": {
+  "diff": "textures/standing_picture_frame_01_diff_1k.jpg",
+  "arm": "textures/standing_picture_frame_01_arm_1k.jpg",
+  "nor": "textures/standing_picture_frame_01_nor_gl_1k.jpg",
+  "baseColor": null
+ }
+}

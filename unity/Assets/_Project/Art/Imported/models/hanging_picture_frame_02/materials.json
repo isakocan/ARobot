@@ -1,0 +1,20 @@
+{
+ "hanging_picture_frame_02_artwork": {
+  "diff": "textures/hanging_picture_frame_02_artwork_diff_1k.jpg",
+  "arm": "textures/hanging_picture_frame_02_artwork_roughness_1k.jpg",
+  "nor": "textures/hanging_picture_frame_02_artwork_nor_gl_1k.jpg",
+  "baseColor": null
+ },
+ "hanging_picture_frame_02": {
+  "diff": "textures/hanging_picture_frame_02_diff_1k.jpg",
+  "arm": "textures/hanging_picture_frame_02_arm_1k.jpg",
+  "nor": "textures/hanging_picture_frame_02_nor_gl_1k.jpg",
+  "baseColor": null
+ },
+ "hanging_picture_frame_02_glass": {
+  "diff": "textures/hanging_picture_frame_02_diff_1k.jpg",
+  "arm": "textures/hanging_picture_frame_02_arm_1k.jpg",
+  "nor": "textures/hanging_picture_frame_02_nor_gl_1k.jpg",
+  "baseColor": null
+ }
+}

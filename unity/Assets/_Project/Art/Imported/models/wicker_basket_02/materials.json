@@ -1,0 +1,8 @@
+{
+ "wicker_basket_02": {
+  "diff": "textures/wicker_basket_02_diff_1k.jpg",
+  "arm": "textures/wicker_basket_02_arm_1k.jpg",
+  "nor": "textures/wicker_basket_02_nor_gl_1k.jpg",
+  "baseColor": null
+ }
+}

@@ -33,7 +33,7 @@ namespace ARaki.Dev
             link.SetLed(kb.lKey.isPressed || (mouse != null && mouse.leftButton.isPressed));
 
             if (kb.fKey.wasPressedThisFrame) link.PwmLimit = Mathf.Max(0.1f, link.PwmLimit - 0.1f);
-            if (kb.rKey.wasPressedThisFrame) link.PwmLimit = Mathf.Min(1f, link.PwmLimit + 0.1f);
+            if (kb.rKey.wasPressedThisFrame) link.PwmLimit = link.PwmLimit + 0.1f;
         }
 
         static float Axis(bool positive, bool negative) => (positive ? 1f : 0f) - (negative ? 1f : 0f);

@@ -4,6 +4,7 @@ namespace ARaki.AR
 {
     /// <summary>
     /// Dünyadaki görünmez bir noktanın (ör. bir marker'ın yeri) AR görselini, robota göre konumuyla senkronlar.
+    /// Nokta pasifleşince görseli de gizlenir.
     /// </summary>
     public class ARMirror : MonoBehaviour
     {
@@ -11,6 +12,17 @@ namespace ARaki.AR
         [SerializeField] Transform visual;
 
         public Transform Visual => visual;
+
+        void OnEnable()
+        {
+            if (visual != null) visual.gameObject.SetActive(true);
+            Sync();
+        }
+
+        void OnDisable()
+        {
+            if (visual != null) visual.gameObject.SetActive(false);
+        }
 
         void LateUpdate() => Sync();
 

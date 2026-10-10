@@ -19,6 +19,7 @@ namespace ARaki.UI
         [SerializeField] MissionController mission;
         [SerializeField] PanoramaViewer viewer;
         [SerializeField] ARRig rig;
+        [SerializeField] GameSession session;
 
         [Header("Tasarım")]
         [SerializeField] Font titleFont;
@@ -27,10 +28,10 @@ namespace ARaki.UI
         [SerializeField] Sprite bracket;   // yalnızca köşeleri çizilen 9-dilimli çerçeve
         [SerializeField] Sprite ring;      // ince daire
 
-        const float RadarRange = 4f;       // m
+        float RadarRange => session != null ? session.Profile.RadarRange : 4f;   // m, yükseltmeyle büyür
         const float RadarRadius = 78f;     // px
 
-        class Row { public MissionPoint Point; public Text Status; public RectTransform Fill; public float Width; public Text Label; }
+        class Row { public MissionPoint Point; public RectTransform Root; public Text Status; public RectTransform Fill; public float Width; public Text Label; }
         class Blip { public Transform Target; public Image Image; public bool Threat; }
         class Tag { public Transform Target; public MissionPoint Point; public Threat Threat; public RectTransform Rt; public Image Frame; public Text Name; public Text Info; public float Lift; }
 
@@ -44,7 +45,9 @@ namespace ARaki.UI
         RectTransform fuelFill, powerFill, motorLeft, motorRight, sweep, ledFill;
         Image fuelImage, ledFillImage;
         Text fuelValue, powerValue, heading, noticeText, alertText, commsText, ledLabel;
-        CanvasGroup commsGroup;
+        CanvasGroup commsGroup, rootGroup;
+        RectTransform missionCard, commsCard;
+        Text missionHeader, sectorLabel, radarLabel;
         float noticeTimer, ledLevel;
         const float BarWidth = 202f;
         const float MotorTrack = 150f;
@@ -64,6 +67,7 @@ namespace ARaki.UI
             if (mission == null) return;
             mission.Notice -= OnNotice;
             mission.Comms -= OnComms;
+            mission.MissionStarted -= OnMissionStarted;
         }
 
         // ------------------------------------------------------------------ kurulum
@@ -87,6 +91,7 @@ namespace ARaki.UI
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
             root = go.GetComponent<RectTransform>();
+            rootGroup = go.AddComponent<CanvasGroup>();
 
             BuildCrosshair();
             BuildMissionCard();
@@ -101,12 +106,29 @@ namespace ARaki.UI
 
             mission.Notice += OnNotice;
             mission.Comms += OnComms;
+            mission.MissionStarted += OnMissionStarted;
+        }
+
+        /// <summary>Oyun menüde ya da sonuç ekranındayken arayüz gizlenir.</summary>
+        public void SetVisible(bool visible)
+        {
+            if (rootGroup == null) return;
+            rootGroup.alpha = visible ? 1f : 0f;
+        }
+
+        void OnMissionStarted()
+        {
+            commsQueue.Clear();
+            commsFull = "";
+            commsShown = commsHold = 0f;
+            noticeTimer = 0f;
+            if (commsGroup != null) commsGroup.alpha = 0f;
         }
 
         void BuildComms()
         {
-            float y = -(24f + 92f + mission.Points.Count * 46f + 12f);
-            var card = Card("Comms", TopLeft, TopLeft, new Vector2(24f, y), new Vector2(330f, 104f));
+            var card = Card("Comms", TopLeft, TopLeft, new Vector2(24f, -400f), new Vector2(330f, 104f));
+            commsCard = card;
             commsGroup = card.gameObject.AddComponent<CanvasGroup>();
             commsGroup.alpha = 0f;
             Label(card, "MERKEZ  //  KANAL 4", monoFont, 11, SpaceTheme.Primary, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(16f, -11f), new Vector2(240f, 16f));
@@ -124,7 +146,7 @@ namespace ARaki.UI
             ledFill = Rt("LedFill", root, BottomCenter, new Vector2(0.5f, 0f), new Vector2(0f, 78f), new Vector2(0f, 3f));
             ledFillImage = Img(ledFill, SpaceTheme.Warning);
 
-            Label(root, "SEKTÖR 07  ·  SALON", monoFont, 12, SpaceTheme.WithAlpha(SpaceTheme.Text, 0.65f), TextAnchor.MiddleCenter,
+            sectorLabel = Label(root, "SEKTÖR 07  ·  SALON", monoFont, 12, SpaceTheme.WithAlpha(SpaceTheme.Text, 0.65f), TextAnchor.MiddleCenter,
                 TopCenter, TopCenter, new Vector2(0f, -24f), new Vector2(400f, 18f));
         }
 
@@ -139,22 +161,39 @@ namespace ARaki.UI
         {
             int n = mission.Points.Count;
             var card = Card("Mission", TopLeft, TopLeft, new Vector2(24f, -24f), new Vector2(330f, 92f + n * 46f));
-            Label(card, "GÖREV 01  ·  AKTİF", monoFont, 11, SpaceTheme.Primary, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(16f, -12f), new Vector2(298f, 16f));
+            missionCard = card;
+            missionHeader = Label(card, "GÖREV 01  ·  AKTİF", monoFont, 11, SpaceTheme.Primary, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(16f, -12f), new Vector2(298f, 16f));
             Label(card, "HANE KEŞFİ", titleFont, 26, SpaceTheme.Text, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(16f, -26f), new Vector2(298f, 32f));
             Img(Rt("Rule", card, TopLeft, TopLeft, new Vector2(16f, -64f), new Vector2(298f, 1f)), SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.35f));
 
             for (int i = 0; i < n; i++)
             {
-                float y = -78f - i * 46f;
                 var p = mission.Points[i];
-                var row = new Row { Point = p, Width = 298f };
-                row.Label = Label(card, p.Label, bodyFont, 18, SpaceTheme.Text, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(16f, y), new Vector2(200f, 22f));
-                row.Status = Label(card, "", monoFont, 13, SpaceTheme.TextDim, TextAnchor.UpperRight, TopLeft, TopLeft, new Vector2(224f, y - 3f), new Vector2(90f, 18f));
-                Img(Rt("Track", card, TopLeft, TopLeft, new Vector2(16f, y - 26f), new Vector2(298f, 3f)), SpaceTheme.Track);
-                row.Fill = Rt("Fill", card, TopLeft, new Vector2(0f, 1f), new Vector2(16f, y - 26f), new Vector2(0f, 3f));
+                var rowRoot = Rt("Row", card, TopLeft, TopLeft, new Vector2(16f, -78f - i * 46f), new Vector2(298f, 40f));
+                var row = new Row { Point = p, Root = rowRoot, Width = 298f };
+                row.Label = Label(rowRoot, p.Label, bodyFont, 18, SpaceTheme.Text, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(0f, 0f), new Vector2(200f, 22f));
+                row.Status = Label(rowRoot, "", monoFont, 13, SpaceTheme.TextDim, TextAnchor.UpperRight, TopLeft, TopLeft, new Vector2(208f, -3f), new Vector2(90f, 18f));
+                Img(Rt("Track", rowRoot, TopLeft, TopLeft, new Vector2(0f, -26f), new Vector2(298f, 3f)), SpaceTheme.Track);
+                row.Fill = Rt("Fill", rowRoot, TopLeft, new Vector2(0f, 1f), new Vector2(0f, -26f), new Vector2(0f, 3f));
                 Img(row.Fill, SpaceTheme.Primary);
                 rows.Add(row);
             }
+        }
+
+        /// <summary>Görevdeki aktif hedeflere göre satırları ve kart yüksekliğini düzenler.</summary>
+        void Relayout()
+        {
+            int index = 0;
+            foreach (var r in rows)
+            {
+                bool active = r.Point.gameObject.activeSelf;
+                if (r.Root.gameObject.activeSelf != active) r.Root.gameObject.SetActive(active);
+                if (!active) continue;
+                r.Root.anchoredPosition = new Vector2(16f, -78f - index * 46f);
+                index++;
+            }
+            missionCard.sizeDelta = new Vector2(330f, 92f + index * 46f);
+            commsCard.anchoredPosition = new Vector2(24f, -(24f + 92f + index * 46f + 12f));
         }
 
         void BuildStatusCard()
@@ -203,7 +242,7 @@ namespace ARaki.UI
         {
             var card = Card("Radar", BottomRight, BottomRight, new Vector2(-24f, 24f), new Vector2(180f, 180f));
             Label(card, "RADAR", monoFont, 11, SpaceTheme.Primary, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(12f, -9f), new Vector2(80f, 14f));
-            Label(card, "4 m", monoFont, 11, SpaceTheme.TextDim, TextAnchor.UpperRight, TopLeft, TopLeft, new Vector2(88f, -9f), new Vector2(80f, 14f));
+            radarLabel = Label(card, "4 m", monoFont, 11, SpaceTheme.TextDim, TextAnchor.UpperRight, TopLeft, TopLeft, new Vector2(88f, -9f), new Vector2(80f, 14f));
 
             var c = Rt("Scope", card, Center, Center, new Vector2(0f, -6f), new Vector2(RadarRadius * 2f, RadarRadius * 2f));
             Img(c, SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.55f), ring);
@@ -233,7 +272,7 @@ namespace ARaki.UI
         {
             heading = Label(root, "", monoFont, 15, SpaceTheme.Text, TextAnchor.MiddleCenter, BottomCenter, BottomCenter, new Vector2(0f, 50f), new Vector2(520f, 24f));
             AddShadow(heading);
-            var hint = Label(root, "W A S D  SÜR     ·     Q E  ETRAFA BAK     ·     L  LED     ·     R F  GÜÇ     ·     C  ÜSTTEN GÖRÜNÜM     ·     F1  GELİŞTİRİCİ",
+            var hint = Label(root, "W A S D  SÜR     ·     Q E  ETRAFA BAK     ·     L  LED     ·     R F  GÜÇ     ·     ESC  DURAKLAT",
                 monoFont, 11, SpaceTheme.WithAlpha(SpaceTheme.Text, 0.6f), TextAnchor.MiddleCenter, BottomCenter, BottomCenter, new Vector2(0f, 24f), new Vector2(900f, 18f));
             AddShadow(hint);
         }
@@ -289,6 +328,13 @@ namespace ARaki.UI
 
             heading.text = $"YÖN {Mathf.RoundToInt(t.YawDegrees):000}°     BAKIŞ {(viewer.Yaw >= 0 ? "+" : "-")}{Mathf.Abs(Mathf.RoundToInt(viewer.Yaw)):000}°";
 
+            Relayout();
+            if (session != null)
+            {
+                missionHeader.text = "GÖREV " + session.Level.ToString("00") + "  ·  AKTİF";
+                sectorLabel.text = session.Spec.Title + "  ·  SALON";
+            }
+            radarLabel.text = Mathf.RoundToInt(RadarRange) + " m";
             UpdateMissionRows();
             UpdateRadar(dt);
             UpdateTags();
@@ -349,6 +395,7 @@ namespace ARaki.UI
             foreach (var r in rows)
             {
                 var p = r.Point;
+                if (!p.gameObject.activeSelf) continue;
                 r.Fill.sizeDelta = new Vector2(r.Width * (p.Done ? 1f : p.Progress), 3f);
                 if (p.Done) { r.Status.text = "TAMAM"; r.Status.color = SpaceTheme.Success; r.Label.color = SpaceTheme.TextDim; r.Fill.GetComponent<Image>().color = SpaceTheme.Success; }
                 else if (p.Locked) { r.Status.text = "KİLİTLİ"; r.Status.color = SpaceTheme.TextDim; r.Label.color = SpaceTheme.TextDim; }
@@ -362,6 +409,9 @@ namespace ARaki.UI
             sweep.localRotation *= Quaternion.Euler(0f, 0f, -110f * dt);
             foreach (var b in blips)
             {
+                bool live = b.Target.gameObject.activeInHierarchy;
+                if (b.Image.gameObject.activeSelf != live) b.Image.gameObject.SetActive(live);
+                if (!live) continue;
                 Vector3 rel = robot.transform.InverseTransformPoint(b.Target.position);
                 Vector2 v = new Vector2(rel.x, rel.z) / RadarRange * RadarRadius;
                 bool outside = v.magnitude > RadarRadius * 0.96f;
@@ -378,6 +428,7 @@ namespace ARaki.UI
             var cam = viewer.ViewCamera;
             foreach (var tag in tags)
             {
+                if (!tag.Target.gameObject.activeInHierarchy) { tag.Rt.gameObject.SetActive(false); continue; }
                 Vector3 world = tag.Target.position + Vector3.up * tag.Lift;
                 Vector3 screen = cam.WorldToScreenPoint(rig.ToRig(world));
                 bool visible = screen.z > 0.15f && screen.x > -40f && screen.x < cam.pixelWidth + 40f && screen.y > -40f && screen.y < cam.pixelHeight + 40f;

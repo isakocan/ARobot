@@ -1,0 +1,14 @@
+{
+ "potted_plant_01_pot": {
+  "diff": "textures/potted_plant_01_pot_diff_1k.jpg",
+  "arm": "textures/potted_plant_01_pot_rough_1k.jpg",
+  "nor": "textures/potted_plant_01_pot_nor_gl_1k.jpg",
+  "baseColor": null
+ },
+ "potted_plant_01_leaves": {
+  "diff": "textures/potted_plant_01_leaves_diff_1k.jpg",
+  "arm": "textures/potted_plant_01_leaves_rough_1k.jpg",
+  "nor": "textures/potted_plant_01_leaves_nor_gl_1k.jpg",
+  "baseColor": null
+ }
+}

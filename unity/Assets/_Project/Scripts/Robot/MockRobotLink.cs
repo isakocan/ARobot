@@ -28,7 +28,29 @@ namespace ARaki.Robot
 
         public bool IsConnected => true;
         public RobotTelemetry Telemetry { get; private set; }
-        public float PwmLimit { get; set; } = 0.6f;
+        float pwmLimit = 0.6f;
+        float maxPwmLimit = 0.6f;
+
+        /// <summary>Motorlara giden en yüksek PWM oranı; oyuncu bunun altında ayar yapar.</summary>
+        public float PwmLimit
+        {
+            get => pwmLimit;
+            set => pwmLimit = Mathf.Clamp(value, 0.1f, maxPwmLimit);
+        }
+
+        /// <summary>Yükseltmelerle açılan üst sınır.</summary>
+        public float MaxPwmLimit
+        {
+            get => maxPwmLimit;
+            set
+            {
+                maxPwmLimit = Mathf.Clamp(value, 0.1f, 1f);
+                pwmLimit = Mathf.Min(pwmLimit, maxPwmLimit);
+            }
+        }
+
+        /// <summary>LED'in yakıt tüketim çarpanı (verimli LED yükseltmesi).</summary>
+        public float LedDrainMultiplier { get; set; } = 1f;
 
         public float TrackWidth => trackWidth;
         public float MaxWheelSpeed => maxWheelSpeed;
@@ -72,6 +94,12 @@ namespace ARaki.Robot
         public void SetLed(bool on) => LedOn = on && battery > 0f;
 
         /// <summary>Simülasyon: oyun olayları (yakıt istasyonu, düşman hasarı) bataryayı değiştirir.</summary>
+        public void SetBattery(float value)
+        {
+            battery = Mathf.Clamp01(value);
+            Publish(Telemetry.ForwardSpeed);   // telemetri hemen güncellensin (oyun akışı bunu okur)
+        }
+
         public void AddBattery(float delta) => battery = Mathf.Clamp01(battery + delta);
 
         void Update()
@@ -104,7 +132,7 @@ namespace ARaki.Robot
             }
 
             float load = (Mathf.Abs(left) + Mathf.Abs(right)) / (2f * maxWheelSpeed);
-            float drain = batteryIdleDrain + batteryDrainPerSecond * load + (LedOn ? ledDrainPerSecond : 0f);
+            float drain = batteryIdleDrain + batteryDrainPerSecond * load + (LedOn ? ledDrainPerSecond * LedDrainMultiplier : 0f);
             battery = Mathf.Max(0f, battery - drain * dt);
             if (battery <= 0f) LedOn = false;
 

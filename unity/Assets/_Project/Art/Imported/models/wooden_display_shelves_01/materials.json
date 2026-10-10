@@ -1,0 +1,8 @@
+{
+ "wooden_display_shelves_01": {
+  "diff": "textures/wooden_display_shelves_01_diff_1k.jpg",
+  "arm": "textures/wooden_display_shelves_01_arm_1k.jpg",
+  "nor": "textures/wooden_display_shelves_01_nor_gl_1k.jpg",
+  "baseColor": null
+ }
+}

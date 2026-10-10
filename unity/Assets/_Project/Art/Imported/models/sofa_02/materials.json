@@ -1,0 +1,8 @@
+{
+ "sofa_02": {
+  "diff": "textures/sofa_02_diff_1k.jpg",
+  "arm": "textures/sofa_02_arm_1k.jpg",
+  "nor": "textures/sofa_02_nor_gl_1k.jpg",
+  "baseColor": null
+ }
+}
