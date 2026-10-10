@@ -1,5 +1,6 @@
 using System.IO;
 using ARaki.AR;
+using ARaki.Audio;
 using ARaki.Core;
 using ARaki.Dev;
 using ARaki.Game;
@@ -56,7 +57,7 @@ namespace ARaki.EditorTools
                 MakePoint("TowerA", "KULE ALFA", PointKind.Tower, new Vector3(0.4f, 0f, 1.1f), 0.6f, rig, arRoot, HoloTower),
                 MakePoint("TowerB", "KULE BETA", PointKind.Tower, new Vector3(2.2f, 0f, 1.7f), 0.6f, rig, arRoot, HoloTower),
                 MakePoint("Fuel", "YAKIT İSTASYONU", PointKind.Fuel, new Vector3(1.9f, 0f, -1.7f), 0.55f, rig, arRoot, HoloFuel),
-                MakePoint("Base", "ANA ÜS", PointKind.Base, robot.transform.position, 0.45f, rig, arRoot, HoloBase),
+                MakePoint("Base", "ANA ÜS", PointKind.Base, new Vector3(-2.15f, 0f, -1.9f), 0.45f, rig, arRoot, HoloBase),
             };
             var threats = new[]
             {
@@ -70,6 +71,23 @@ namespace ARaki.EditorTools
             SetRef(mission, "link", link);
             SetRefs(mission, "points", points);
             SetRefs(mission, "threats", threats);
+
+            var beamGo = new GameObject("ScanBeam");
+            beamGo.transform.SetParent(arRoot, false);
+            var beamLine = beamGo.AddComponent<LineRenderer>();
+            beamLine.sharedMaterial = AdditiveMat("ScanBeam", C("#FFB454") * 1.8f);
+            beamLine.widthMultiplier = 0.008f;
+            beamLine.numCapVertices = 2;
+            beamLine.alignment = LineAlignment.View;
+            beamLine.shadowCastingMode = ShadowCastingMode.Off;
+            var beam = beamGo.AddComponent<ScanBeam>();
+            SetRef(beam, "rig", rig);
+            SetRef(beam, "mission", mission);
+            SetRef(beam, "robot", robot.transform);
+
+            var sfx = new GameObject("Sfx").AddComponent<SfxPlayer>();
+            SetRef(sfx, "link", link);
+            SetRef(sfx, "mission", mission);
 
             var hudGo = new GameObject("SpaceHud");
             var hud = hudGo.AddComponent<SpaceHud>();
@@ -256,6 +274,26 @@ namespace ARaki.EditorTools
             Part(PrimitiveType.Cylinder, "Antenna", t, new Vector3(0.06f, 0.165f, -0.12f), new Vector3(0.004f, 0.065f, 0.004f), id, accent);
             Part(PrimitiveType.Sphere, "AntennaTip", t, new Vector3(0.06f, 0.232f, -0.12f), new Vector3(0.012f, 0.012f, 0.012f), id, glow);
 
+            var ledMat = UnlitMat("RoverLed", C("#40484D"));
+            Part(PrimitiveType.Cube, "LedLens", t, new Vector3(0f, 0.074f, 0.137f), new Vector3(0.07f, 0.014f, 0.006f), id, ledMat);
+            var ledGo = new GameObject("LedSpot");
+            ledGo.transform.SetParent(t, false);
+            ledGo.transform.localPosition = new Vector3(0f, 0.075f, 0.14f);
+            ledGo.transform.localRotation = Quaternion.Euler(8f, 0f, 0f);
+            var spot = ledGo.AddComponent<Light>();
+            spot.type = LightType.Spot;
+            spot.range = 4.5f;
+            spot.spotAngle = 100f;
+            spot.innerSpotAngle = 55f;
+            spot.color = C("#FFF2D6");
+            spot.intensity = 0f;
+            spot.shadows = LightShadows.None;
+            spot.enabled = false;
+            var led = robot.AddComponent<RobotLed>();
+            SetRef(led, "link", link);
+            SetRef(led, "spot", spot);
+            SetRef(led, "lens", t.Find("LedLens").GetComponent<MeshRenderer>());
+
             var spinner = robot.AddComponent<WheelSpinner>();
             SetRef(spinner, "link", link);
             SetRefs(spinner, "leftWheels", left);
@@ -324,6 +362,8 @@ namespace ARaki.EditorTools
             SetRef(viewer, "viewCamera", viewCam);
             SetRef(viewer, "sphere", mr);
             SetRef(viewer, "worldAlignedRobot", robot);
+            SetRef(viewer, "motion", robot.GetComponent<MockRobotLink>());
+            camGo.AddComponent<AudioListener>();
             return rigGo;
         }
 
@@ -381,6 +421,7 @@ namespace ARaki.EditorTools
             mp.Kind = kind;
             mp.Radius = radius;
             SetRef(mp, "holo", tint);
+            SetRef(mp, "burst", MakeBurst(vis));
             return mp;
         }
 
@@ -388,26 +429,49 @@ namespace ARaki.EditorTools
         {
             var go = new GameObject("Threat_" + id);
             go.transform.position = pos;
+            var th = go.AddComponent<Threat>();
+            SetRef(th, "robot", robot);
+            SetRef(th, "link", link);
+
             var vis = new GameObject("AR_Threat" + id).transform;
             vis.SetParent(arRoot, false);
-            HoloThreat(vis);
+            HoloThreat(vis, th, out var core, out var sector);
+            var tint = vis.gameObject.AddComponent<HoloTint>();
 
             var mirror = go.AddComponent<ARMirror>();
             SetRef(mirror, "rig", rig);
             SetRef(mirror, "visual", vis);
 
-            var th = go.AddComponent<Threat>();
-            SetRef(th, "robot", robot);
-            SetRef(th, "link", link);
+            var tv = vis.gameObject.AddComponent<ThreatVisual>();
+            SetRef(tv, "threat", th);
+            SetRef(tv, "holo", tint);
+            SetRef(tv, "sector", sector);
+            SetRef(tv, "core", core);
             return th;
         }
 
+        static HoloBurst MakeBurst(Transform parent)
+        {
+            var go = new GameObject("Burst");
+            go.transform.SetParent(parent, false);
+            var ring = Ring(go.transform, "Ring", 0.2f, 0.01f, 48, 0.008f, AdditiveMat("HoloBurst", C("#73FF9A") * 1.8f));
+            var burst = go.AddComponent<HoloBurst>();
+            SetRef(burst, "ring", ring);
+            go.SetActive(false);
+            return burst;
+        }
+
+        static Material HoloLineMat() => AdditiveMat("HoloLine", C("#5FE3FF") * 1.3f);
+
         static void HoloTower(Transform p)
         {
-            var mat = UnlitMat("HoloLine", C("#5FE3FF") * 1.3f);
+            var mat = HoloLineMat();
+            Glow(p, "Glow", 0.55f, 0.003f);
             Ring(p, "RingBase", 0.15f, 0.004f, 40, 0.006f, mat);
             Ring(p, "RingMid", 0.11f, 0.17f, 40, 0.005f, mat);
             Ring(p, "RingTop", 0.07f, 0.34f, 40, 0.005f, mat);
+            var sweep = Ring(p, "Sweep", 0.1f, 0.01f, 40, 0.003f, mat);
+            sweep.gameObject.AddComponent<HoloSweep>();
             for (int i = 0; i < 4; i++)
             {
                 float a = i * Mathf.PI / 2f;
@@ -425,15 +489,24 @@ namespace ARaki.EditorTools
             gem.transform.localPosition = new Vector3(0f, 0.5f, 0f);
             gem.transform.localScale = Vector3.one * 0.055f;
             gem.transform.localRotation = Quaternion.Euler(35f, 0f, 45f);
-            gem.GetComponent<MeshRenderer>().sharedMaterial = mat;
+            var gemRenderer = gem.GetComponent<MeshRenderer>();
+            gemRenderer.sharedMaterial = mat;
+            gemRenderer.shadowCastingMode = ShadowCastingMode.Off;
             gem.AddComponent<Spin>();
+            Motes(p, 0.09f, 0.1f, 16);
         }
 
         static void HoloFuel(Transform p)
         {
-            var mat = UnlitMat("HoloLine", C("#5FE3FF") * 1.3f);
+            var mat = HoloLineMat();
+            Glow(p, "Glow", 0.6f, 0.003f);
             Ring(p, "HexBase", 0.17f, 0.004f, 6, 0.006f, mat);
             Ring(p, "HexTop", 0.13f, 0.22f, 6, 0.005f, mat);
+            var sweep = Ring(p, "Sweep", 0.15f, 0.01f, 6, 0.003f, mat);
+            var sw = sweep.gameObject.AddComponent<HoloSweep>();
+            var so = new SerializedObject(sw);
+            so.FindProperty("maxY").floatValue = 0.22f;
+            so.ApplyModifiedPropertiesWithoutUndo();
             for (int i = 0; i < 6; i++)
             {
                 float a = i * Mathf.PI / 3f;
@@ -446,11 +519,13 @@ namespace ARaki.EditorTools
             Line(p, "Beam", new[] { new Vector3(0f, 0.22f, 0f), new Vector3(0f, 0.8f, 0f) }, 0.004f, mat);
             Line(p, "PlusV", new[] { new Vector3(0f, 0.5f, 0f), new Vector3(0f, 0.62f, 0f) }, 0.016f, mat);
             Line(p, "PlusH", new[] { new Vector3(-0.06f, 0.56f, 0f), new Vector3(0.06f, 0.56f, 0f) }, 0.016f, mat);
+            Motes(p, 0.1f, 0.1f, 12);
         }
 
         static void HoloBase(Transform p)
         {
-            var mat = UnlitMat("HoloLine", C("#5FE3FF") * 1.3f);
+            var mat = HoloLineMat();
+            Glow(p, "Glow", 0.9f, 0.003f);
             Ring(p, "Outer", 0.26f, 0.004f, 48, 0.003f, mat);
             Ring(p, "Inner", 0.2f, 0.004f, 48, 0.002f, mat);
             for (int i = 0; i < 4; i++)
@@ -464,27 +539,141 @@ namespace ARaki.EditorTools
             }
         }
 
-        static void HoloThreat(Transform p)
+        // Düşman sonda: parlayan çekirdek, dönen halkalar ve yerde görüş sektörü. Hepsi tek renkte durum bildirir.
+        static void HoloThreat(Transform p, Threat threat, out Transform coreTransform, out GameObject sector)
         {
-            var red = UnlitMat("HoloThreat", C("#FF5C5C") * 1.6f);
+            var mat = AdditiveMat("HoloThreat", C("#FF5C5C") * 1.6f);
+            float hover = threat.HoverHeight;
+
             var core = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             core.name = "Core";
             Object.DestroyImmediate(core.GetComponent<Collider>());
             core.transform.SetParent(p, false);
             core.transform.localScale = Vector3.one * 0.075f;
-            core.GetComponent<MeshRenderer>().sharedMaterial = red;
+            var coreRenderer = core.GetComponent<MeshRenderer>();
+            coreRenderer.sharedMaterial = mat;
+            coreRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            coreTransform = core.transform;
 
             for (int i = 0; i < 2; i++)
             {
                 var pivot = new GameObject("Orbit" + i).transform;
                 pivot.SetParent(p, false);
                 pivot.localRotation = Quaternion.Euler(i * 55f, 0f, i * 30f);
-                var ring = Ring(pivot, "Ring", 0.1f + i * 0.025f, 0f, 32, 0.005f, red);
+                Ring(pivot, "Ring", 0.1f + i * 0.025f, 0f, 32, 0.005f, mat);
                 var spin = pivot.gameObject.AddComponent<Spin>();
                 var so = new SerializedObject(spin);
                 so.FindProperty("degreesPerSecond").vector3Value = i == 0 ? new Vector3(0f, 140f, 0f) : new Vector3(60f, -110f, 0f);
                 so.ApplyModifiedPropertiesWithoutUndo();
             }
+
+            // Algı yönü: küçük bir sensör çubuğu
+            Line(p, "Sensor", new[] { new Vector3(0f, 0f, 0.05f), new Vector3(0f, 0f, 0.14f) }, 0.008f, mat);
+
+            // Yer işaretleri: ışık hâlesi ve görüş sektörü (yalnızca yerde, düşmanın altında)
+            var floor = new GameObject("Floor").transform;
+            floor.SetParent(p, false);
+            floor.localPosition = new Vector3(0f, -hover, 0f);
+            Glow(floor, "Glow", 0.5f, 0.003f);
+
+            var sectorGo = new GameObject("Sector");
+            sectorGo.transform.SetParent(floor, false);
+            float dist = threat.ViewDistance, half = threat.ViewHalfAngle * Mathf.Deg2Rad;
+            foreach (float sign in new[] { -1f, 1f })
+                Line(sectorGo.transform, "Edge", new[]
+                {
+                    new Vector3(0f, 0.004f, 0f),
+                    new Vector3(Mathf.Sin(half) * sign * dist, 0.004f, Mathf.Cos(half) * dist),
+                }, 0.002f, mat).name = "Edge";
+            foreach (float k in new[] { 1f, 0.5f })
+            {
+                var pts = new Vector3[17];
+                for (int i = 0; i < pts.Length; i++)
+                {
+                    float a = Mathf.Lerp(-half, half, i / 16f);
+                    pts[i] = new Vector3(Mathf.Sin(a) * dist * k, 0.004f, Mathf.Cos(a) * dist * k);
+                }
+                Line(sectorGo.transform, "Arc", pts, 0.002f, mat);
+            }
+            sector = sectorGo;
+        }
+
+        // Yükselen toz parçacıkları: hologramın "canlı" durmasını sağlar.
+        static void Motes(Transform parent, float radius, float startY, int rate)
+        {
+            var go = new GameObject("Motes");
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = new Vector3(0f, startY, 0f);
+            go.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+            var ps = go.AddComponent<ParticleSystem>();
+            var main = ps.main;
+            main.loop = true;
+            main.prewarm = true;
+            main.startLifetime = 2.4f;
+            main.startSpeed = 0.1f;
+            main.startSize = 0.013f;
+            main.maxParticles = 60;
+            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            var emission = ps.emission;
+            emission.rateOverTime = rate;
+            var shape = ps.shape;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 3f;
+            shape.radius = radius;
+            var fade = ps.colorOverLifetime;
+            fade.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.2f), new GradientAlphaKey(1f, 0.7f), new GradientAlphaKey(0f, 1f) });
+            fade.color = new ParticleSystem.MinMaxGradient(gradient);
+            var r = go.GetComponent<ParticleSystemRenderer>();
+            r.sharedMaterial = AdditiveMat("HoloMote", C("#5FE3FF") * 1.4f, GlowTexture(), true);
+            r.shadowCastingMode = ShadowCastingMode.Off;
+        }
+
+        // Yerde yumuşak ışık hâlesi: hologram gerçek zemine "oturuyormuş" gibi görünür.
+        static void Glow(Transform parent, string name, float size, float y)
+        {
+            var quad = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            quad.name = name;
+            Object.DestroyImmediate(quad.GetComponent<Collider>());
+            quad.transform.SetParent(parent, false);
+            quad.transform.localPosition = new Vector3(0f, y, 0f);
+            quad.transform.localScale = Vector3.one * (size / 10f);
+            var r = quad.GetComponent<MeshRenderer>();
+            r.sharedMaterial = AdditiveMat("HoloGlow", C("#5FE3FF") * 1.2f, GlowTexture());
+            r.shadowCastingMode = ShadowCastingMode.Off;
+            r.receiveShadows = false;
+        }
+
+        static Texture2D GlowTexture()
+        {
+            const string path = Root + "/Art/Glow.png";
+            if (!File.Exists(path))
+            {
+                const int size = 128;
+                var px = new Color[size * size];
+                float c = (size - 1) * 0.5f;
+                for (int y = 0; y < size; y++)
+                    for (int x = 0; x < size; x++)
+                    {
+                        float d = Mathf.Sqrt((x - c) * (x - c) + (y - c) * (y - c)) / c;
+                        float a = Mathf.Pow(Mathf.Clamp01(1f - d), 2.2f);
+                        px[y * size + x] = new Color(1f, 1f, 1f, a);
+                    }
+                var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+                tex.SetPixels(px);
+                File.WriteAllBytes(path, tex.EncodeToPNG());
+                Object.DestroyImmediate(tex);
+                AssetDatabase.ImportAsset(path);
+                var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+                imp.alphaIsTransparency = true;
+                imp.mipmapEnabled = false;
+                imp.wrapMode = TextureWrapMode.Clamp;
+                imp.SaveAndReimport();
+            }
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
         static LineRenderer Ring(Transform parent, string name, float radius, float y, int segments, float width, Material mat)
@@ -538,6 +727,14 @@ namespace ARaki.EditorTools
             var vignette = profile.Add<Vignette>(true);
             vignette.intensity.Override(0.28f);
             vignette.smoothness.Override(0.5f);
+
+            var grain = profile.Add<FilmGrain>(true);
+            grain.type.Override(FilmGrainLookup.Thin1);
+            grain.intensity.Override(0.2f);
+            grain.response.Override(0.8f);
+
+            var aberration = profile.Add<ChromaticAberration>(true);
+            aberration.intensity.Override(0.14f);
 
             var color = profile.Add<ColorAdjustments>(true);
             color.postExposure.Override(0.1f);
@@ -710,6 +907,27 @@ namespace ARaki.EditorTools
             return mat;
         }
 
+        // Yarı saydam, ışık ekleyen malzeme: hologramlar altındaki gerçek görüntüyle karışır, söndüğünde kaybolur.
+        static Material AdditiveMat(string name, Color color, Texture2D map = null, bool particle = false)
+        {
+            var mat = LoadOrCreateMaterial(name, particle ? "Universal Render Pipeline/Particles/Unlit" : "Universal Render Pipeline/Unlit");
+            mat.SetColor("_BaseColor", color);
+            if (map != null) mat.SetTexture("_BaseMap", map);
+            mat.SetFloat("_Surface", 1f);
+            mat.SetFloat("_Blend", 2f);
+            mat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            mat.SetFloat("_DstBlend", (float)BlendMode.One);
+            mat.SetFloat("_SrcBlendAlpha", (float)BlendMode.One);
+            mat.SetFloat("_DstBlendAlpha", (float)BlendMode.One);
+            mat.SetFloat("_ZWrite", 0f);
+            mat.SetOverrideTag("RenderType", "Transparent");
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.renderQueue = (int)RenderQueue.Transparent;
+            mat.SetShaderPassEnabled("ShadowCaster", false);
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
         static Material LoadOrCreateMaterial(string name, string shader)
         {
             string dir = Root + "/Art/Materials";
@@ -759,8 +977,9 @@ namespace ARaki.EditorTools
             if (!string.IsNullOrEmpty(pose))
             {
                 var v = pose.Split(',');
-                robot.transform.position = new Vector3(float.Parse(v[0], System.Globalization.CultureInfo.InvariantCulture), 0f, float.Parse(v[1], System.Globalization.CultureInfo.InvariantCulture));
-                robot.transform.rotation = Quaternion.Euler(0f, float.Parse(v[2], System.Globalization.CultureInfo.InvariantCulture), 0f);
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                robot.GetComponent<MockRobotLink>().Teleport(
+                    new Vector3(float.Parse(v[0], inv), 0f, float.Parse(v[1], inv)), float.Parse(v[2], inv));
             }
 
             robot.GetComponent<MockRobotLink>().Initialize();
@@ -776,6 +995,25 @@ namespace ARaki.EditorTools
             var rt = new RenderTexture(1280, 720, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             cam.targetTexture = rt;
             viewer.Bind();
+
+            // Oyun mantığını belirli bir süre ilerlet (ARAKI_TICK="saniye"), LED'i yak (ARAKI_LED=1)
+            string tick = System.Environment.GetEnvironmentVariable("ARAKI_TICK");
+            var link = robot.GetComponent<MockRobotLink>();
+            if (System.Environment.GetEnvironmentVariable("ARAKI_LED") == "1") link.SetLed(true);
+            if (!string.IsNullOrEmpty(tick))
+            {
+                float seconds = float.Parse(tick, System.Globalization.CultureInfo.InvariantCulture);
+                for (float t = 0f; t < seconds; t += 0.1f)
+                {
+                    mission.Tick(0.1f);
+                    foreach (var th in Object.FindObjectsByType<Threat>(FindObjectsSortMode.None)) th.Tick(0.1f);
+                }
+            }
+            foreach (var mp in Object.FindObjectsByType<MissionPoint>(FindObjectsSortMode.None)) mp.RefreshVisual();
+            foreach (var tv in Object.FindObjectsByType<ThreatVisual>(FindObjectsSortMode.None)) tv.Refresh();
+            foreach (var ps in Object.FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None)) ps.Simulate(2.2f, true, true);
+            foreach (var led in Object.FindObjectsByType<RobotLed>(FindObjectsSortMode.None)) led.Tick(1f);
+            Object.FindFirstObjectByType<ScanBeam>().Tick();
             if (!string.IsNullOrEmpty(look)) viewer.SetLook(float.Parse(look, System.Globalization.CultureInfo.InvariantCulture), viewer.DefaultPitch);
             else viewer.SetLook(0f, viewer.DefaultPitch);
 

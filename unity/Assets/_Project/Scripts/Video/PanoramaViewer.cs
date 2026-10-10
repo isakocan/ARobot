@@ -19,6 +19,8 @@ namespace ARaki.Video
         [SerializeField] float keyLookSpeed = 80f;  // derece/sn
         [SerializeField] float mouseSensitivity = 0.12f;
         [SerializeField] float defaultPitch = 20f; // pozitif = aşağı bak
+        [SerializeField] ARaki.Robot.MockRobotLink motion;   // doluysa robotun hızına göre hafif titreşim eklenir
+        [SerializeField] float shakeDegrees = 0.35f;
 
         public float Yaw { get; private set; }
         public float Pitch { get; private set; }
@@ -82,7 +84,15 @@ namespace ARaki.Video
 
         public void Apply()
         {
-            viewCamera.transform.localRotation = Quaternion.Euler(Pitch, Yaw, 0f);
+            Vector3 shake = Vector3.zero;
+            if (motion != null)
+            {
+                var t = motion.Telemetry;
+                float speed = Mathf.Clamp01(Mathf.Abs(t.ForwardSpeed) / 0.3f + Mathf.Abs(t.LeftSpeed - t.RightSpeed) / 0.4f);
+                float n = Time.time * 17f;
+                shake = new Vector3(Mathf.PerlinNoise(n, 0.3f) - 0.5f, Mathf.PerlinNoise(0.7f, n) - 0.5f, Mathf.PerlinNoise(n, n) - 0.5f) * (shakeDegrees * speed);
+            }
+            viewCamera.transform.localRotation = Quaternion.Euler(Pitch + shake.x, Yaw + shake.y, shake.z);
             if (worldAlignedRobot != null)
                 sphere.transform.localRotation = Quaternion.Euler(0f, -worldAlignedRobot.eulerAngles.y, 0f);
         }

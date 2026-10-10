@@ -17,6 +17,7 @@ namespace ARaki.Game
         public float ScanSeconds = 2f;
 
         [SerializeField] HoloTint holo;
+        [SerializeField] HoloBurst burst;
 
         public float Progress { get; set; }
         public bool Done { get; set; }
@@ -27,10 +28,21 @@ namespace ARaki.Game
         static readonly Color Complete = new Color(0.45f, 1f, 0.6f) * 1.3f;
         static readonly Color LockedColor = new Color(0.37f, 0.55f, 0.65f) * 0.8f;
 
+        bool wasDone;
+
         public void RefreshVisual()
         {
             if (holo == null) return;
             holo.SetColor(Done ? Complete : Locked ? LockedColor : Progress > 0.01f ? Scanning : Active);
+            RefreshIntensity();
+            if (Done && !wasDone && burst != null) burst.Play();
+            wasDone = Done;
+        }
+
+        /// <summary>Tarama ilerledikçe hologram parlar.</summary>
+        public void RefreshIntensity()
+        {
+            if (holo != null) holo.Intensity = Locked ? 0.7f : 1f + Progress * 0.9f;
         }
     }
 }

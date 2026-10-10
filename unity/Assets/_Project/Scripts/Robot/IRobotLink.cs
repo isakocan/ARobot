@@ -38,5 +38,10 @@ namespace ARaki.Robot
         float PwmLimit { get; set; }
 
         void SendDrive(DriveCommand command);
+
+        /// <summary>Robotun üzerindeki LED. Yanarken batarya (yakıt) harcar.</summary>
+        bool LedOn { get; }
+
+        void SetLed(bool on);
     }
 }

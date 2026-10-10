@@ -41,16 +41,30 @@ namespace ARaki.UI
         readonly List<Blip> blips = new List<Blip>();
         readonly List<Tag> tags = new List<Tag>();
 
-        RectTransform fuelFill, powerFill, motorLeft, motorRight, sweep;
-        Image fuelImage;
-        Text fuelValue, powerValue, heading, noticeText, alertText;
-        float noticeTimer;
+        RectTransform fuelFill, powerFill, motorLeft, motorRight, sweep, ledFill;
+        Image fuelImage, ledFillImage;
+        Text fuelValue, powerValue, heading, noticeText, alertText, commsText, ledLabel;
+        CanvasGroup commsGroup;
+        float noticeTimer, ledLevel;
         const float BarWidth = 202f;
         const float MotorTrack = 150f;
+        const float LedBarWidth = 120f;
+
+        // Telsiz mesajları: sırayla, daktilo gibi yazılır
+        readonly Queue<string> commsQueue = new Queue<string>();
+        string commsFull = "";
+        float commsShown, commsHold;
+        const float CommsCharsPerSecond = 42f;
 
         void Awake() => Build();
         void LateUpdate() => Tick(Time.deltaTime);
-        void OnDestroy() { if (mission != null) mission.Notice -= OnNotice; }
+
+        void OnDestroy()
+        {
+            if (mission == null) return;
+            mission.Notice -= OnNotice;
+            mission.Comms -= OnComms;
+        }
 
         // ------------------------------------------------------------------ kurulum
 
@@ -80,10 +94,38 @@ namespace ARaki.UI
             BuildMotorCard();
             BuildRadar();
             BuildBottomBar();
+            BuildLed();
             BuildBanners();
+            BuildComms();
             BuildTags();
 
             mission.Notice += OnNotice;
+            mission.Comms += OnComms;
+        }
+
+        void BuildComms()
+        {
+            float y = -(24f + 92f + mission.Points.Count * 46f + 12f);
+            var card = Card("Comms", TopLeft, TopLeft, new Vector2(24f, y), new Vector2(330f, 104f));
+            commsGroup = card.gameObject.AddComponent<CanvasGroup>();
+            commsGroup.alpha = 0f;
+            Label(card, "MERKEZ  //  KANAL 4", monoFont, 11, SpaceTheme.Primary, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(16f, -11f), new Vector2(240f, 16f));
+            Img(Rt("Dot", card, TopRight, TopRight, new Vector2(-16f, -13f), new Vector2(6f, 6f)), SpaceTheme.Success);
+            commsText = Label(card, "", bodyFont, 17, SpaceTheme.Text, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(16f, -32f), new Vector2(298f, 66f));
+            commsText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            commsText.verticalOverflow = VerticalWrapMode.Truncate;
+        }
+
+        void BuildLed()
+        {
+            ledLabel = Label(root, "", monoFont, 12, SpaceTheme.TextDim, TextAnchor.MiddleCenter, BottomCenter, BottomCenter, new Vector2(0f, 84f), new Vector2(420f, 16f));
+            AddShadow(ledLabel);
+            Img(Rt("LedTrack", root, BottomCenter, BottomCenter, new Vector2(0f, 78f), new Vector2(LedBarWidth, 3f)), SpaceTheme.Track);
+            ledFill = Rt("LedFill", root, BottomCenter, new Vector2(0.5f, 0f), new Vector2(0f, 78f), new Vector2(0f, 3f));
+            ledFillImage = Img(ledFill, SpaceTheme.Warning);
+
+            Label(root, "SEKTÖR 07  ·  SALON", monoFont, 12, SpaceTheme.WithAlpha(SpaceTheme.Text, 0.65f), TextAnchor.MiddleCenter,
+                TopCenter, TopCenter, new Vector2(0f, -24f), new Vector2(400f, 18f));
         }
 
         void BuildCrosshair()
@@ -191,7 +233,7 @@ namespace ARaki.UI
         {
             heading = Label(root, "", monoFont, 15, SpaceTheme.Text, TextAnchor.MiddleCenter, BottomCenter, BottomCenter, new Vector2(0f, 50f), new Vector2(520f, 24f));
             AddShadow(heading);
-            var hint = Label(root, "W A S D  SÜR     ·     Q E  ETRAFA BAK     ·     R F  GÜÇ     ·     C  ÜSTTEN GÖRÜNÜM     ·     F1  GELİŞTİRİCİ",
+            var hint = Label(root, "W A S D  SÜR     ·     Q E  ETRAFA BAK     ·     L  LED     ·     R F  GÜÇ     ·     C  ÜSTTEN GÖRÜNÜM     ·     F1  GELİŞTİRİCİ",
                 monoFont, 11, SpaceTheme.WithAlpha(SpaceTheme.Text, 0.6f), TextAnchor.MiddleCenter, BottomCenter, BottomCenter, new Vector2(0f, 24f), new Vector2(900f, 18f));
             AddShadow(hint);
         }
@@ -251,6 +293,47 @@ namespace ARaki.UI
             UpdateRadar(dt);
             UpdateTags();
             UpdateBanners(dt);
+            UpdateLed(dt);
+            UpdateComms(dt);
+        }
+
+        void UpdateLed(float dt)
+        {
+            ledLevel = Mathf.MoveTowards(ledLevel, robot.LedOn ? 1f : 0f, dt * 6f);
+            ledFill.sizeDelta = new Vector2(LedBarWidth * ledLevel, 3f);
+            ledLabel.text = robot.LedOn ? "LED AÇIK  ·  YAKIT AKIYOR" : "LED  ·  L YA DA SOL TIK (BASILI TUT)";
+            ledLabel.color = robot.LedOn ? SpaceTheme.Warning : SpaceTheme.WithAlpha(SpaceTheme.Text, 0.6f);
+        }
+
+        void UpdateComms(float dt)
+        {
+            // Mevcut mesaj yazılıyor ya da okunuyor; süre dolunca sıradaki gelir, yoksa kart sönümlenir.
+            if (commsShown < commsFull.Length)
+            {
+                commsShown = Mathf.Min(commsFull.Length, commsShown + CommsCharsPerSecond * dt);
+                commsText.text = commsFull.Substring(0, Mathf.FloorToInt(commsShown)) + "_";
+                commsHold = 0f;
+            }
+            else
+            {
+                commsText.text = commsFull;
+                commsHold += dt;
+                bool minRead = commsHold > 3.5f;
+                if (commsQueue.Count > 0 && minRead)
+                {
+                    commsFull = commsQueue.Dequeue();
+                    commsShown = 0f;
+                }
+            }
+
+            bool visible = commsFull.Length > 0 && (commsShown < commsFull.Length || commsHold < 8f || commsQueue.Count > 0);
+            commsGroup.alpha = Mathf.MoveTowards(commsGroup.alpha, visible ? 1f : 0f, dt * 2.5f);
+        }
+
+        void OnComms(string message)
+        {
+            if (commsFull.Length == 0) { commsFull = message; commsShown = 0f; }
+            else commsQueue.Enqueue(message);
         }
 
         static void SetMotor(RectTransform fill, float v)
@@ -310,9 +393,14 @@ namespace ARaki.UI
                 string name, info;
                 if (tag.Threat != null)
                 {
-                    color = SpaceTheme.Danger;
                     name = "TEHDİT";
-                    info = tag.Threat.Engaged ? "TEMAS" : dist.ToString("0.0") + " m";
+                    switch (tag.Threat.State)
+                    {
+                        case ThreatState.Alert: color = SpaceTheme.Warning; info = "FARK ETTİ"; break;
+                        case ThreatState.Chase: color = SpaceTheme.Danger; info = tag.Threat.Engaged ? "TEMAS" : "TAKİPTE  " + dist.ToString("0.0") + " m"; break;
+                        case ThreatState.Scared: color = SpaceTheme.Primary; info = "KAÇIYOR"; break;
+                        default: color = SpaceTheme.WithAlpha(SpaceTheme.Danger, 0.8f); info = "DEVRİYE  " + dist.ToString("0.0") + " m"; break;
+                    }
                 }
                 else
                 {
@@ -338,18 +426,28 @@ namespace ARaki.UI
             noticeText.color = c;
             if (noticeTimer <= 0f) noticeText.text = "";
 
-            bool engaged = false, chasing = false;
-            foreach (var t in mission.Threats) { engaged |= t.Engaged; chasing |= t.Chasing; }
+            bool engaged = false, chasing = false, scared = false;
+            foreach (var t in mission.Threats) { engaged |= t.Engaged; chasing |= t.Chasing; scared |= t.Scared; }
+            float blink = 0.55f + 0.45f * Mathf.Abs(Mathf.Sin(Time.realtimeSinceStartup * 7f));
             if (engaged)
             {
                 alertText.text = "TEHDİT TEMASI  ·  YAKIT AZALIYOR";
-                var a = SpaceTheme.Danger; a.a = 0.55f + 0.45f * Mathf.Abs(Mathf.Sin(Time.realtimeSinceStartup * 7f));
-                alertText.color = a;
+                alertText.color = SpaceTheme.WithAlpha(SpaceTheme.Danger, blink);
             }
             else if (chasing)
             {
-                alertText.text = "TEHDİT YAKLAŞIYOR";
+                alertText.text = "TEHDİT TAKİPTE  ·  LED'İ TUT";
                 alertText.color = SpaceTheme.Warning;
+            }
+            else if (scared)
+            {
+                alertText.text = "TEHDİT GERİ ÇEKİLİYOR";
+                alertText.color = SpaceTheme.Primary;
+            }
+            else if (robot.Telemetry.Battery01 < 0.15f)
+            {
+                alertText.text = "YAKIT KRİTİK";
+                alertText.color = SpaceTheme.WithAlpha(SpaceTheme.Danger, blink);
             }
             else alertText.text = "";
         }

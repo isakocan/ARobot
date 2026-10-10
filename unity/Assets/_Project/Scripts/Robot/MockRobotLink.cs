@@ -21,6 +21,7 @@ namespace ARaki.Robot
         [SerializeField, Range(0f, 1f)] float startBattery = 0.65f;
         [SerializeField] float batteryDrainPerSecond = 0.004f; // tam güçte
         [SerializeField] float batteryIdleDrain = 0.0003f;
+        [SerializeField] float ledDrainPerSecond = 0.02f;
 
         [Header("Güvenlik")]
         [SerializeField] float commandTimeout = 0.5f; // bu süre komut gelmezse motorlar durur
@@ -34,6 +35,7 @@ namespace ARaki.Robot
         public DriveCommand LastCommand { get; private set; }
         public bool FailsafeActive { get; private set; }
         public bool Blocked { get; private set; }
+        public bool LedOn { get; private set; }
 
         DriveCommand command;
         float lastCommandTime = -999f;
@@ -57,6 +59,17 @@ namespace ARaki.Robot
             LastCommand = command;
             lastCommandTime = Time.time;
         }
+
+        /// <summary>Simülasyon: robotu doğrudan bir konuma ve yöne yerleştirir (testler, ekran görüntüleri).</summary>
+        public void Teleport(Vector3 position, float yawDeg)
+        {
+            transform.position = position;
+            yawDegrees = yawDeg;
+            transform.rotation = Quaternion.Euler(0f, yawDeg, 0f);
+            left = right = 0f;
+        }
+
+        public void SetLed(bool on) => LedOn = on && battery > 0f;
 
         /// <summary>Simülasyon: oyun olayları (yakıt istasyonu, düşman hasarı) bataryayı değiştirir.</summary>
         public void AddBattery(float delta) => battery = Mathf.Clamp01(battery + delta);
@@ -91,7 +104,9 @@ namespace ARaki.Robot
             }
 
             float load = (Mathf.Abs(left) + Mathf.Abs(right)) / (2f * maxWheelSpeed);
-            battery = Mathf.Max(0f, battery - (batteryIdleDrain + batteryDrainPerSecond * load) * dt);
+            float drain = batteryIdleDrain + batteryDrainPerSecond * load + (LedOn ? ledDrainPerSecond : 0f);
+            battery = Mathf.Max(0f, battery - drain * dt);
+            if (battery <= 0f) LedOn = false;
 
             Publish(forward);
         }

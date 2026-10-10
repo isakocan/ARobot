@@ -5,7 +5,7 @@ using UnityEngine.InputSystem;
 namespace ARaki.Dev
 {
     /// <summary>
-    /// PC'de test için: W/S ileri-geri, A/D dönüş (ok tuşları da çalışır), R/F motor gücü limiti.
+    /// PC'de test için: W/S ileri-geri, A/D dönüş (ok tuşları da çalışır), R/F motor gücü limiti, L ya da sol tık LED (basılı tut).
     /// Telefonda sanal joystick yerini alacak.
     /// </summary>
     [RequireComponent(typeof(MockRobotLink))]
@@ -28,6 +28,9 @@ namespace ARaki.Dev
             float r = throttle - steer;
             float max = Mathf.Max(1f, Mathf.Abs(l), Mathf.Abs(r));
             link.SendDrive(new DriveCommand(l / max, r / max));
+
+            var mouse = Mouse.current;
+            link.SetLed(kb.lKey.isPressed || (mouse != null && mouse.leftButton.isPressed));
 
             if (kb.fKey.wasPressedThisFrame) link.PwmLimit = Mathf.Max(0.1f, link.PwmLimit - 0.1f);
             if (kb.rKey.wasPressedThisFrame) link.PwmLimit = Mathf.Min(1f, link.PwmLimit + 0.1f);
