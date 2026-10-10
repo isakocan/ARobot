@@ -14,6 +14,8 @@ namespace ARaki.Robot
         [SerializeField] float trackWidth = 0.20f;        // tekerlekler arası mesafe, m
         [SerializeField] float motorAcceleration = 1.2f;  // m/s², motor tepkisi
 
+        [SerializeField] float collisionRadius = 0.13f;   // engellere çarpma yarıçapı, m
+
         [Header("Batarya")]
         [SerializeField] float batteryDrainPerSecond = 0.004f; // tam güçte
         [SerializeField] float batteryIdleDrain = 0.0003f;
@@ -29,6 +31,7 @@ namespace ARaki.Robot
         public float MaxWheelSpeed => maxWheelSpeed;
         public DriveCommand LastCommand { get; private set; }
         public bool FailsafeActive { get; private set; }
+        public bool Blocked { get; private set; }
 
         DriveCommand command;
         float lastCommandTime = -999f;
@@ -65,7 +68,18 @@ namespace ARaki.Robot
             // Unity'de Y ekseni etrafındaki pozitif dönüş saat yönüdür, o yüzden eksi.
             yawDegrees -= omega * Mathf.Rad2Deg * dt;
             transform.rotation = Quaternion.Euler(0f, yawDegrees, 0f);
-            transform.position += transform.forward * (forward * dt);
+
+            Vector3 next = transform.position + transform.forward * (forward * dt);
+            Blocked = Physics.CheckSphere(next + Vector3.up * 0.07f, collisionRadius, ~0, QueryTriggerInteraction.Ignore);
+            if (Blocked)
+            {
+                left = right = 0f; // çarptı: motorlar durur
+                forward = 0f;
+            }
+            else
+            {
+                transform.position = next;
+            }
 
             float load = (Mathf.Abs(left) + Mathf.Abs(right)) / (2f * maxWheelSpeed);
             battery = Mathf.Max(0f, battery - (batteryIdleDrain + batteryDrainPerSecond * load) * dt);

@@ -21,7 +21,7 @@ namespace ARaki.Dev
             float scale = Screen.height / 720f;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
 
-            var box = new Rect(16, 16, 250, 230);
+            var box = new Rect(16, 16, 250, 270);
             DrawRect(box, new Color(0f, 0f, 0f, 0.55f));
             GUILayout.BeginArea(new Rect(box.x + 12, box.y + 10, box.width - 24, box.height - 20));
             GUILayout.Label("ROBOT (SİMÜLASYON)", header);
@@ -31,6 +31,8 @@ namespace ARaki.Dev
             Bar("Batarya", t.Battery01, false);
             GUILayout.Label($"Hız {t.ForwardSpeed * 3.6f:0.0} km/s    Yön {t.YawDegrees:0}°", label);
             if (robot.FailsafeActive) GUILayout.Label("Komut yok: motorlar durdu", label);
+            if (robot.Blocked) GUILayout.Label("Engel: robot çarptı", label);
+            GUILayout.Label("C: kamera görünümünü değiştir", label);
             GUILayout.EndArea();
         }
 
