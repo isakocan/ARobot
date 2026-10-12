@@ -14,8 +14,8 @@ namespace ARaki.UI
 {
     /// <summary>
     /// Sade oyun arayüzü. Yazı yalnızca sol üstte: tek satır hedef + tek satır ipucu.
-    /// Geri kalanı simgedir: pil çubuğu, taşınan kayıtlar, nişan + yakalama halkası, dikiz aynası (360° kameranın arkası),
-    /// ve ekran çevresinde yön üçgenleri (kırmızı = tehdit, yeşil = üs). Tab tehdide, B arkaya döner.
+    /// Geri kalanı simgedir: pil çubuğu, taşınan kayıtlar, nişan + yakalama halkası,
+    /// sağ altta ev haritası (gezdikçe açılır) ve ekran çevresinde yön üçgenleri (kırmızı = tehdit, yeşil = üs). Tab tehdide, B arkaya döner.
     /// </summary>
     public class ExpeditionHud : MonoBehaviour
     {
@@ -41,11 +41,13 @@ namespace ARaki.UI
         Canvas canvas;
         CanvasGroup rootGroup;
         RectTransform root;
-        RectTransform batteryFill, sonarFill, noiseFill, noiseTrack, mirrorFrame;
+        RectTransform batteryFill, sonarFill, noiseFill, noiseTrack, mapHolder, meRoot, sweep, baseMark, legendFrame;
         Image batteryImage, sonarImage, captureRing, dangerFrame, dangerTint, noiseImage;
         Text goalText, tipText, noticeText, essenceText;
-        RawImage mirrorImage;
-        RearMirror mirror;
+        RawImage mapRaw;
+        readonly List<Image> findBlips = new List<Image>();
+        readonly List<Image> ghostBlips = new List<Image>();
+        readonly List<Text> roomLabels = new List<Text>();
         Sprite triangle;
         readonly List<Image> pips = new List<Image>();
         readonly List<Image> markers = new List<Image>();
@@ -54,9 +56,22 @@ namespace ARaki.UI
         float commsShown, commsHold, noticeTimer;
         string shownGoal = "";
         bool built;
+
+        // öğretici: ilk oyunda tuşları sırayla yaptırır (ENTER ile geçilir)
+        const string TutorialKey = "Tenha.Tutorial";
+        const int TutorialSteps = 8;
+        bool tutorialDone;
+        int tutStep, bPresses;
+        float tutStepTime;
+        bool tutSonar, tutZoom, tutTab, tutInit;
+        Vector3 tutStartPos;
+        float tutStartYaw;
         Image baseMarker;
 
         const float BatteryWidth = 150f;
+        const float MapW = 190f;
+        float PxPerMeter => MapW / map.Size.x;
+        float MapH => MapW * map.Size.y / map.Size.x;
 
         void Awake() => Build();
         void LateUpdate() => Tick(Time.deltaTime);
@@ -66,6 +81,7 @@ namespace ARaki.UI
             if (expedition == null) return;
             expedition.Notice -= OnNotice;
             expedition.Comms -= OnComms;
+            expedition.SonarFired -= OnSonarFired;
         }
 
         // ------------------------------------------------------------------ kurulum
@@ -98,17 +114,28 @@ namespace ARaki.UI
             BuildCenter();
             BuildTips();
             BuildBattery();
-            BuildMirror();
+            BuildMap();
 
             expedition.Notice += OnNotice;
             expedition.Comms += OnComms;
+            expedition.SonarFired += OnSonarFired;
+            tutorialDone = PlayerPrefs.GetInt(TutorialKey, 0) == 1;
+        }
+
+        void OnSonarFired() => tutSonar = true;
+
+        /// <summary>Öğreticiyi baştan başlatır (menüden "yeni oyun" ya da testler için).</summary>
+        public void RestartTutorial()
+        {
+            tutorialDone = false;
+            tutStep = 0; bPresses = 0; tutInit = false;
+            PlayerPrefs.DeleteKey(TutorialKey);
         }
 
         public void SetVisible(bool visible)
         {
             if (rootGroup == null) return;
             rootGroup.alpha = visible ? 1f : 0f;
-            if (mirror != null) mirror.Active = visible;
         }
 
         static Sprite MakeTriangle()
@@ -202,20 +229,108 @@ namespace ARaki.UI
             UiKit.Shadow(essenceText);
         }
 
-        void BuildMirror()
-        {
-            mirrorFrame = kit.Rt("Mirror", root, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, -16f), new Vector2(288f, 96f));
-            var raw = kit.Rt("View", mirrorFrame, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(282f, 90f));
-            mirrorImage = raw.gameObject.AddComponent<RawImage>();
-            mirrorImage.raycastTarget = false;
-            kit.Img(kit.Stretch("Frame", mirrorFrame), UiTheme.WithAlpha(UiTheme.Text, 0.55f), bracket, Image.Type.Sliced);
-            var label = kit.Label(mirrorFrame, "ARKA", monoFont, 10, UiTheme.WithAlpha(UiTheme.Text, 0.7f), TextAnchor.UpperCenter, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, -4f), new Vector2(60f, 14f));
-            UiKit.Shadow(label);
+        // ------------------------------------------------------------------ harita (sağ alt)
 
-            mirror = gameObject.AddComponent<RearMirror>();
-            mirror.Init(viewer);
-            if (mirror.Texture != null) mirrorImage.texture = mirror.Texture;
-            else mirrorFrame.gameObject.SetActive(false);        // düzenleyicide (oynatmadan) çizilmez
+        void BuildMap()
+        {
+            float h = MapH;
+            var card = kit.Card("Map", root, UiKit.BottomRight, UiKit.BottomRight, new Vector2(-24f, 24f), new Vector2(MapW + 16f, h + 16f), UiTheme.WithAlpha(UiTheme.Text, 0.35f));
+            mapHolder = kit.Rt("Holder", card, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(MapW, h));
+            kit.Img(mapHolder, new Color(0.02f, 0.02f, 0.03f, 0.6f));
+
+            legendFrame = kit.Rt("LegendRoom", mapHolder, UiKit.BottomLeft, UiKit.BottomLeft, Vector2.zero, new Vector2(10f, 10f));
+            kit.Img(legendFrame, UiTheme.WithAlpha(UiTheme.Danger, 0.9f), bracket, Image.Type.Sliced);
+            legendFrame.gameObject.SetActive(false);
+
+            var tex = kit.Rt("Tex", mapHolder, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(MapW, h));
+            mapRaw = tex.gameObject.AddComponent<RawImage>();
+            mapRaw.texture = map.Texture;
+            mapRaw.raycastTarget = false;
+
+            foreach (var r in HouseLayout.Rooms)
+            {
+                var t = kit.Label(mapHolder, r.Name, monoFont, 8, UiTheme.WithAlpha(UiTheme.Text, 0f), TextAnchor.MiddleCenter, UiKit.BottomLeft, UiKit.Center, ToMap(r.Center), new Vector2(90f, 10f));
+                roomLabels.Add(t);
+            }
+
+            baseMark = kit.Rt("Base", mapHolder, UiKit.BottomLeft, UiKit.Center, ToMap(HouseLayout.BasePosition), new Vector2(10f, 10f));
+            baseMark.localRotation = Quaternion.Euler(0f, 0f, 45f);
+            kit.Img(baseMark, UiTheme.Success);
+
+            sweep = kit.Rt("Sweep", mapHolder, UiKit.BottomLeft, new Vector2(0.5f, 0f), Vector2.zero, new Vector2(1.5f, 3f * PxPerMeter));
+            kit.Img(sweep, UiTheme.WithAlpha(UiTheme.Primary, 0.45f));
+            meRoot = kit.Rt("Me", mapHolder, UiKit.BottomLeft, UiKit.Center, Vector2.zero, new Vector2(7f, 7f));
+            kit.Img(meRoot, UiTheme.Text);
+            kit.Img(kit.Rt("Nose", meRoot, UiKit.Center, new Vector2(0.5f, 0f), new Vector2(0f, 3f), new Vector2(2f, 8f)), UiTheme.Text);
+        }
+
+        Vector2 ToMap(Vector3 world) => new Vector2((world.x - map.Origin.x) / map.Size.x * MapW, (world.z - map.Origin.y) / map.Size.y * MapH);
+
+        void UpdateMap(float dt)
+        {
+            Vector2 me = ToMap(robot.transform.position);
+            meRoot.anchoredPosition = me;
+            meRoot.localRotation = Quaternion.Euler(0f, 0f, -robot.Telemetry.YawDegrees);
+            sweep.anchoredPosition = me;
+            sweep.localRotation *= Quaternion.Euler(0f, 0f, -140f * dt);
+            baseMark.localScale = Vector3.one * (1f + 0.15f * Mathf.Sin(Time.realtimeSinceStartup * 4f));
+
+            // gezilen odaların adı haritada belirir
+            for (int i = 0; i < roomLabels.Count; i++)
+            {
+                var c = roomLabels[i].color;
+                c.a = expedition.IsVisited(HouseLayout.Rooms[i]) ? 0.55f : 0f;
+                roomLabels[i].color = c;
+            }
+
+            // efsane bulgunun odası
+            var legend = expedition.IsLegendPending ? expedition.LegendRoom : null;
+            if (legendFrame.gameObject.activeSelf != (legend != null)) legendFrame.gameObject.SetActive(legend != null);
+            if (legend != null)
+            {
+                Vector2 a = ToMap(new Vector3(legend.Rect.xMin, 0f, legend.Rect.yMin));
+                Vector2 b = ToMap(new Vector3(legend.Rect.xMax, 0f, legend.Rect.yMax));
+                legendFrame.anchoredPosition = a;
+                legendFrame.sizeDelta = b - a;
+                legendFrame.GetComponent<Image>().color = UiTheme.WithAlpha(UiTheme.Danger, 0.35f + 0.5f * Mathf.Abs(Mathf.Sin(Time.realtimeSinceStartup * 3f)));
+            }
+
+            SyncBlips();
+        }
+
+        void SyncBlips()
+        {
+            var list = expedition.Finds;
+            while (findBlips.Count < list.Count)
+                findBlips.Add(kit.Img(kit.Rt("Blip", mapHolder, UiKit.BottomLeft, UiKit.Center, Vector2.zero, new Vector2(7f, 7f)), UiTheme.Primary));
+            for (int i = 0; i < findBlips.Count; i++)
+            {
+                var b = findBlips[i];
+                Find f = i < list.Count ? list[i] : null;
+                bool show = f != null && f.Alive && (f.Revealed || expedition.IsNearbyUnseen(f, 4.2f));
+                if (b.gameObject.activeSelf != show) b.gameObject.SetActive(show);
+                if (!show) continue;
+                Vector2 p = ToMap(f.Position);
+                if (!f.Revealed) p += new Vector2(Mathf.Sin(Time.time * 1.7f + i), Mathf.Cos(Time.time * 1.3f + i)) * 5f;     // henüz görülmemiş: belirsiz nokta
+                b.rectTransform.anchoredPosition = p;
+                var c = f.Kind == FindKind.Legend ? UiTheme.Danger : f.Tier > 1 ? UiTheme.Warning : UiTheme.Primary;
+                c.a = f.Revealed ? 1f : 0.35f + 0.25f * Mathf.Sin(Time.time * 5f);
+                b.color = c;
+                b.rectTransform.localRotation = Quaternion.Euler(0f, 0f, f.Kind == FindKind.Legend ? 45f : 0f);
+            }
+
+            var ghosts = expedition.Ghosts;
+            while (ghostBlips.Count < ghosts.Count)
+                ghostBlips.Add(kit.Img(kit.Rt("GhostBlip", mapHolder, UiKit.BottomLeft, UiKit.Center, Vector2.zero, new Vector2(10f, 10f)), UiTheme.Danger, ring));
+            for (int i = 0; i < ghostBlips.Count; i++)
+            {
+                var g = i < ghosts.Count ? ghosts[i] : null;
+                bool show = g != null && g.Alive && (g.State == GhostState.Chase || Vector3.Distance(robot.transform.position, g.Position) < 4.2f);
+                if (ghostBlips[i].gameObject.activeSelf != show) ghostBlips[i].gameObject.SetActive(show);
+                if (!show) continue;
+                ghostBlips[i].rectTransform.anchoredPosition = ToMap(g.Position);
+                ghostBlips[i].color = UiTheme.WithAlpha(UiTheme.Danger, 0.5f + 0.5f * Mathf.Abs(Mathf.Sin(Time.realtimeSinceStartup * 6f)));
+            }
         }
 
         // ------------------------------------------------------------------ olaylar
@@ -250,11 +365,11 @@ namespace ARaki.UI
             for (int i = 0; i < pips.Count; i++) pips[i].gameObject.SetActive(i < carried);
             essenceText.text = "ÖZ " + expedition.Essence;
 
+            UpdateMap(dt);
             UpdateCenter();
             UpdateTips(dt);
             UpdateMarkers();
             UpdateDanger();
-            if (mirror != null) mirror.Active = rootGroup.alpha > 0.5f && Application.isPlaying;
 
             noticeTimer -= dt;
             var c = UiTheme.Primary;
@@ -308,6 +423,8 @@ namespace ARaki.UI
             string goal = expedition.IsFinished ? "SERBEST GEZİ" : (expedition.ChapterIndex + 1) + "/" + expedition.Theme.Chapters.Length + "  ·  " + expedition.GoalText() + "  (" + expedition.ChapterProgress + "/" + expedition.Chapter.Count + ")";
             if (goal != shownGoal) { shownGoal = goal; goalText.text = goal; }
 
+            if (!tutorialDone && UpdateTutorial(dt)) return;
+
             // telsiz mesajı varsa o gösterilir (daktilo gibi), yoksa duruma göre ipucu
             if (commsFull.Length > 0)
             {
@@ -329,6 +446,79 @@ namespace ARaki.UI
             string tip = ContextTip(out bool urgent);
             tipText.text = tip;
             tipText.color = urgent ? UiTheme.Danger : UiTheme.Text;
+        }
+
+        // ---- öğretici
+
+        static readonly string[] TutorialTexts =
+        {
+            "W A S D ile sür",
+            "Q / E ya da sağ tık basılı: etrafa bak (araba dönmez)",
+            "B ile arkaya bak, tekrar B ile öne dön",
+            "SHIFT basılı tutarak sür: sessiz gidersin, ürkek yaratıklar kaçmaz",
+            "L basılı tut: LED yanar. Yaratıkları çeker, gölgeyi eritir",
+            "X: sonar. Saklananları kısa süre gösterir",
+            "Z basılı tut: dürbün (uzağı yakından gör)",
+            "Gölge gelirse TAB bakışı ona çevirir. Şimdi TAB'a bas",
+        };
+
+        /// <summary>Öğretici adımını gösterir; sürüyorsa true döner (diğer ipuçları beklemede kalır).</summary>
+        bool UpdateTutorial(float dt)
+        {
+            var kb = Keyboard.current;
+            if (!tutInit)
+            {
+                tutInit = true;
+                tutStartPos = robot.transform.position;
+                tutStartYaw = viewer.Yaw;
+                tutStepTime = 0f;
+                tutSonar = tutZoom = tutTab = false;
+                bPresses = 0;
+            }
+            tutStepTime += dt;
+
+            if (kb != null)
+            {
+                if (kb.bKey.wasPressedThisFrame) bPresses++;
+                if (kb.zKey.isPressed) tutZoom = true;
+                if (kb.tabKey.wasPressedThisFrame) tutTab = true;
+                if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame) { FinishTutorial(); return false; }
+            }
+
+            bool done = false;
+            switch (tutStep)
+            {
+                case 0: done = Vector3.Distance(robot.transform.position, tutStartPos) > 0.6f; break;
+                case 1: done = Mathf.Abs(Mathf.DeltaAngle(viewer.Yaw, tutStartYaw)) > 35f; break;
+                case 2: done = bPresses >= 2; break;
+                case 3: done = kb != null && (kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed) && expedition.Noise > 0.01f; break;
+                case 4: done = robot.LedOn; break;
+                case 5: done = tutSonar; break;
+                case 6: done = tutZoom; break;
+                case 7: done = tutTab || tutStepTime > 12f; break;
+            }
+
+            goalText.text = "ÖĞRETİCİ  " + (tutStep + 1) + "/" + TutorialSteps + "   ·   geç: ENTER";
+            shownGoal = "";
+            tipText.text = TutorialTexts[tutStep];
+            tipText.color = UiTheme.Primary;
+
+            if (done)
+            {
+                tutStep++;
+                tutInit = tutStep < TutorialSteps ? false : tutInit;
+                if (tutStep >= TutorialSteps) { FinishTutorial(); return false; }
+                OnNotice("TAMAM");
+            }
+            return true;
+        }
+
+        void FinishTutorial()
+        {
+            tutorialDone = true;
+            PlayerPrefs.SetInt(TutorialKey, 1);
+            PlayerPrefs.Save();
+            OnNotice("HAZIRSIN  ·  EVCİKLERİ BUL");
         }
 
         string ContextTip(out bool urgent)
