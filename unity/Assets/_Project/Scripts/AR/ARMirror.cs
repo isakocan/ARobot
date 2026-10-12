@@ -13,9 +13,22 @@ namespace ARaki.AR
 
         public Transform Visual => visual;
 
+        /// <summary>Henüz keşfedilmemiş nesne: görseli gizli kalır.</summary>
+        public bool Hidden
+        {
+            get => hidden;
+            set
+            {
+                hidden = value;
+                if (visual != null && isActiveAndEnabled) visual.gameObject.SetActive(!hidden);
+            }
+        }
+
+        bool hidden;
+
         void OnEnable()
         {
-            if (visual != null) visual.gameObject.SetActive(true);
+            if (visual != null) visual.gameObject.SetActive(!hidden);
             Sync();
         }
 

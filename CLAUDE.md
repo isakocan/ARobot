@@ -20,7 +20,7 @@ Not: motor sürücüler Arduino uyumlu; hocada tek noktalı lidar ve yakınlık 
 
 ## Kesin kararlar
 - Unity 6.3 LTS (6000.3.26f1), proje: `unity/`, URP + Input System. Telefon: Samsung S21+ (Android). Önce Unity Editor'de PC'de geliştirilir, telefona sonra geçilir.
-- Yarış modu eklendi (menüde R): oda zemininde AR pist, kapılardan sırayla geç, 3 tur, süre/madalya. Gerçekte kapılar ArUco işaretli 3D baskı olacak, pist onların arasına oturur; simde RaceController üretir (unity/Assets/_Project/Scripts/Game/RaceController.cs). Keşif modu (uzay/ORBİT-9) da duruyor; hangi tema ana yön olur henüz seçilmedi.
+- Ana yön: gezegen keşif görevi (ASTRA-7). Robotun mesafe sensörü (simde ışın atma, gerçekte lidar/ToF) çevreyi haritalar (ExplorationMap); ORBİT-9 sinyali, mineral numuneleri ve enerji hücresi sensör bulana kadar görünmez; üs şarj/numune teslimi/kalibrasyon noktası. Odaya nesne koyma yok (oyun nesneleri sanal). Hikaye: Story.cs. Yarış modu kodda duruyor ama menüden kaldırıldı (sıkıcı bulundu); API: GameSession.StartRaceGame.
 - Performans: 360 yakalama 30 Hz ile sınırlı, telefonda 2K; Editor/Optimizer.cs mobil URP profili, ASTC doku ve Android ayarlarını sahne kurulurken uygular.
 - Simülasyon: 360 kamera "equirect → küre içinden bakış" hattıyla modelleniyor (Sim360Camera → PanoramaViewer); AR nesneleri robota göre konumla (ARRig) çiziliyor. Gerçek robotta yalnızca görüntü kaynağı değişecek.
 

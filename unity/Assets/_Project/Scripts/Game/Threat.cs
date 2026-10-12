@@ -54,6 +54,8 @@ namespace ARaki.Game
 
         public ThreatKind Kind { get; private set; } = ThreatKind.Sentinel;
         public ThreatState State { get; private set; } = ThreatState.Patrol;
+        /// <summary>Robotun sensörü bu sondayı şu an görüyor mu? (arayüz etiketi ve harita noktası için)</summary>
+        public bool Detected { get; set; } = true;
         public bool Engaged { get; private set; }
         public bool Chasing => State == ThreatState.Chase || State == ThreatState.Alert;
         public bool Scared => State == ThreatState.Scared;

@@ -20,6 +20,9 @@ namespace ARaki.Game
         public float BaseYaw;
         public Vector3[] ThreatPositions;
         public ThreatKind[] ThreatKinds;
+        public float SurveyArea;           // haritalanması gereken alan, m²
+        public int SampleCount;
+        public Vector3[] SamplePositions;
     }
 
     /// <summary>
@@ -34,7 +37,10 @@ namespace ARaki.Game
         [SerializeField] Vector2 areaMax = new Vector2(2.4f, 1.9f);
         [SerializeField] float clearance = 0.36f;           // robotun sığacağı boşluk
         [SerializeField] float stationClearance = 0.85f;    // istasyonun etrafında dolaşılabilecek boşluk
-        [SerializeField] float stationToBase = 2.0f;
+        [SerializeField] float stationToBase = 2.6f;       // keşfedilmeden görünmesin: sinyal menzilinin dışında
+        [SerializeField] float sampleToBase = 2.1f;
+        [SerializeField] float sampleToSample = 1.0f;
+        [SerializeField] float sampleToStation = 1.2f;
         [SerializeField] float stationToFuel = 1.7f;
         [SerializeField] float fuelToBase = 1.5f;
         [SerializeField] Transform[] ignoreRoots;           // görev nesneleri: yerleştirilirken engel sayılmaz
@@ -56,6 +62,8 @@ namespace ARaki.Game
                 ThreatSpeed = Mathf.Min(1.35f, 0.95f + 0.07f * (level - 1)),
                 FlareInterval = Mathf.Max(18f, 42f - 4f * (level - 1)),
                 FlareDuration = Mathf.Min(10f, 6f + 0.6f * level),
+                SurveyArea = 5f + 1.5f * (level - 1),
+                SampleCount = 3,
             };
         }
 
@@ -68,6 +76,10 @@ namespace ARaki.Game
             spec.StationPosition = Pick(rng, stationClearance, new Vector2(-1.4f, -1.0f), new Vector2(1.4f, 1.0f), null, 0f);
             spec.BasePosition = Pick(rng, clearance, areaMin, areaMax, spec.StationPosition, stationToBase);
             spec.FuelPosition = PickTwo(rng, spec.StationPosition, stationToFuel, spec.BasePosition, fuelToBase);
+
+            spec.SamplePositions = new Vector3[spec.SampleCount];
+            for (int i = 0; i < spec.SampleCount; i++)
+                spec.SamplePositions[i] = PickSample(rng, spec, i);
 
             spec.ThreatPositions = new Vector3[spec.ThreatCount];
             spec.ThreatKinds = new ThreatKind[spec.ThreatCount];
@@ -96,6 +108,9 @@ namespace ARaki.Game
             else if (spec.HasFuel && !IsFree(spec.FuelPosition, clearance * 0.6f)) reason = "yakıt dolu yerde: " + spec.FuelPosition;
             else if (Vector3.Distance(spec.StationPosition, spec.BasePosition) < stationToBase * 0.7f) reason = "üs istasyona yakın";
             else if (spec.HasFuel && Vector3.Distance(spec.StationPosition, spec.FuelPosition) < stationToFuel * 0.7f) reason = "yakıt istasyona yakın";
+            else if (spec.SamplePositions != null)
+                for (int i = 0; i < spec.SamplePositions.Length && reason == null; i++)
+                    if (!IsFree(spec.SamplePositions[i], clearance * 0.6f)) reason = "numune " + i + " dolu yerde: " + spec.SamplePositions[i];
             return reason == null;
         }
 
@@ -115,6 +130,28 @@ namespace ARaki.Game
                 c *= 0.92f;
             }
             return Fallback(min, max, from, minDistance, null, 0f);
+        }
+
+        /// <summary>Numune: boş yerde, üsten uzak (keşif gerektirsin), istasyondan ve diğer numunelerden ayrık.</summary>
+        Vector3 PickSample(System.Random rng, MissionSpec spec, int index)
+        {
+            float toBase = sampleToBase, toStation = sampleToStation, toSample = sampleToSample, c = clearance;
+            for (int round = 0; round < 6; round++)
+            {
+                for (int attempt = 0; attempt < 250; attempt++)
+                {
+                    var p = new Vector3(Mathf.Lerp(areaMin.x, areaMax.x, (float)rng.NextDouble()), 0f, Mathf.Lerp(areaMin.y, areaMax.y, (float)rng.NextDouble()));
+                    if (Vector3.Distance(p, spec.BasePosition) < toBase) continue;
+                    if (Vector3.Distance(p, spec.StationPosition) < toStation) continue;
+                    if (spec.HasFuel && Vector3.Distance(p, spec.FuelPosition) < 0.8f) continue;
+                    bool close = false;
+                    for (int j = 0; j < index; j++) if (Vector3.Distance(p, spec.SamplePositions[j]) < toSample) close = true;
+                    if (close) continue;
+                    if (IsFree(p, c)) return p;
+                }
+                toBase *= 0.9f; toStation *= 0.9f; toSample *= 0.9f; c *= 0.92f;
+            }
+            return Fallback(areaMin, areaMax, spec.BasePosition, sampleToBase, spec.StationPosition, sampleToStation);
         }
 
         Vector3 PickTwo(System.Random rng, Vector3 a, float da, Vector3 b, float db)

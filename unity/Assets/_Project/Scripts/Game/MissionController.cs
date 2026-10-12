@@ -2,32 +2,44 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using ARaki.Robot;
+using ARaki.Sensing;
 using UnityEngine;
 
 namespace ARaki.Game
 {
     /// <summary>
-    /// Görev mantığı: ORBİT-9 istasyonunu sektör sektör tara, isteğe bağlı olarak enerji hücresinden şarj ol,
-    /// sonra ana üsse dön. Robot bir sektörde, istasyonun halkası içinde durdukça o sektörün taraması dolar.
-    /// Ana üs, zorunlu hedefler bitmeden kilitlidir.
+    /// Görev mantığı (ASTRA-7 yüzey keşfi): robotun sensörü çevreyi haritalar; haritalanan alan, sinyal kaynağı (ORBİT-9),
+    /// mineral numuneleri ve enerji hücresi ancak sensör menziline girince keşfedilir. Görev: yeterli alanı haritala,
+    /// ORBİT-9'u sektör sektör tara, sonra ana üsse dön. Numuneler isteğe bağlıdır; üs hem görev bitişi hem de
+    /// şarj, numune teslimi ve konum kalibrasyonu noktasıdır.
     /// Olaylar iki kanala gider: Notice (ekranın üstündeki kısa başlık) ve Comms (merkezden gelen telsiz mesajı).
     /// </summary>
     public class MissionController : MonoBehaviour
     {
         [SerializeField] Transform robot;
         [SerializeField] MockRobotLink link;
+        [SerializeField] ExplorationMap map;
         [SerializeField] MissionPoint[] points;
         [SerializeField] Threat[] threats;
         [SerializeField] float refuelAmount = 0.4f;
+        [SerializeField] float revealRadius = 1.9f;       // bir hedefin sinyalini alma mesafesi (görüş hattıyla)
+        [SerializeField] float touchRevealRadius = 1.0f;  // bu kadar yakında görüş hattı aranmaz
+        [SerializeField] float depotRadius = 0.6f;
+        [SerializeField] float depotChargePerSecond = 0.05f;
 
         public event Action<string> Notice;
         public event Action<string> Comms;
         public event Action<MissionPoint> PointCompleted;
+        public event Action<MissionPoint> PointRevealed;
         public event Action<MissionPoint, int> SectorCompleted;
+        public event Action SurveyCompleted;
+        public event Action<int> SamplesDelivered;
+        public event Action Calibrated;
         public event Action MissionStarted;
 
         public IReadOnlyList<MissionPoint> Points => points;
         public IReadOnlyList<Threat> Threats => threats;
+        public ExplorationMap Map => map;
         public bool Complete { get; private set; }
         public int Level { get; private set; } = 1;
 
@@ -37,7 +49,24 @@ namespace ARaki.Game
         /// <summary>Yükseltmelerle kısalan tarama süresi çarpanı.</summary>
         public float ScanTimeMultiplier { get; set; } = 1f;
 
+        /// <summary>Açıkken hedefler sensör bulana kadar görünmez; kapalıyken hepsi baştan bilinir.</summary>
+        public bool FogOfWar { get; set; } = true;
+
+        /// <summary>Görevin gerektirdiği haritalama alanı (m²). 0 = haritalama gerekmez.</summary>
+        public float SurveyTargetArea { get; set; }
+        public bool SurveyDone { get; private set; }
+        public float SurveyProgress01 => SurveyTargetArea <= 0f ? 1f : Mathf.Clamp01((map != null ? map.ExploredArea : 0f) / SurveyTargetArea);
+
+        public int SamplesCollected { get; private set; }
+        public int SamplesDeliveredCount { get; private set; }
+        public int SamplesCarried => SamplesCollected - SamplesDeliveredCount;
+        public int SamplesTotal
+        {
+            get { int n = 0; foreach (var p in points) if (p.Kind == PointKind.Sample && p.gameObject.activeSelf) n++; return n; }
+        }
+
         bool toldAboutLed, toldAboutScare, toldReturn;
+        bool wasInBase;
         Coroutine intro;
 
         void Start()
@@ -56,15 +85,38 @@ namespace ARaki.Game
         {
             Level = level;
             Complete = false;
+            SurveyDone = SurveyTargetArea <= 0f;
+            SamplesCollected = SamplesDeliveredCount = 0;
             toldAboutLed = toldAboutScare = toldReturn = false;
-            foreach (var p in points) if (p.gameObject.activeSelf) p.ResetState();
+            foreach (var p in points)
+            {
+                if (!p.gameObject.activeSelf) continue;
+                p.SetRevealed(!FogOfWar || p.Kind == PointKind.Base);
+                p.ResetState();
+            }
+            var basePoint = Find(PointKind.Base);
+            wasInBase = basePoint != null && FlatDistance(robot.position, basePoint.transform.position) < depotRadius;
             Running = true;
             if (intro != null) StopCoroutine(intro);
-            intro = StartCoroutine(Intro(Story.For(level)));
+            intro = StartCoroutine(Intro(Story.For(level), Story.Hint(basePoint != null ? basePoint.transform.position : Vector3.zero,
+                Find(PointKind.Station) != null ? Find(PointKind.Station).transform.position : Vector3.zero)));
             MissionStarted?.Invoke();
         }
 
-        IEnumerator Intro(Chapter chapter)
+        /// <summary>Menü arka planı ve testler için: her hedefi keşfedilmiş sayar.</summary>
+        public void RevealAll()
+        {
+            foreach (var p in points)
+                if (p.gameObject.activeSelf) p.SetRevealed(true);
+        }
+
+        MissionPoint Find(PointKind kind)
+        {
+            foreach (var p in points) if (p.Kind == kind && p.gameObject.activeSelf) return p;
+            return null;
+        }
+
+        IEnumerator Intro(Chapter chapter, string hint)
         {
             yield return new WaitForSeconds(0.8f);
             Notice?.Invoke(chapter.Title);
@@ -72,6 +124,11 @@ namespace ARaki.Game
             {
                 if (i > 0) yield return new WaitForSeconds(6.5f);
                 Comms?.Invoke(chapter.Lines[i]);
+            }
+            if (!string.IsNullOrEmpty(hint))
+            {
+                yield return new WaitForSeconds(6.5f);
+                Comms?.Invoke(hint);
             }
         }
 
@@ -83,16 +140,18 @@ namespace ARaki.Game
 
         public void Tick(float dt)
         {
-            bool required = true;
-            foreach (var p in points)
-                if (p.gameObject.activeSelf && p.Kind != PointKind.Base && !p.Optional && !p.Done) required = false;
+            UpdateReveals();
+            UpdateSurvey();
+            UpdateDepot(dt);
+
+            bool required = RequiredDone();
 
             foreach (var p in points)
             {
                 if (!p.gameObject.activeSelf) continue;
                 bool wasLocked = p.Locked;
                 p.Locked = p.Kind == PointKind.Base && !required;
-                if (p.Done) continue;
+                if (p.Done || !p.Revealed) continue;
 
                 TickPoint(p, dt);
                 if (wasLocked != p.Locked) p.RefreshVisual();
@@ -101,10 +160,90 @@ namespace ARaki.Game
             if (!Complete && AllDone())
             {
                 Complete = true;
+                DeliverSamples();
                 Notice?.Invoke("GÖREV TAMAMLANDI");
                 Comms?.Invoke("Harika iş. Keşif raporu aktarılıyor.");
             }
         }
+
+        // ------------------------------------------------------------------ keşif
+
+        void UpdateReveals()
+        {
+            foreach (var p in points)
+            {
+                if (!p.gameObject.activeSelf || p.Revealed) continue;
+                float dist = FlatDistance(robot.position, p.transform.position);
+                bool seen = dist < touchRevealRadius ||
+                            (dist < revealRadius && (map == null || map.LineOfSight(robot.position, p.transform.position)));
+                if (!seen) continue;
+                p.SetRevealed(true);
+                p.RefreshVisual();
+                OnRevealed(p);
+            }
+        }
+
+        void OnRevealed(MissionPoint p)
+        {
+            PointRevealed?.Invoke(p);
+            switch (p.Kind)
+            {
+                case PointKind.Station:
+                    Notice?.Invoke("SİNYAL KAYNAĞI BULUNDU");
+                    Comms?.Invoke(Story.StationName + " bu! Etrafında dolaşıp sektör sektör tara.");
+                    break;
+                case PointKind.Sample:
+                    Notice?.Invoke("MİNERAL NUMUNESİ TESPİT EDİLDİ");
+                    break;
+                case PointKind.Fuel:
+                    Notice?.Invoke("ENERJİ HÜCRESİ BULUNDU");
+                    break;
+            }
+        }
+
+        void UpdateSurvey()
+        {
+            if (SurveyDone || map == null) return;
+            if (map.ExploredArea >= SurveyTargetArea)
+            {
+                SurveyDone = true;
+                SurveyCompleted?.Invoke();
+                Notice?.Invoke("HARİTALAMA TAMAM");
+                Comms?.Invoke("Yüzey haritası yeterli. Şimdi sinyal kaynağına odaklan.");
+            }
+        }
+
+        // ------------------------------------------------------------------ üs: şarj, teslim, kalibrasyon
+
+        void UpdateDepot(float dt)
+        {
+            var b = Find(PointKind.Base);
+            if (b == null) return;
+            bool inBase = FlatDistance(robot.position, b.transform.position) < depotRadius;
+            if (inBase)
+            {
+                if (link.Telemetry.Battery01 < 1f) link.AddBattery(depotChargePerSecond * dt);
+                if (!wasInBase)
+                {
+                    Calibrated?.Invoke();
+                    if (SamplesCarried > 0) DeliverSamples();
+                    else if (link.Telemetry.Battery01 < 0.95f) Notice?.Invoke("ÜS  ·  ŞARJ VE KALİBRASYON");
+                }
+            }
+            wasInBase = inBase;
+        }
+
+        void DeliverSamples()
+        {
+            int carried = SamplesCarried;
+            if (carried <= 0) return;
+            SamplesDeliveredCount += carried;
+            SamplesDelivered?.Invoke(carried);
+            Notice?.Invoke("NUMUNE TESLİM EDİLDİ  ×" + carried);
+            Comms?.Invoke("Numuneler laboratuvara ulaştı. Üssün sensörleri yeniden kalibre edildi.");
+        }
+
+        // ------------------------------------------------------------------ tarama
 
         void TickPoint(MissionPoint p, float dt)
         {
@@ -166,12 +305,17 @@ namespace ARaki.Game
             {
                 case PointKind.Station:
                     Notice?.Invoke(Story.StationName + "  ÇEVRİMİÇİ");
-                    Comms?.Invoke("İstasyon enerjisi bağlandı. Şimdi ana üsse dön.");
+                    Comms?.Invoke(RequiredDone() ? "İstasyon enerjisi bağlandı. Ana üsse dön." : "İstasyon enerjisi bağlandı. Haritalamayı tamamla, sonra ana üsse dön.");
                     break;
                 case PointKind.Fuel:
                     link.AddBattery(refuelAmount);
                     Notice?.Invoke("YAKIT ALINDI  +" + Mathf.RoundToInt(refuelAmount * 100f) + "%");
                     Comms?.Invoke("Şarj tamam.");
+                    break;
+                case PointKind.Sample:
+                    SamplesCollected++;
+                    Notice?.Invoke("NUMUNE ALINDI  " + SamplesCollected + "/" + SamplesTotal);
+                    Comms?.Invoke(SamplesCollected == 1 ? "İlk numune bende. Üsse teslim edince puan ve şarj kazanırız." : "Numune alındı.");
                     break;
                 case PointKind.Base:
                     Notice?.Invoke("ÜSSE DÖNÜLDÜ");
@@ -191,7 +335,7 @@ namespace ARaki.Game
             if (state == ThreatState.Alert && !toldAboutLed)
             {
                 toldAboutLed = true;
-                Comms?.Invoke("Bir sonda seni fark etti. LED'i tut: ışıktan kaçar, ama yakıt harcar.");
+                Comms?.Invoke("Bir bekçi seni fark etti. LED'i tut: ışıktan kaçar, ama yakıt harcar.");
             }
             else if (state == ThreatState.Scared && !toldAboutScare)
             {
@@ -200,8 +344,10 @@ namespace ARaki.Game
             }
         }
 
+        /// <summary>Zorunlu hedefler (istasyon taraması ve haritalama) bitti mi? Üs ancak bundan sonra açılır.</summary>
         bool RequiredDone()
         {
+            if (!SurveyDone) return false;
             foreach (var p in points)
                 if (p.gameObject.activeSelf && p.Kind != PointKind.Base && !p.Optional && !p.Done) return false;
             return true;
@@ -209,6 +355,7 @@ namespace ARaki.Game
 
         bool AllDone()
         {
+            if (!SurveyDone) return false;
             bool any = false;
             foreach (var p in points)
             {

@@ -10,6 +10,9 @@ namespace ARaki.EditorTools
     {
         public const float Width = 6f, Depth = 5f, Height = 2.5f;
 
+        /// <summary>Gerçekte oyuncu odaya 3D baskı obje koyabilir; şimdilik oyun nesneleri robotun sensörüyle keşfeder, odada obje yok.</summary>
+        public static bool ShowPrints = false;
+
         public class PrintObjects
         {
             public Transform Station;     // ORBİT-9 maketi: AR istasyonunun gerçek karşılığı (3D baskı)
@@ -187,7 +190,7 @@ namespace ARaki.EditorTools
             dish.GetComponent<MeshRenderer>().sharedMaterial = orange;
             var sc = station.gameObject.AddComponent<CapsuleCollider>();
             sc.radius = 0.1f; sc.height = 0.3f; sc.center = new Vector3(0f, 0.15f, 0f);
-            AssetPipeline.ContactShadow(room, new Bounds(Vector3.zero, new Vector3(0.22f, 0.1f, 0.22f)), 0.55f, 1.7f);
+            if (ShowPrints) AssetPipeline.ContactShadow(room, new Bounds(Vector3.zero, new Vector3(0.22f, 0.1f, 0.22f)), 0.55f, 1.7f);
             result.Station = station;
 
             // yakıt tankı: turkuaz silindir, koyu bantlar ve kapak
@@ -220,7 +223,7 @@ namespace ARaki.EditorTools
             lid.GetComponent<MeshRenderer>().sharedMaterial = tealDark;
             var fuelCol = fuel.gameObject.AddComponent<CapsuleCollider>();
             fuelCol.radius = 0.07f; fuelCol.height = 0.22f; fuelCol.center = new Vector3(0f, 0.11f, 0f);
-            AssetPipeline.ContactShadow(room, new Bounds(Vector3.zero, new Vector3(0.16f, 0.1f, 0.16f)), 0.5f, 1.6f);
+            if (ShowPrints) AssetPipeline.ContactShadow(room, new Bounds(Vector3.zero, new Vector3(0.16f, 0.1f, 0.16f)), 0.5f, 1.6f);
             result.Fuel = fuel;
 
             // ana üs: yerdeki düz disk
@@ -233,6 +236,12 @@ namespace ARaki.EditorTools
             basePad.GetComponent<MeshRenderer>().sharedMaterial = pad;
             basePad.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
             result.BasePad = basePad.transform;
+            if (!ShowPrints)
+            {
+                result.Station.gameObject.SetActive(false);
+                result.Fuel.gameObject.SetActive(false);
+                result.BasePad.gameObject.SetActive(false);
+            }
             return result;
         }
 

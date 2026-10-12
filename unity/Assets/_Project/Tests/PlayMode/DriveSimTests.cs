@@ -37,6 +37,9 @@ namespace ARaki.Tests
             // Testler robotu kendileri yönetir: klavye girişini ve düşmanları kapat.
             robot.GetComponent<KeyboardDriveInput>().enabled = false;
             foreach (var t in threats) t.enabled = false;
+            // Bu testler tarama/akış mantığını sınar; keşif sisi ve haritalama hedefi ExplorationTests'te ayrıca sınanır.
+            mission.SurveyTargetArea = 0f;
+            mission.RevealAll();
         }
 
         [TearDown]
@@ -151,6 +154,8 @@ namespace ARaki.Tests
         [UnityTest]
         public IEnumerator LedDrainsBattery()
         {
+            Place(session.Spec.SamplePositions[0], 0f);     // üssün dışında: üs şarj ettiği için orada ölçülmez
+            yield return null;
             float before = robot.Telemetry.Battery01;
             robot.SetLed(true);
 

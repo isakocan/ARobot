@@ -35,6 +35,7 @@ namespace ARaki.Game
         [SerializeField] PanoramaViewer viewer;
         [SerializeField] HazardController hazard;
         [SerializeField] RaceController race;
+        [SerializeField] ARaki.Sensing.ExplorationMap map;
         [SerializeField] bool startInMenu = true;
 
         public event Action<GameState> StateChanged;
@@ -49,7 +50,7 @@ namespace ARaki.Game
         public MissionResult Result { get; private set; }
         public IReadOnlyList<UpgradeId> Offers => offers;
         public int BestScore => PlayerPrefs.GetInt("ARaki.BestScore", 0);
-        public float ParSeconds => 28f * Spec.SectorCount + 50f;
+        public float ParSeconds => 28f * Spec.SectorCount + 110f;
         public MissionController Mission => mission;
 
         readonly List<UpgradeId> offers = new List<UpgradeId>();
@@ -70,6 +71,7 @@ namespace ARaki.Game
             Level = 1;
             Profile.Reset();
             PrepareMission(PickSeed());   // arka planda canlı bir sahne dursun
+            mission.RevealAll();          // menüde her şey görünsün
             mission.Running = false;
             SetPlayable(false, true);
             SetState(GameState.Menu);
@@ -176,11 +178,29 @@ namespace ARaki.Game
             Spec = generator.Generate(Level, seed);
 
             MissionPoint stationP = null, baseP = null, fuelP = null;
+            var samplePoints = new List<MissionPoint>();
             foreach (var p in mission.Points)
             {
                 if (p.Kind == PointKind.Station) stationP = p;
                 else if (p.Kind == PointKind.Base) baseP = p;
+                else if (p.Kind == PointKind.Sample) samplePoints.Add(p);
                 else fuelP = p;
+            }
+
+            // keşif haritası ve haritalama hedefi
+            if (map != null) map.Clear();
+            mission.SurveyTargetArea = Spec.SurveyArea;
+            mission.FogOfWar = true;
+            for (int i = 0; i < samplePoints.Count; i++)
+            {
+                var sp = samplePoints[i];
+                bool use = Spec.SamplePositions != null && i < Spec.SampleCount && i < Spec.SamplePositions.Length;
+                sp.Optional = true;
+                sp.SetInMission(use);
+                if (!use) continue;
+                sp.MoveTo(Spec.SamplePositions[i]);
+                sp.ScanSeconds = 1.6f;
+                sp.ConfigureSectors(1);
             }
 
             stationP.SetInMission(true);
@@ -252,6 +272,7 @@ namespace ARaki.Game
             bool explore = Mode == GameMode.Explore;
             driveInput.enabled = playing;
             mission.Running = playing && explore;
+            if (map != null) map.Running = playing && explore;
             viewer.AutoRotate = attract;
             if (!playing)
             {
@@ -275,7 +296,6 @@ namespace ARaki.Game
             {
                 case GameState.Menu:
                     if (Pressed(k => k.enterKey) || Pressed(k => k.spaceKey)) StartGame();
-                    else if (Pressed(k => k.rKey)) StartRaceGame();
                     else if (Pressed(k => k.escapeKey)) Quit();
                     break;
 
@@ -321,11 +341,11 @@ namespace ARaki.Game
             SetPlayable(false, false);
             float fuel = robot.Telemetry.Battery01;
 
-            int objective = 0;
+            int objective = mission.SurveyDone && Spec.SurveyArea > 0f ? 100 : 0;
             foreach (var p in mission.Points)
             {
                 if (!p.gameObject.activeSelf || !p.Done) continue;
-                objective += p.Kind == PointKind.Station ? 250 : p.Kind == PointKind.Fuel ? 40 : 150;
+                objective += p.Kind == PointKind.Station ? 250 : p.Kind == PointKind.Fuel ? 40 : p.Kind == PointKind.Sample ? 60 : 150;
             }
             int timeBonus = Mathf.Max(0, Mathf.RoundToInt((ParSeconds - Elapsed) * 2f));
             int fuelBonus = Mathf.RoundToInt(fuel * 300f);

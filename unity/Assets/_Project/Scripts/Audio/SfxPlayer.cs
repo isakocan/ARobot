@@ -49,6 +49,8 @@ namespace ARaki.Audio
         {
             mission.Notice += OnNotice;
             mission.Comms += OnComms;
+            mission.PointRevealed += OnRevealed;
+            mission.SamplesDelivered += OnDelivered;
             foreach (var t in mission.Threats) t.StateChanged += OnThreatChanged;
             if (hazard != null) hazard.PhaseChanged += OnHazardPhase;
             if (race != null)
@@ -66,6 +68,8 @@ namespace ARaki.Audio
             if (mission == null) return;
             mission.Notice -= OnNotice;
             mission.Comms -= OnComms;
+            mission.PointRevealed -= OnRevealed;
+            mission.SamplesDelivered -= OnDelivered;
             foreach (var t in mission.Threats) if (t != null) t.StateChanged -= OnThreatChanged;
             if (hazard != null) hazard.PhaseChanged -= OnHazardPhase;
             if (race != null)
@@ -149,6 +153,14 @@ namespace ARaki.Audio
             if (state == ThreatState.Alert) effects.PlayOneShot(alarm, 0.4f * masterVolume);
             else if (state == ThreatState.Scared) effects.PlayOneShot(scare, 0.8f * masterVolume);
         }
+
+        void OnRevealed(MissionPoint p)
+        {
+            beeps.pitch = 1.4f;
+            beeps.PlayOneShot(blip, 0.8f * masterVolume);
+        }
+
+        void OnDelivered(int count) => effects.PlayOneShot(chime, 0.7f * masterVolume);
 
         void OnCountdown(int n)
         {

@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace ARaki.Game
 {
-    public enum PointKind { Station, Fuel, Base }
+    public enum PointKind { Station, Fuel, Base, Sample }
 
     /// <summary>
     /// Görevdeki bir hedef: ORBİT-9 istasyonu, enerji hücresi ya da ana üs. Gerçek oyunda kameranın tanıdığı
@@ -33,6 +33,9 @@ namespace ARaki.Game
         public bool[] SectorDone { get; private set; } = new bool[1];
         public Transform Physical => physical;
 
+        /// <summary>Robotun sensörü bu hedefi buldu mu? Bulunmayan hedef görünmez ve taranamaz.</summary>
+        public bool Revealed { get; private set; } = true;
+
         public int CompletedSectors
         {
             get { int n = 0; foreach (var d in SectorDone) if (d) n++; return n; }
@@ -41,6 +44,7 @@ namespace ARaki.Game
         static readonly Color Active = new Color(0.37f, 0.89f, 1f) * 1.3f;
         static readonly Color Scanning = new Color(1f, 0.71f, 0.33f) * 1.5f;
         static readonly Color Complete = new Color(0.45f, 1f, 0.6f) * 1.3f;
+        static readonly Color SampleColor = new Color(0.78f, 0.55f, 1f) * 1.3f;
         static readonly Color LockedColor = new Color(0.37f, 0.55f, 0.65f) * 0.8f;
 
         bool wasDone;
@@ -68,6 +72,14 @@ namespace ARaki.Game
             if (station != null) station.Configure(this);
         }
 
+        /// <summary>Hedefi keşfedilmiş/keşfedilmemiş yapar; görseli ona göre gizler.</summary>
+        public void SetRevealed(bool revealed)
+        {
+            Revealed = revealed;
+            var mirror = GetComponent<ARMirror>();
+            if (mirror != null) mirror.Hidden = !revealed;
+        }
+
         public void ResetState()
         {
             ConfigureSectors(SectorCount);
@@ -92,7 +104,7 @@ namespace ARaki.Game
         public void RefreshVisual()
         {
             if (holo == null) return;
-            holo.SetColor(Done ? Complete : Locked ? LockedColor : Progress > 0.01f ? Scanning : Active);
+            holo.SetColor(Done ? Complete : Locked ? LockedColor : Progress > 0.01f ? Scanning : Kind == PointKind.Sample ? SampleColor : Active);
             RefreshIntensity();
             if (Done && !wasDone && burst != null && isActiveAndEnabled) burst.Play();
             wasDone = Done;

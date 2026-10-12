@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using ARaki.AR;
 using ARaki.Game;
 using ARaki.Robot;
+using ARaki.Sensing;
 using ARaki.Video;
 using UnityEngine;
 using UnityEngine.UI;
@@ -21,6 +22,7 @@ namespace ARaki.UI
         [SerializeField] ARRig rig;
         [SerializeField] GameSession session;
         [SerializeField] HazardController hazard;
+        [SerializeField] ExplorationMap map;
 
         [Header("Tasarım")]
         [SerializeField] Font titleFont;
@@ -32,8 +34,8 @@ namespace ARaki.UI
         float RadarRange => session != null ? session.Profile.RadarRange : 4f;   // m, yükseltmeyle büyür
         const float RadarRadius = 78f;     // px
 
-        class Row { public MissionPoint Point; public RectTransform Root; public Text Status; public RectTransform Fill; public float Width; public Text Label; }
-        class Blip { public Transform Target; public Image Image; public bool Threat; }
+        class Row { public MissionPoint Point; public int Custom; public RectTransform Root; public Text Status; public RectTransform Fill; public Image FillImage; public float Width; public Text Label; }
+        class Blip { public Transform Target; public Image Image; public bool Threat; public MissionPoint Point; public Threat Th; public bool Detected; }
         class Tag { public bool Shelter; public Transform Target; public MissionPoint Point; public Threat Threat; public RectTransform Rt; public Image Frame; public Text Name; public Text Info; public float Lift; }
 
         RectTransform root;
@@ -191,25 +193,31 @@ namespace ARaki.UI
 
         void BuildMissionCard()
         {
-            int n = mission.Points.Count;
+            int n = 2;     // haritalama + numune satırı
+            foreach (var p in mission.Points) if (p.Kind != PointKind.Sample) n++;
             var card = Card("Mission", TopLeft, TopLeft, new Vector2(24f, -24f), new Vector2(330f, 92f + n * 46f));
             missionCard = card;
             missionHeader = Label(card, "GÖREV 01  ·  AKTİF", monoFont, 11, SpaceTheme.Primary, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(16f, -12f), new Vector2(298f, 16f));
-            Label(card, "HANE KEŞFİ", titleFont, 26, SpaceTheme.Text, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(16f, -26f), new Vector2(298f, 32f));
+            Label(card, "YÜZEY KEŞFİ", titleFont, 26, SpaceTheme.Text, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(16f, -26f), new Vector2(298f, 32f));
             Img(Rt("Rule", card, TopLeft, TopLeft, new Vector2(16f, -64f), new Vector2(298f, 1f)), SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.35f));
 
-            for (int i = 0; i < n; i++)
-            {
-                var p = mission.Points[i];
-                var rowRoot = Rt("Row", card, TopLeft, TopLeft, new Vector2(16f, -78f - i * 46f), new Vector2(298f, 40f));
-                var row = new Row { Point = p, Root = rowRoot, Width = 298f };
-                row.Label = Label(rowRoot, p.Label, bodyFont, 18, SpaceTheme.Text, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(0f, 0f), new Vector2(200f, 22f));
-                row.Status = Label(rowRoot, "", monoFont, 13, SpaceTheme.TextDim, TextAnchor.UpperRight, TopLeft, TopLeft, new Vector2(208f, -3f), new Vector2(90f, 18f));
-                Img(Rt("Track", rowRoot, TopLeft, TopLeft, new Vector2(0f, -26f), new Vector2(298f, 3f)), SpaceTheme.Track);
-                row.Fill = Rt("Fill", rowRoot, TopLeft, new Vector2(0f, 1f), new Vector2(0f, -26f), new Vector2(0f, 3f));
-                Img(row.Fill, SpaceTheme.Primary);
-                rows.Add(row);
-            }
+            AddRow(card, null, 1, "HARİTALAMA");
+            AddRow(card, null, 2, "NUMUNE");
+            foreach (var p in mission.Points)
+                if (p.Kind != PointKind.Sample) AddRow(card, p, 0, p.Label);
+        }
+
+        void AddRow(RectTransform card, MissionPoint p, int custom, string label)
+        {
+            int i = rows.Count;
+            var rowRoot = Rt("Row", card, TopLeft, TopLeft, new Vector2(16f, -78f - i * 46f), new Vector2(298f, 40f));
+            var row = new Row { Point = p, Custom = custom, Root = rowRoot, Width = 298f };
+            row.Label = Label(rowRoot, label, bodyFont, 18, SpaceTheme.Text, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(0f, 0f), new Vector2(200f, 22f));
+            row.Status = Label(rowRoot, "", monoFont, 13, SpaceTheme.TextDim, TextAnchor.UpperRight, TopLeft, TopLeft, new Vector2(208f, -3f), new Vector2(90f, 18f));
+            Img(Rt("Track", rowRoot, TopLeft, TopLeft, new Vector2(0f, -26f), new Vector2(298f, 3f)), SpaceTheme.Track);
+            row.Fill = Rt("Fill", rowRoot, TopLeft, new Vector2(0f, 1f), new Vector2(0f, -26f), new Vector2(0f, 3f));
+            row.FillImage = Img(row.Fill, SpaceTheme.Primary);
+            rows.Add(row);
         }
 
         /// <summary>Görevdeki aktif hedeflere göre satırları ve kart yüksekliğini düzenler.</summary>
@@ -218,7 +226,10 @@ namespace ARaki.UI
             int index = 0;
             foreach (var r in rows)
             {
-                bool active = r.Point.gameObject.activeSelf;
+                bool active;
+                if (r.Custom == 1) active = mission.SurveyTargetArea > 0f;
+                else if (r.Custom == 2) active = mission.SamplesTotal > 0;
+                else active = r.Point.gameObject.activeSelf && (r.Point.Revealed || r.Point.Kind == PointKind.Station);
                 if (r.Root.gameObject.activeSelf != active) r.Root.gameObject.SetActive(active);
                 if (!active) continue;
                 r.Root.anchoredPosition = new Vector2(16f, -78f - index * 46f);
@@ -270,42 +281,57 @@ namespace ARaki.UI
             return fill;
         }
 
+        const float MapW = 190f, MapH = 159f;
+        RectTransform mapHolder, meRoot;
+        float detectTimer;
+
+        float PxPerMeter => MapW / map.Size.x;
+
         void BuildRadar()
         {
-            var card = Card("Radar", BottomRight, BottomRight, new Vector2(-24f, 24f), new Vector2(180f, 180f));
-            Label(card, "RADAR", monoFont, 11, SpaceTheme.Primary, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(12f, -9f), new Vector2(80f, 14f));
-            radarLabel = Label(card, "4 m", monoFont, 11, SpaceTheme.TextDim, TextAnchor.UpperRight, TopLeft, TopLeft, new Vector2(88f, -9f), new Vector2(80f, 14f));
+            map.Init();
+            var card = Card("Map", BottomRight, BottomRight, new Vector2(-24f, 24f), new Vector2(214f, 200f));
+            Label(card, "HARİTA", monoFont, 11, SpaceTheme.Primary, TextAnchor.UpperLeft, TopLeft, TopLeft, new Vector2(12f, -9f), new Vector2(80f, 14f));
+            radarLabel = Label(card, "0 m²", monoFont, 11, SpaceTheme.TextDim, TextAnchor.UpperRight, TopLeft, TopLeft, new Vector2(100f, -9f), new Vector2(102f, 14f));
 
-            var c = Rt("Scope", card, Center, Center, new Vector2(0f, -6f), new Vector2(RadarRadius * 2f, RadarRadius * 2f));
-            Img(c, SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.55f), ring);
-            Img(Rt("Mid", c, Center, Center, Vector2.zero, new Vector2(RadarRadius, RadarRadius)), SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.25f), ring);
-            Img(Rt("H", c, Center, Center, Vector2.zero, new Vector2(RadarRadius * 2f, 1f)), SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.15f));
-            Img(Rt("V", c, Center, Center, Vector2.zero, new Vector2(1f, RadarRadius * 2f)), SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.15f));
+            mapHolder = Rt("Holder", card, TopCenter, TopCenter, new Vector2(0f, -28f), new Vector2(MapW, MapH));
+            Img(mapHolder, new Color(0.01f, 0.05f, 0.08f, 0.9f));
+            var tex = Rt("Tex", mapHolder, Center, Center, Vector2.zero, new Vector2(MapW, MapH));
+            var raw = tex.gameObject.AddComponent<RawImage>();
+            raw.texture = map.Texture;
+            raw.raycastTarget = false;
+            mapRaw = raw;
+            Img(Rt("Edge", mapHolder, Center, Center, Vector2.zero, new Vector2(MapW, MapH)), SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.25f), bracket, Image.Type.Sliced);
 
-            sweep = Rt("Sweep", c, Center, new Vector2(0.5f, 0f), Vector2.zero, new Vector2(2f, RadarRadius));
-            Img(sweep, SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.75f));
+            // sensör süpürmesi (robotun etrafında dönen çizgi) ve robotun kendisi
+            sweep = Rt("Sweep", mapHolder, BottomLeft, new Vector2(0.5f, 0f), Vector2.zero, new Vector2(1.5f, map.Range * PxPerMeter));
+            Img(sweep, SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.5f));
+            meRoot = Rt("Me", mapHolder, BottomLeft, Center, Vector2.zero, new Vector2(7f, 7f));
+            Img(meRoot, SpaceTheme.Text);
+            Img(Rt("Nose", meRoot, Center, new Vector2(0.5f, 0f), new Vector2(0f, 3f), new Vector2(2f, 8f)), SpaceTheme.Text);
 
-            var me = Rt("Me", c, Center, Center, Vector2.zero, new Vector2(8f, 8f));
-            me.localRotation = Quaternion.Euler(0f, 0f, 45f);
-            Img(me, SpaceTheme.Text);
-
-            foreach (var p in mission.Points) blips.Add(MakeBlip(c, p.transform, false));
-            foreach (var t in mission.Threats) blips.Add(MakeBlip(c, t.transform, true));
+            foreach (var p in mission.Points) blips.Add(MakeBlip(mapHolder, p.transform, false, p, null));
+            foreach (var t in mission.Threats) blips.Add(MakeBlip(mapHolder, t.transform, true, null, t));
             if (hazard != null)
                 foreach (var sp in hazard.ShelterProxies)
                 {
-                    var b = MakeBlip(c, sp, false);
+                    var b = MakeBlip(mapHolder, sp, false, null, null);
                     b.Image.color = SpaceTheme.Success;
                     blips.Add(b);
                 }
         }
 
-        Blip MakeBlip(RectTransform parent, Transform target, bool threat)
+        RawImage mapRaw;
+
+        Blip MakeBlip(RectTransform parent, Transform target, bool threat, MissionPoint point, Threat th)
         {
-            var r = Rt("Blip", parent, Center, Center, Vector2.zero, new Vector2(threat ? 8f : 7f, threat ? 8f : 7f));
+            var r = Rt("Blip", parent, BottomLeft, Center, Vector2.zero, new Vector2(threat ? 8f : 7f, threat ? 8f : 7f));
             if (threat) r.localRotation = Quaternion.Euler(0f, 0f, 45f);
-            return new Blip { Target = target, Threat = threat, Image = Img(r, threat ? SpaceTheme.Danger : SpaceTheme.Primary) };
+            Color c = threat ? SpaceTheme.Danger : point != null && point.Kind == PointKind.Sample ? SpaceTheme.Warning : SpaceTheme.Primary;
+            return new Blip { Target = target, Threat = threat, Point = point, Th = th, Image = Img(r, c) };
         }
+
+        Vector2 ToMap(Vector3 world) => new Vector2((world.x - map.Origin.x) / map.Size.x * MapW, (world.z - map.Origin.y) / map.Size.y * MapH);
 
         void BuildBottomBar()
         {
@@ -386,9 +412,9 @@ namespace ARaki.UI
             if (session != null)
             {
                 missionHeader.text = "GÖREV " + session.Level.ToString("00") + "  ·  AKTİF";
-                sectorLabel.text = session.Spec.Title + "  ·  SALON";
+                sectorLabel.text = Story.PlanetName + "  ·  " + session.Spec.Title;
             }
-            radarLabel.text = Mathf.RoundToInt(RadarRange) + " m";
+            radarLabel.text = map.ExploredArea.ToString("0.0") + " m²";
             UpdateMissionRows();
             UpdateRadar(dt);
             UpdateTags();
@@ -476,39 +502,86 @@ namespace ARaki.UI
             fill.anchoredPosition = new Vector2(70f + half + Mathf.Min(0f, v) * half, fill.anchoredPosition.y);
         }
 
+        void UpdateRadar(float dt)
+        {
+            float signal = hazard != null ? hazard.Signal : 1f;
+            Vector2 me = ToMap(robot.transform.position);
+            meRoot.anchoredPosition = me;
+            meRoot.localRotation = Quaternion.Euler(0f, 0f, -robot.Telemetry.YawDegrees);
+            sweep.anchoredPosition = me;
+            sweep.localRotation *= Quaternion.Euler(0f, 0f, -140f * dt);
+            mapRaw.color = new Color(1f, 1f, 1f, Mathf.Lerp(0.35f, 1f, signal));
+
+            detectTimer -= dt;
+            bool refresh = detectTimer <= 0f;
+            if (refresh) detectTimer = 0.2f;
+            foreach (var b in blips)
+            {
+                bool live = b.Target.gameObject.activeInHierarchy;
+                if (live && b.Point != null) live = b.Point.Revealed;
+                if (live && b.Th != null)
+                {
+                    if (refresh)
+                    {
+                        b.Detected = MissionController.FlatDistance(robot.transform.position, b.Target.position) < map.Range
+                                     && map.LineOfSight(robot.transform.position, b.Target.position, 0.15f);
+                        b.Th.Detected = b.Detected;
+                    }
+                    live = b.Detected;
+                }
+                if (b.Image.gameObject.activeSelf != live) b.Image.gameObject.SetActive(live);
+                if (!live) continue;
+                Vector2 v = ToMap(b.Target.position);
+                if (signal < 0.9f) v += new Vector2(Random.value - 0.5f, Random.value - 0.5f) * (1f - signal) * 14f;
+                b.Image.rectTransform.anchoredPosition = v;
+                Color c = b.Image.color;
+                c.a = Mathf.Lerp(0.25f, 1f, signal) * (signal < 0.5f && Random.value < 0.25f ? 0f : 1f);
+                b.Image.color = c;
+            }
+        }
+
         void UpdateMissionRows()
         {
             foreach (var r in rows)
             {
-                var p = r.Point;
-                if (!p.gameObject.activeSelf) continue;
-                r.Fill.sizeDelta = new Vector2(r.Width * (p.Done ? 1f : p.Progress), 3f);
-                if (p.Done) { r.Status.text = "TAMAM"; r.Status.color = SpaceTheme.Success; r.Label.color = SpaceTheme.TextDim; r.Fill.GetComponent<Image>().color = SpaceTheme.Success; }
-                else if (p.Locked) { r.Status.text = "KİLİTLİ"; r.Status.color = SpaceTheme.TextDim; r.Label.color = SpaceTheme.TextDim; }
-                else if (p.Kind == PointKind.Station && p.Progress > 0.01f) { r.Status.text = p.CompletedSectors + "/" + p.SectorCount; r.Status.color = SpaceTheme.Warning; r.Label.color = SpaceTheme.Text; r.Fill.GetComponent<Image>().color = SpaceTheme.Warning; }
-                else if (p.Progress > 0.01f) { r.Status.text = Mathf.RoundToInt(p.Progress * 100f) + "%"; r.Status.color = SpaceTheme.Warning; r.Label.color = SpaceTheme.Text; r.Fill.GetComponent<Image>().color = SpaceTheme.Warning; }
-                else { r.Status.text = p.Optional ? "İSTEĞE BAĞLI" : "BEKLİYOR"; r.Status.color = SpaceTheme.TextDim; r.Label.color = SpaceTheme.Text; r.Fill.GetComponent<Image>().color = SpaceTheme.Primary; }
-            }
-        }
+                if (!r.Root.gameObject.activeSelf) continue;
+                if (r.Custom == 1)
+                {
+                    float prog = mission.SurveyProgress01;
+                    bool done = mission.SurveyDone;
+                    r.Fill.sizeDelta = new Vector2(r.Width * prog, 3f);
+                    r.Status.text = done ? "TAMAM" : Mathf.RoundToInt(prog * 100f) + "%";
+                    r.Status.color = done ? SpaceTheme.Success : prog > 0.01f ? SpaceTheme.Warning : SpaceTheme.TextDim;
+                    r.Label.color = done ? SpaceTheme.TextDim : SpaceTheme.Text;
+                    r.FillImage.color = done ? SpaceTheme.Success : SpaceTheme.Warning;
+                    continue;
+                }
+                if (r.Custom == 2)
+                {
+                    int total = Mathf.Max(1, mission.SamplesTotal), got = mission.SamplesCollected;
+                    r.Fill.sizeDelta = new Vector2(r.Width * got / total, 3f);
+                    r.Status.text = got + "/" + total + (mission.SamplesCarried > 0 ? "  TAŞINIYOR" : "");
+                    r.Status.color = got > 0 ? SpaceTheme.Warning : SpaceTheme.TextDim;
+                    r.Label.color = SpaceTheme.Text;
+                    r.FillImage.color = SpaceTheme.Warning;
+                    continue;
+                }
 
-        void UpdateRadar(float dt)
-        {
-            sweep.localRotation *= Quaternion.Euler(0f, 0f, -110f * dt);
-            float signal = hazard != null ? hazard.Signal : 1f;
-            foreach (var b in blips)
-            {
-                bool live = b.Target.gameObject.activeInHierarchy;
-                if (b.Image.gameObject.activeSelf != live) b.Image.gameObject.SetActive(live);
-                if (!live) continue;
-                Vector3 rel = robot.transform.InverseTransformPoint(b.Target.position);
-                Vector2 v = new Vector2(rel.x, rel.z) / RadarRange * RadarRadius;
-                bool outside = v.magnitude > RadarRadius * 0.96f;
-                if (outside) v = v.normalized * RadarRadius * 0.96f;
-                if (signal < 0.9f) v += new Vector2(Random.value - 0.5f, Random.value - 0.5f) * (1f - signal) * 22f;
-                b.Image.rectTransform.anchoredPosition = v;
-                Color c = b.Image.color;
-                c.a = (outside ? 0.35f : 1f) * Mathf.Lerp(0.25f, 1f, signal) * (signal < 0.5f && Random.value < 0.25f ? 0f : 1f);
-                b.Image.color = c;
+                var p = r.Point;
+                if (!p.Revealed)
+                {
+                    r.Fill.sizeDelta = new Vector2(0f, 3f);
+                    r.Status.text = "ARANIYOR";
+                    r.Status.color = SpaceTheme.TextDim;
+                    r.Label.color = SpaceTheme.TextDim;
+                    continue;
+                }
+                r.Fill.sizeDelta = new Vector2(r.Width * (p.Done ? 1f : p.Progress), 3f);
+                if (p.Done) { r.Status.text = "TAMAM"; r.Status.color = SpaceTheme.Success; r.Label.color = SpaceTheme.TextDim; r.FillImage.color = SpaceTheme.Success; }
+                else if (p.Locked) { r.Status.text = "KİLİTLİ"; r.Status.color = SpaceTheme.TextDim; r.Label.color = SpaceTheme.TextDim; }
+                else if (p.Kind == PointKind.Station && p.Progress > 0.01f) { r.Status.text = p.CompletedSectors + "/" + p.SectorCount; r.Status.color = SpaceTheme.Warning; r.Label.color = SpaceTheme.Text; r.FillImage.color = SpaceTheme.Warning; }
+                else if (p.Progress > 0.01f) { r.Status.text = Mathf.RoundToInt(p.Progress * 100f) + "%"; r.Status.color = SpaceTheme.Warning; r.Label.color = SpaceTheme.Text; r.FillImage.color = SpaceTheme.Warning; }
+                else { r.Status.text = p.Optional ? "İSTEĞE BAĞLI" : "BEKLİYOR"; r.Status.color = SpaceTheme.TextDim; r.Label.color = SpaceTheme.Text; r.FillImage.color = SpaceTheme.Primary; }
             }
         }
 
@@ -517,7 +590,8 @@ namespace ARaki.UI
             var cam = viewer.ViewCamera;
             foreach (var tag in tags)
             {
-                if (!tag.Target.gameObject.activeInHierarchy) { tag.Rt.gameObject.SetActive(false); continue; }
+                if (!tag.Target.gameObject.activeInHierarchy || (tag.Point != null && !tag.Point.Revealed) || (tag.Threat != null && !tag.Threat.Detected))
+                { tag.Rt.gameObject.SetActive(false); continue; }
                 Vector3 world = tag.Target.position + Vector3.up * tag.Lift;
                 Vector3 screen = cam.WorldToScreenPoint(rig.ToRig(world));
                 bool visible = screen.z > 0.15f && screen.x > -40f && screen.x < cam.pixelWidth + 40f && screen.y > -40f && screen.y < cam.pixelHeight + 40f;

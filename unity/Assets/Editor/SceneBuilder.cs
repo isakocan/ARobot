@@ -5,6 +5,7 @@ using ARaki.Core;
 using ARaki.Dev;
 using ARaki.Game;
 using ARaki.Robot;
+using ARaki.Sensing;
 using ARaki.UI;
 using ARaki.Video;
 using UnityEditor;
@@ -51,12 +52,20 @@ namespace ARaki.EditorTools
             var arRoot = new GameObject("AR Objects").transform;
             arRoot.SetParent(rigGo.transform, false);
 
+            var map = BuildMap(robot.transform);
             var points = new[]
             {
                 MakeStationPoint("ORBİT-9 · TARAMA", prints.Station, rig, arRoot),
                 MakePoint("Fuel", "ENERJİ HÜCRESİ", PointKind.Fuel, prints.Fuel, 0.55f, rig, arRoot, HoloFuel),
                 MakePoint("Base", "ANA ÜS", PointKind.Base, prints.BasePad, 0.45f, rig, arRoot, HoloBase),
+                MakeSamplePoint(0, rig, arRoot),
+                MakeSamplePoint(1, rig, arRoot),
+                MakeSamplePoint(2, rig, arRoot),
             };
+            BuildLidar(map, rig, arRoot);
+            if (!RoomBuilder.ShowPrints)
+                foreach (var pt in points)
+                    if (pt.Kind != PointKind.Sample) SetRef(pt, "physical", null);   // odada gerçek obje yok: hedefler sanal
             var threats = new[]
             {
                 MakeThreat("A", new Vector3(1.0f, 0.28f, 0.6f), robot.transform, link, rig, arRoot),
@@ -69,6 +78,7 @@ namespace ARaki.EditorTools
             var mission = missionGo.AddComponent<MissionController>();
             SetRef(mission, "robot", robot.transform);
             SetRef(mission, "link", link);
+            SetRef(mission, "map", map);
             SetRefs(mission, "points", points);
             SetRefs(mission, "threats", threats);
 
@@ -107,6 +117,7 @@ namespace ARaki.EditorTools
             SetRef(session, "viewer", viewer);
             SetRef(session, "hazard", hazard);
             SetRef(session, "race", race);
+            SetRef(session, "map", map);
 
             var sfx = new GameObject("Sfx").AddComponent<SfxPlayer>();
             SetRef(sfx, "link", link);
@@ -122,6 +133,7 @@ namespace ARaki.EditorTools
             SetRef(hud, "rig", rig);
             SetRef(hud, "session", session);
             SetRef(hud, "hazard", hazard);
+            SetRef(hud, "map", map);
             SetRef(hud, "titleFont", LoadFont("Rajdhani-Bold"));
             SetRef(hud, "bodyFont", LoadFont("Rajdhani-Medium"));
             SetRef(hud, "monoFont", LoadFont("ShareTechMono-Regular"));
@@ -912,6 +924,18 @@ namespace ARaki.EditorTools
             }
             if (Env("ARAKI_LED") == "1") link.SetLed(true);
 
+            // ARAKI_EXPLORE=1: robot odada gezmiş gibi haritayı doldurur; ARAKI_REVEAL=1: tüm hedefler keşfedilmiş sayılır
+            if (Env("ARAKI_EXPLORE") == "1")
+            {
+                var exploreMap = Object.FindFirstObjectByType<ExplorationMap>();
+                var path = Object.FindFirstObjectByType<RaceController>().Generate(1, 5).Path;
+                var spots = new System.Collections.Generic.List<Vector3>();
+                for (int i = 0; i < path.Length; i += 6) spots.Add(path[i]);
+                spots.Add(link.transform.position);
+                exploreMap.SurveyFrom(spots.ToArray(), 2);
+            }
+            if (Env("ARAKI_REVEAL") == "1") mission.RevealAll();
+
             string tick = Env("ARAKI_TICK");
             if (!string.IsNullOrEmpty(tick))
             {
@@ -992,11 +1016,13 @@ namespace ARaki.EditorTools
             foreach (var m in Object.FindObjectsByType<ARMirror>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 bool live = m.gameObject.activeInHierarchy;
-                if (m.Visual != null) m.Visual.gameObject.SetActive(live);
+                if (m.Visual != null) m.Visual.gameObject.SetActive(live && !m.Hidden);
                 if (live) m.Sync();
             }
             if (view != "ar") viewer.Apply();
             Object.FindFirstObjectByType<RaceController>()?.SyncVisuals();
+            Object.FindFirstObjectByType<ARaki.AR.LidarOverlay>()?.Tick(0f);
+            Object.FindFirstObjectByType<ExplorationMap>()?.FlushTexture();
             if (view != "top")
             {
                 hud.Tick(0.016f);
