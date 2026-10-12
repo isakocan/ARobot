@@ -33,7 +33,7 @@ namespace ARaki.EditorTools
         public static void ApplySettings()
         {
             PlayerSettings.companyName = "ARaki";
-            PlayerSettings.productName = "ARaki";
+            PlayerSettings.productName = GameInfo.Title;
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
             PlayerSettings.allowedAutorotateToPortrait = false;
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;

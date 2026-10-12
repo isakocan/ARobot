@@ -7,8 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: Sky_Mystery_Wall
-  m_Shader: {fileID: 4800000, guid: 78b1ece4474204a43941afc904bdd659, type: 3}
+  m_Name: Toon_BaseStone
+  m_Shader: {fileID: 4800000, guid: 52ad294a485af22428cb7da2c420dd3e, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -16,8 +16,9 @@ Material:
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
-  m_CustomRenderQueue: -1
-  stringTagMap: {}
+  m_CustomRenderQueue: 2000
+  stringTagMap:
+    RenderType: Opaque
   disabledShaderPasses: []
   m_LockedProperties: 
   m_SavedProperties:
@@ -25,12 +26,17 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _Ceiling: 0
-    - _Intensity: 1
-    - _Mode: 2
+    - _DstBlend: 0
+    - _Glow: 0.3
+    - _RimPower: 3
+    - _RimStrength: 0.4
+    - _SrcBlend: 1
+    - _ZWrite: 1
     m_Colors:
-    - _ColA: {r: 0.22745098, g: 0.1254902, b: 0.1882353, a: 1}
-    - _ColB: {r: 0.08235294, g: 0.039215688, b: 0.078431375, a: 1}
-    - _ColC: {r: 0.72156864, g: 0.57254905, b: 0.2901961, a: 1}
+    - _BaseColor: {r: 0.6039216, g: 0.47843137, b: 0.3372549, a: 1}
+    - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
+    - _LightDir: {r: -0.45, g: 0.8, b: -0.35, a: 0}
+    - _RimColor: {r: 1, g: 0.8784314, b: 0.6901961, a: 1}
+    - _ShadeColor: {r: 0.30588236, g: 0.22745098, b: 0.14901961, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

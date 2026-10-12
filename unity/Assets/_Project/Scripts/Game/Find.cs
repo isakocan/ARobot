@@ -28,6 +28,7 @@ namespace ARaki.Game
         public float PingUntil;              // sonarla görünür kalma süresi sonu
         public int Flees;
         public float FleeTimer;
+        public float Alarm;                  // ürkek bulgu: tedirginlik süresi (dolunca kaçar)
         public Vector3 FleeTarget;
         public int Essence = 1;
         public float ExpireAt;               // nadir bulgular görüldükten sonra bu süre dolunca kaybolur (0 = kaybolmaz)

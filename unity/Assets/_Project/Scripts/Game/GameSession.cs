@@ -107,17 +107,6 @@ namespace ARaki.Game
 
         public bool Buy(UpgradeId id) => State == GameState.Lab && expedition.Buy(id);
 
-        /// <summary>Tema seç: kaydedilir ve sahne yeniden yüklenir.</summary>
-        public void SetTheme(ThemeId id)
-        {
-            if (ThemeCatalog.Current == id) return;
-            expedition.Save();
-            ThemeCatalog.Set(id);
-            Time.timeScale = 1f;
-            AudioListener.pause = false;
-            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
-        }
-
         void Freeze(bool frozen)
         {
             Time.timeScale = frozen ? 0f : 1f;
@@ -143,10 +132,6 @@ namespace ARaki.Game
                 case GameState.Menu:
                     if (Pressed(k => k.enterKey) || Pressed(k => k.spaceKey)) Continue();
                     else if (Pressed(k => k.nKey)) NewGame();
-                    else if (Pressed(k => k.digit1Key)) SetTheme(ThemeId.Home);
-                    else if (Pressed(k => k.digit2Key)) SetTheme(ThemeId.Safari);
-                    else if (Pressed(k => k.digit3Key)) SetTheme(ThemeId.Space);
-                    else if (Pressed(k => k.digit4Key)) SetTheme(ThemeId.Mystery);
                     else if (Pressed(k => k.escapeKey)) Quit();
                     break;
 

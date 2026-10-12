@@ -25,7 +25,7 @@ namespace ARaki.Tests
         public IEnumerator LoadScene()
         {
             Time.timeScale = 1f;
-            foreach (ThemeId id in new[] { ThemeId.Home, ThemeId.Safari, ThemeId.Space, ThemeId.Mystery }) SaveData.Delete(id);
+            SaveData.Delete(ThemeId.Home);
             ThemeCatalog.Set(ThemeId.Home, false);
             yield return SceneManager.LoadSceneAsync("DriveSim");
             yield return null;
@@ -162,8 +162,7 @@ namespace ARaki.Tests
         {
             var f = SpawnAhead(FindKind.Shy, 1.0f);
             ex.NoiseOverride = 0.9f;
-            ex.Tick(0.1f);
-            ex.Tick(0.1f);
+            Run(1.2f);
             yield return null;
             Assert.AreEqual(FindState.Fleeing, f.State, "gürültülü robottan kaçmalı");
             Assert.AreEqual(1, f.Flees);
@@ -191,13 +190,13 @@ namespace ARaki.Tests
             Run(1f);
             Assert.AreEqual(FindState.Idle, f.State, "sessiz robottan ürkmemeli");
             robot.SetLed(true);
-            Run(0.3f);
+            Run(1.2f);
             yield return null;
             Assert.AreEqual(FindState.Fleeing, f.State, "ürkek bulgu ışıktan kaçmalı");
         }
 
         [UnityTest]
-        public IEnumerator ShyFindEscapesAfterThreeScares()
+        public IEnumerator ShyFindEscapesAfterFiveScares()
         {
             var f = SpawnAhead(FindKind.Shy, 1.0f);
             bool fled = false;
@@ -211,7 +210,7 @@ namespace ARaki.Tests
                 Run(2f);
             }
             yield return null;
-            Assert.IsTrue(fled, "üç ürkütmeden sonra kaçmalı");
+            Assert.IsTrue(fled, "beş ürkütmeden sonra kaçmalı");
         }
 
         [UnityTest]
@@ -456,7 +455,7 @@ namespace ARaki.Tests
             Assert.AreEqual(0, ex.Essence, "yeni oyun ilerlemeyi silmeli");
 
             // başka temanın kaydı ayrı tutulur
-            Assert.IsNull(SaveData.Load(ThemeId.Space));
+            Assert.IsNull(SaveData.Load(ThemeId.Home), "yeni oyun kaydı silmeli");
         }
 
         [UnityTest]
@@ -539,6 +538,40 @@ namespace ARaki.Tests
             yield return null;
             Assert.AreEqual(GhostState.Drift, g.State, "robot üste girince gölge bırakmalı");
             Assert.GreaterOrEqual(Vector3.Distance(g.Position, HouseLayout.BasePosition), 1.2f, "gölge güvenli alana girmemeli");
+        }
+
+        [UnityTest]
+        public IEnumerator LightFreezesAndDissolvesAGhost()
+        {
+            PlaceRobotFar();
+            robot.SetLed(true);
+            ex.NoiseOverride = 0.3f;
+            int before = ex.Essence;
+            var g = ex.SpawnGhost(robot.transform.position + robot.transform.forward * 2.0f);
+            Run(0.3f);
+            Assert.AreEqual(GhostState.Chase, g.State, "ışık ve gürültü gölgeyi çeker");
+            Vector3 start = g.Position;
+            Run(1.0f);
+            Assert.Less(Vector3.Distance(start, g.Position), 0.1f, "fenerin altında donmalı");
+            Run(2.5f);
+            yield return null;
+            Assert.IsFalse(g != null && g.Alive, "yeterince ışık tutunca erimeli");
+            Assert.Greater(ex.Essence, before, "eriyen gölge öz bırakmalı");
+        }
+
+        [UnityTest]
+        public IEnumerator ShyFindGetsUneasyBeforeFleeing()
+        {
+            PlaceRobotFar();
+            var f = SpawnAhead(FindKind.Shy, 1.2f);
+            f.Revealed = true;
+            ex.NoiseOverride = 0.7f;
+            Run(0.5f);
+            Assert.AreEqual(FindState.Idle, f.State, "ilk yarım saniyede kaçmamalı (tedirgin olur)");
+            Assert.Greater(f.Alarm, 0.2f);
+            Run(1.5f);
+            yield return null;
+            Assert.AreEqual(FindState.Fleeing, f.State, "gürültü sürerse kaçar");
         }
 
         [UnityTest]

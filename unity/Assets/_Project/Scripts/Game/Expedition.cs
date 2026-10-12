@@ -471,7 +471,10 @@ namespace ARaki.Game
             {
                 case FindKind.Shy:
                     if (f.State == FindState.Fleeing) { StepFlee(f, dt); break; }
-                    if (f.Revealed && d < 1.7f && (noise > 0.45f || (led && d < 2.0f))) { StartFlee(f, me); break; }
+                    // önce tedirgin olur; gürültü sürerse kaçar
+                    bool spooked = f.Revealed && d < 1.7f && (noise > 0.5f || (led && d < 2.0f));
+                    f.Alarm = spooked ? f.Alarm + dt : Mathf.Max(0f, f.Alarm - dt * 1.5f);
+                    if (f.Alarm > 0.9f) { f.Alarm = 0f; StartFlee(f, me); break; }
                     satisfied = f.Revealed && d < captureRadius && noise < 0.2f && !led;
                     break;
 
@@ -558,9 +561,9 @@ namespace ARaki.Game
             {
                 f.State = FindState.Idle;
                 f.Home = f.transform.position;
-                if (f.Kind == FindKind.Shy && f.Flees >= 3)
+                if (f.Kind == FindKind.Shy && f.Flees >= 5)
                 {
-                    // üç kez ürküttün: tamamen uzaklaşır
+                    // beş kez ürküttün: tamamen uzaklaşır
                     f.State = FindState.Gone;
                     Notice?.Invoke(Theme.NamesOf(f.Kind).Name + " KAÇTI");
                     FindFled?.Invoke(f);
@@ -618,7 +621,7 @@ namespace ARaki.Game
         int MaxGhosts => ChapterIndex >= 4 ? 2 : 1;
         const float GhostBaseSpeed = 0.24f;       // robotun varsayılan hızından (0,3 m/s) biraz yavaş
         const float SafeRadius = 1.25f;           // üssün çevresinde gölge giremez
-        bool tutorialGhost;
+        bool tutorialGhost, tutorialLight;
 
         void TrySpawnGhost(Vector3 me)
         {
@@ -702,7 +705,7 @@ namespace ARaki.Game
                         if (!tutorialGhost)
                         {
                             tutorialGhost = true;
-                            Comms?.Invoke("Bu bir GÖLGE: toplanmaz, kaçılır. Uzaklaş, LED'i kapat, ya da üsse koş. Üssün çevresi güvenli.");
+                            Comms?.Invoke("Bu bir GÖLGE. Toplanmaz: kaç, ya da LED'i üzerine tut. Üssün çevresi güvenli.");
                         }
                         GhostSpotted?.Invoke(g);
                     }
@@ -712,7 +715,22 @@ namespace ARaki.Game
                 {
                     g.LostTimer = detected ? 0f : g.LostTimer + dt;
                     float speed = Mathf.Min(0.3f, GhostBaseSpeed + ChapterIndex * 0.012f);
-                    GhostStep(g, me, speed * dt, basePos);
+
+                    // fener: ışığın altındaki gölge donar; yeterince tutarsan erir
+                    Vector3 toGhost = g.Position - me;
+                    Vector3 fwd = Flat(robot.forward);
+                    bool lit = led && d < 3.4f && d > 0.3f && Vector3.Angle(fwd, toGhost) < 40f;
+                    if (lit)
+                    {
+                        g.Burn += dt;
+                        if (!tutorialLight) { tutorialLight = true; Comms?.Invoke("Fener gölgeyi dondurdu. Işığı üzerinde tut, erir."); }
+                        if (g.Burn >= 2.5f) { DissolveGhost(g); continue; }
+                    }
+                    else
+                    {
+                        g.Burn = Mathf.Max(0f, g.Burn - dt * 0.5f);
+                        GhostStep(g, me, speed * dt, basePos);
+                    }
                     if (InBase || d > 6f || g.LostTimer > 5f)
                     {
                         g.State = GhostState.Drift;
@@ -746,6 +764,16 @@ namespace ARaki.Game
             if (fromBase.magnitude < SafeRadius)
                 next = basePos + (fromBase.sqrMagnitude < 0.0001f ? Vector3.forward : fromBase.normalized) * SafeRadius;
             g.transform.position = new Vector3(next.x, 0f, next.z);
+        }
+
+        void DissolveGhost(Ghost g)
+        {
+            g.State = GhostState.Gone;
+            Essence += 2;
+            nextGhostTime = Mathf.Max(nextGhostTime, clock + 30f);
+            Notice?.Invoke("GÖLGE ERİDİ  ·  +2 ÖZ");
+            GhostLost?.Invoke();
+            EnergyChanged?.Invoke();
         }
 
         void HitByGhost(Ghost g)
@@ -948,7 +976,7 @@ namespace ARaki.Game
             if (baseMarker != null)
             {
                 baseMarker.position = rig.ToRig(HouseLayout.BasePosition);
-                baseMarker.rotation = Quaternion.identity;
+                baseMarker.rotation = rig.ToRig(Quaternion.identity);
             }
             foreach (var f in finds)
             {

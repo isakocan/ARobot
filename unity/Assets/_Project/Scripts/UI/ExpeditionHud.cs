@@ -7,13 +7,15 @@ using ARaki.Theming;
 using ARaki.Video;
 using ARaki.World;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 namespace ARaki.UI
 {
     /// <summary>
-    /// Serbest gezi arayüzü: bölüm hedefi, pil/güç/sonar durumu, ev haritası (odalar, üs, bulgular), sessizlik göstergesi,
-    /// yakalama halkası, dünyadaki bulgu etiketleri, telsiz mesajları ve bildirimler. Renkler UiTheme'den gelir.
+    /// Sade oyun arayüzü. Yazı yalnızca sol üstte: tek satır hedef + tek satır ipucu.
+    /// Geri kalanı simgedir: pil çubuğu, taşınan kayıtlar, nişan + yakalama halkası, dikiz aynası (360° kameranın arkası),
+    /// ve ekran çevresinde yön üçgenleri (kırmızı = tehdit, yeşil = üs). Tab tehdide, B arkaya döner.
     /// </summary>
     public class ExpeditionHud : MonoBehaviour
     {
@@ -31,35 +33,30 @@ namespace ARaki.UI
         [SerializeField] Sprite bracket;
         [SerializeField] Sprite ring;
 
-        const float MapW = 200f;
-        const float BarWidth = 202f;
-        const float MotorTrack = 150f;
-        const float LedBarWidth = 120f;
         const float CommsCharsPerSecond = 42f;
-
-        class Tag { public Find Find; public RectTransform Rt; public Image Frame; public Text Name, Info; public Image Bar; public RectTransform BarFill; }
-        class Blip { public Find Find; public Image Image; }
+        const int MaxMarkers = 4;
+        const int MaxPips = 8;
 
         UiKit kit;
-        RectTransform noiseTrack, root, missionCard, commsCard, mapHolder, meRoot, sweep, legendFrame, noiseFill, fuelFill, powerFill, sonarFill, ledFill, motorLeft, motorRight, baseMark;
         Canvas canvas;
-        CanvasGroup rootGroup, commsGroup;
-        RawImage mapRaw;
-        Text chapterHeader, chapterTitle, goalText, goalCount, carryText, roomText, mapRoomText, fuelValue, powerValue, sonarValue, noticeText, promptName, promptHint, ledLabel, baseText, commsText, essenceText, noiseLabel, essenceBadge;
-        Image dangerFrame, dangerTint;
-        readonly List<Image> ghostBlips = new List<Image>();
-        Image fuelImage, goalFill, captureRing, noiseImage, sonarImage, ledFillImage;
-        readonly List<Tag> tags = new List<Tag>();
-        readonly List<Blip> blips = new List<Blip>();
-        readonly List<Text> roomLabels = new List<Text>();
+        CanvasGroup rootGroup;
+        RectTransform root;
+        RectTransform batteryFill, sonarFill, noiseFill, noiseTrack, mirrorFrame;
+        Image batteryImage, sonarImage, captureRing, dangerFrame, dangerTint, noiseImage;
+        Text goalText, tipText, noticeText, essenceText;
+        RawImage mirrorImage;
+        RearMirror mirror;
+        Sprite triangle;
+        readonly List<Image> pips = new List<Image>();
+        readonly List<Image> markers = new List<Image>();
         readonly Queue<string> commsQueue = new Queue<string>();
         string commsFull = "";
-        float commsShown, commsHold, noticeTimer, ledLevel, detectTimer;
-        int shownFuel = -1, shownPower = -1, shownGoal = -1, shownChapter = -1, shownEssence = -1, shownCarried = -1;
+        float commsShown, commsHold, noticeTimer;
+        string shownGoal = "";
         bool built;
+        Image baseMarker;
 
-        float PxPerMeter => MapW / map.Size.x;
-        float MapH => MapW * map.Size.y / map.Size.x;
+        const float BatteryWidth = 150f;
 
         void Awake() => Build();
         void LateUpdate() => Tick(Time.deltaTime);
@@ -78,8 +75,9 @@ namespace ARaki.UI
             if (built) return;
             built = true;
             UiTheme.EnsureApplied();
-            map.Init();
+            if (map != null) map.Init();
             kit = new UiKit { Title = titleFont, Body = bodyFont, Mono = monoFont, Bracket = bracket, Ring = ring };
+            triangle = MakeTriangle();
 
             var go = new GameObject("HUD Canvas");
             go.transform.SetParent(transform, false);
@@ -96,14 +94,11 @@ namespace ARaki.UI
             rootGroup = go.AddComponent<CanvasGroup>();
 
             BuildDanger();
-            BuildCrosshair();
-            BuildChapterCard();
-            BuildComms();
-            BuildStatusCard();
-            BuildMotorCard();
-            BuildMap();
+            BuildMarkers();
             BuildCenter();
-            BuildTags();
+            BuildTips();
+            BuildBattery();
+            BuildMirror();
 
             expedition.Notice += OnNotice;
             expedition.Comms += OnComms;
@@ -113,214 +108,114 @@ namespace ARaki.UI
         {
             if (rootGroup == null) return;
             rootGroup.alpha = visible ? 1f : 0f;
+            if (mirror != null) mirror.Active = visible;
         }
 
-        RectTransform Card(string name, Vector2 anchor, Vector2 pivot, Vector2 pos, Vector2 size)
+        static Sprite MakeTriangle()
         {
-            var rt = kit.Card(name, root, anchor, pivot, pos, size);
-            rt.gameObject.AddComponent<Canvas>();       // kendi alt-canvas'ı: bir kartın metni değişince tüm HUD yeniden çizilmez
-            return rt;
+            const int n = 64;
+            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            var px = new Color32[n * n];
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float fy = y / (float)(n - 1);                       // 0 alt, 1 üst
+                    float half = (1f - fy) * 0.5f;                        // yukarı doğru daralır
+                    float dx = Mathf.Abs(x / (float)(n - 1) - 0.5f);
+                    float edge = Mathf.Clamp01((half - dx) * n * 0.5f);
+                    px[y * n + x] = new Color32(255, 255, 255, (byte)(edge * 255f));
+                }
+            tex.SetPixels32(px);
+            tex.Apply();
+            return Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), 64f);
         }
 
         /// <summary>Gölge yaklaşınca ekran kenarları kırmızıya döner ve titrer.</summary>
         void BuildDanger()
         {
             dangerTint = kit.Img(kit.Stretch("DangerTint", root), UiTheme.WithAlpha(UiTheme.Danger, 0f));
-            dangerTint.raycastTarget = false;
             dangerFrame = kit.Img(kit.Stretch("DangerFrame", root), UiTheme.WithAlpha(UiTheme.Danger, 0f), bracket, Image.Type.Sliced);
-            dangerFrame.raycastTarget = false;
         }
 
-        void UpdateDanger()
+        void BuildMarkers()
         {
-            float t = expedition.GhostThreat;
-            float pulse = 0.65f + 0.35f * Mathf.Sin(Time.realtimeSinceStartup * (4f + t * 8f));
-            dangerTint.color = UiTheme.WithAlpha(UiTheme.Danger, t * 0.16f * pulse);
-            dangerFrame.color = UiTheme.WithAlpha(UiTheme.Danger, Mathf.Clamp01(t * 1.4f) * pulse);
-
-            var list = expedition.Ghosts;
-            while (ghostBlips.Count < list.Count)
+            for (int i = 0; i < MaxMarkers; i++)
             {
-                var r = kit.Rt("GhostBlip", mapHolder, UiKit.BottomLeft, UiKit.Center, Vector2.zero, new Vector2(10f, 10f));
-                ghostBlips.Add(kit.Img(r, UiTheme.Danger, ring));
+                var m = kit.Img(kit.Rt("Threat", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(34f, 34f)), UiTheme.Danger, triangle);
+                m.gameObject.SetActive(false);
+                markers.Add(m);
             }
-            for (int i = 0; i < ghostBlips.Count; i++)
-            {
-                var g = i < list.Count ? list[i] : null;
-                bool show = g != null && g.Alive && (g.State == GhostState.Chase || Vector3.Distance(robot.transform.position, g.Position) < 4.2f);
-                if (ghostBlips[i].gameObject.activeSelf != show) ghostBlips[i].gameObject.SetActive(show);
-                if (!show) continue;
-                ghostBlips[i].rectTransform.anchoredPosition = ToMap(g.Position);
-                ghostBlips[i].color = UiTheme.WithAlpha(UiTheme.Danger, 0.5f + 0.5f * Mathf.Abs(Mathf.Sin(Time.realtimeSinceStartup * 6f)));
-            }
-        }
-
-        void BuildCrosshair()
-        {
-            var r = kit.Rt("Crosshair", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(30f, 30f));
-            kit.Img(r, UiTheme.WithAlpha(UiTheme.Text, 0.35f), ring);
-            kit.Img(kit.Rt("Dot", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(3f, 3f)), UiTheme.WithAlpha(UiTheme.Text, 0.7f));
-
-            // yakalama ilerlemesi: çarpı ortasındaki halka dolar
-            kit.Img(kit.Rt("CaptureBack", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(78f, 78f)), UiTheme.WithAlpha(UiTheme.Text, 0.12f), ring);
-            var cr = kit.Rt("CaptureRing", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(78f, 78f));
-            captureRing = kit.Img(cr, UiTheme.Warning, ring);
-            captureRing.type = Image.Type.Filled;
-            captureRing.fillMethod = Image.FillMethod.Radial360;
-            captureRing.fillOrigin = 2;
-            captureRing.fillAmount = 0f;
-        }
-
-        void BuildChapterCard()
-        {
-            missionCard = Card("Chapter", UiKit.TopLeft, UiKit.TopLeft, new Vector2(24f, -24f), new Vector2(340f, 156f));
-            chapterHeader = kit.Label(missionCard, "", monoFont, 11, UiTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, -12f), new Vector2(308f, 16f));
-            chapterTitle = kit.Label(missionCard, "", titleFont, 25, UiTheme.Text, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, -27f), new Vector2(308f, 32f));
-            kit.Img(kit.Rt("Rule", missionCard, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, -64f), new Vector2(308f, 1f)), UiTheme.WithAlpha(UiTheme.Primary, 0.35f));
-            goalText = kit.Label(missionCard, "", bodyFont, 18, UiTheme.Text, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, -74f), new Vector2(240f, 44f));
-            goalText.horizontalOverflow = HorizontalWrapMode.Wrap;
-            goalCount = kit.Label(missionCard, "", monoFont, 16, UiTheme.Warning, TextAnchor.UpperRight, UiKit.TopLeft, UiKit.TopLeft, new Vector2(244f, -76f), new Vector2(80f, 20f));
-            kit.Img(kit.Rt("Track", missionCard, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, -122f), new Vector2(308f, 3f)), UiTheme.Track);
-            var fill = kit.Rt("Fill", missionCard, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, -122f), new Vector2(0f, 3f));
-            goalFill = kit.Img(fill, UiTheme.Warning);
-            carryText = kit.Label(missionCard, "", monoFont, 12, UiTheme.TextDim, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, -132f), new Vector2(308f, 16f));
-        }
-
-        void BuildComms()
-        {
-            commsCard = Card("Comms", UiKit.TopLeft, UiKit.TopLeft, new Vector2(24f, -192f), new Vector2(340f, 104f));
-            commsGroup = commsCard.gameObject.AddComponent<CanvasGroup>();
-            commsGroup.alpha = 0f;
-            kit.Label(commsCard, expedition.Theme.CommsName, monoFont, 11, UiTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, -11f), new Vector2(280f, 16f));
-            kit.Img(kit.Rt("Dot", commsCard, UiKit.TopRight, UiKit.TopRight, new Vector2(-16f, -13f), new Vector2(6f, 6f)), UiTheme.Success);
-            commsText = kit.Label(commsCard, "", bodyFont, 17, UiTheme.Text, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, -32f), new Vector2(308f, 66f));
-            commsText.horizontalOverflow = HorizontalWrapMode.Wrap;
-            commsText.verticalOverflow = VerticalWrapMode.Truncate;
-        }
-
-        void BuildStatusCard()
-        {
-            var card = Card("Status", UiKit.TopRight, UiKit.TopRight, new Vector2(-24f, -24f), new Vector2(232f, 134f));
-            kit.Label(card, "PİL", bodyFont, 15, UiTheme.TextDim, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(15f, -10f), new Vector2(100f, 20f));
-            fuelValue = kit.Label(card, "", monoFont, 14, UiTheme.Text, TextAnchor.UpperRight, UiKit.TopLeft, UiKit.TopLeft, new Vector2(117f, -11f), new Vector2(100f, 20f));
-            kit.Img(kit.Rt("Track", card, UiKit.TopLeft, UiKit.TopLeft, new Vector2(15f, -34f), new Vector2(BarWidth, 6f)), UiTheme.Track);
-            fuelFill = kit.Rt("Fill", card, UiKit.TopLeft, UiKit.TopLeft, new Vector2(15f, -34f), new Vector2(0f, 6f));
-            fuelImage = kit.Img(fuelFill, UiTheme.Primary);
-
-            kit.Label(card, "VİTES  (R F)", bodyFont, 15, UiTheme.TextDim, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(15f, -50f), new Vector2(120f, 20f));
-            powerValue = kit.Label(card, "", monoFont, 14, UiTheme.Text, TextAnchor.UpperRight, UiKit.TopLeft, UiKit.TopLeft, new Vector2(117f, -51f), new Vector2(100f, 20f));
-            kit.Img(kit.Rt("Track", card, UiKit.TopLeft, UiKit.TopLeft, new Vector2(15f, -74f), new Vector2(BarWidth, 6f)), UiTheme.Track);
-            powerFill = kit.Rt("Fill", card, UiKit.TopLeft, UiKit.TopLeft, new Vector2(15f, -74f), new Vector2(0f, 6f));
-            kit.Img(powerFill, UiTheme.Primary);
-
-            kit.Label(card, "SONAR  (X)", bodyFont, 15, UiTheme.TextDim, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(15f, -90f), new Vector2(120f, 20f));
-            sonarValue = kit.Label(card, "", monoFont, 14, UiTheme.Text, TextAnchor.UpperRight, UiKit.TopLeft, UiKit.TopLeft, new Vector2(117f, -91f), new Vector2(100f, 20f));
-            kit.Img(kit.Rt("Track", card, UiKit.TopLeft, UiKit.TopLeft, new Vector2(15f, -114f), new Vector2(BarWidth, 6f)), UiTheme.Track);
-            sonarFill = kit.Rt("Fill", card, UiKit.TopLeft, UiKit.TopLeft, new Vector2(15f, -114f), new Vector2(0f, 6f));
-            sonarImage = kit.Img(sonarFill, UiTheme.Primary);
-        }
-
-        void BuildMotorCard()
-        {
-            var card = Card("Motors", UiKit.BottomLeft, UiKit.BottomLeft, new Vector2(24f, 24f), new Vector2(236f, 88f));
-            kit.Label(card, "MOTOR PWM", monoFont, 11, UiTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(15f, -11f), new Vector2(200f, 16f));
-            motorLeft = MotorRow(card, "SOL", -34f);
-            motorRight = MotorRow(card, "SAĞ", -60f);
-        }
-
-        RectTransform MotorRow(RectTransform card, string name, float y)
-        {
-            kit.Label(card, name, bodyFont, 15, UiTheme.TextDim, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(15f, y), new Vector2(50f, 20f));
-            kit.Img(kit.Rt("Track", card, UiKit.TopLeft, new Vector2(0f, 0.5f), new Vector2(70f, y - 9f), new Vector2(MotorTrack, 4f)), UiTheme.Track);
-            kit.Img(kit.Rt("Zero", card, UiKit.TopLeft, new Vector2(0.5f, 0.5f), new Vector2(70f + MotorTrack * 0.5f, y - 9f), new Vector2(1f, 10f)), UiTheme.WithAlpha(UiTheme.Text, 0.45f));
-            var fill = kit.Rt("Fill", card, UiKit.TopLeft, new Vector2(0f, 0.5f), new Vector2(70f + MotorTrack * 0.5f, y - 9f), new Vector2(0f, 4f));
-            kit.Img(fill, UiTheme.Primary);
-            return fill;
-        }
-
-        void BuildMap()
-        {
-            float h = MapH;
-            var card = Card("Map", UiKit.BottomRight, UiKit.BottomRight, new Vector2(-24f, 24f), new Vector2(MapW + 24f, h + 40f));
-            kit.Label(card, "HARİTA", monoFont, 11, UiTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(12f, -9f), new Vector2(80f, 14f));
-            mapRoomText = kit.Label(card, "", monoFont, 11, UiTheme.Text, TextAnchor.UpperRight, UiKit.TopLeft, UiKit.TopLeft, new Vector2(70f, -9f), new Vector2(MapW - 58f, 14f));
-
-            mapHolder = kit.Rt("Holder", card, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, -28f), new Vector2(MapW, h));
-            kit.Img(mapHolder, new Color(0.01f, 0.03f, 0.04f, 0.88f));
-
-            // hedef oda vurgusu (efsane bulgu için)
-            legendFrame = kit.Rt("LegendRoom", mapHolder, UiKit.BottomLeft, UiKit.BottomLeft, Vector2.zero, new Vector2(10f, 10f));
-            kit.Img(legendFrame, UiTheme.WithAlpha(UiTheme.Danger, 0.9f), bracket, Image.Type.Sliced);
-            legendFrame.gameObject.SetActive(false);
-
-            var tex = kit.Rt("Tex", mapHolder, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(MapW, h));
-            mapRaw = tex.gameObject.AddComponent<RawImage>();
-            mapRaw.texture = map.Texture;
-            mapRaw.raycastTarget = false;
-
-            foreach (var r in HouseLayout.Rooms)
-            {
-                var t = kit.Label(mapHolder, r.Name, monoFont, 8, UiTheme.WithAlpha(UiTheme.Text, 0.0f), TextAnchor.MiddleCenter, UiKit.BottomLeft, UiKit.Center, ToMap(r.Center), new Vector2(90f, 10f));
-                roomLabels.Add(t);
-            }
-
-            baseMark = kit.Rt("Base", mapHolder, UiKit.BottomLeft, UiKit.Center, ToMap(HouseLayout.BasePosition), new Vector2(9f, 9f));
-            baseMark.localRotation = Quaternion.Euler(0f, 0f, 45f);
-            kit.Img(baseMark, UiTheme.Success);
-
-            sweep = kit.Rt("Sweep", mapHolder, UiKit.BottomLeft, new Vector2(0.5f, 0f), Vector2.zero, new Vector2(1.5f, 3f * PxPerMeter));
-            kit.Img(sweep, UiTheme.WithAlpha(UiTheme.Primary, 0.45f));
-            meRoot = kit.Rt("Me", mapHolder, UiKit.BottomLeft, UiKit.Center, Vector2.zero, new Vector2(7f, 7f));
-            kit.Img(meRoot, UiTheme.Text);
-            kit.Img(kit.Rt("Nose", meRoot, UiKit.Center, new Vector2(0.5f, 0f), new Vector2(0f, 3f), new Vector2(2f, 8f)), UiTheme.Text);
+            baseMarker = kit.Img(kit.Rt("BaseArrow", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(26f, 26f)), UiTheme.Success, triangle);
+            baseMarker.gameObject.SetActive(false);
         }
 
         void BuildCenter()
         {
-            roomText = kit.Label(root, "", monoFont, 12, UiTheme.WithAlpha(UiTheme.Text, 0.7f), TextAnchor.MiddleCenter, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, -24f), new Vector2(500f, 18f));
-            noticeText = kit.Label(root, "", titleFont, 32, UiTheme.Primary, TextAnchor.MiddleCenter, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, -56f), new Vector2(900f, 44f));
-            UiKit.Shadow(noticeText);
+            kit.Img(kit.Rt("Crosshair", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(30f, 30f)), UiTheme.WithAlpha(UiTheme.Text, 0.35f), ring);
+            kit.Img(kit.Rt("Dot", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(3f, 3f)), UiTheme.WithAlpha(UiTheme.Text, 0.7f));
 
-            promptName = kit.Label(root, "", titleFont, 26, UiTheme.Text, TextAnchor.MiddleCenter, UiKit.BottomCenter, UiKit.BottomCenter, new Vector2(0f, 190f), new Vector2(700f, 34f));
-            UiKit.Shadow(promptName);
-            promptHint = kit.Label(root, "", monoFont, 13, UiTheme.Primary, TextAnchor.MiddleCenter, UiKit.BottomCenter, UiKit.BottomCenter, new Vector2(0f, 168f), new Vector2(700f, 18f));
-            UiKit.Shadow(promptHint);
+            kit.Img(kit.Rt("CaptureBack", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(78f, 78f)), UiTheme.WithAlpha(UiTheme.Text, 0.12f), ring);
+            captureRing = kit.Img(kit.Rt("CaptureRing", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(78f, 78f)), UiTheme.Warning, ring);
+            captureRing.type = Image.Type.Filled;
+            captureRing.fillMethod = Image.FillMethod.Radial360;
+            captureRing.fillOrigin = 2;
+            captureRing.fillAmount = 0f;
 
-            // sessizlik göstergesi (ürkek bulgular için)
-            noiseLabel = kit.Label(root, "SESSİZLİK", monoFont, 10, UiTheme.WithAlpha(UiTheme.Text, 0.7f), TextAnchor.MiddleCenter, UiKit.BottomCenter, UiKit.BottomCenter, new Vector2(0f, 148f), new Vector2(200f, 14f));
-            noiseTrack = kit.Rt("NoiseTrack", root, UiKit.BottomCenter, UiKit.BottomCenter, new Vector2(0f, 140f), new Vector2(140f, 3f));
-            kit.Img(noiseTrack, UiTheme.Track);
-            noiseFill = kit.Rt("NoiseFill", root, UiKit.BottomCenter, new Vector2(0.5f, 0f), new Vector2(0f, 140f), new Vector2(0f, 3f));
+            // sessizlik çubuğu: yalnızca ürkek bir şey ya da gölge yakınken görünür
+            noiseTrack = kit.Rt("NoiseTrack", root, UiKit.Center, UiKit.Center, new Vector2(0f, -58f), new Vector2(64f, 3f));
+            kit.Img(noiseTrack, UiTheme.WithAlpha(UiTheme.Text, 0.2f));
+            noiseFill = kit.Rt("NoiseFill", noiseTrack, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(0f, 3f));
             noiseImage = kit.Img(noiseFill, UiTheme.Success);
 
-            ledLabel = kit.Label(root, "", monoFont, 12, UiTheme.TextDim, TextAnchor.MiddleCenter, UiKit.BottomCenter, UiKit.BottomCenter, new Vector2(0f, 90f), new Vector2(520f, 16f));
-            UiKit.Shadow(ledLabel);
-            kit.Img(kit.Rt("LedTrack", root, UiKit.BottomCenter, UiKit.BottomCenter, new Vector2(0f, 82f), new Vector2(LedBarWidth, 3f)), UiTheme.Track);
-            ledFill = kit.Rt("LedFill", root, UiKit.BottomCenter, new Vector2(0.5f, 0f), new Vector2(0f, 82f), new Vector2(0f, 3f));
-            ledFillImage = kit.Img(ledFill, UiTheme.Warning);
-
-            baseText = kit.Label(root, "", titleFont, 22, UiTheme.Success, TextAnchor.MiddleCenter, UiKit.BottomCenter, UiKit.BottomCenter, new Vector2(0f, 112f), new Vector2(700f, 28f));
-            UiKit.Shadow(baseText);
-
-            var hint = kit.Label(root, "W A S D  SÜR     ·     SHIFT  SESSİZ     ·     Q E  ETRAFA BAK     ·     L  LED     ·     X  SONAR     ·     U  LAB (ÜSTE)     ·     ESC",
-                monoFont, 11, UiTheme.WithAlpha(UiTheme.Text, 0.6f), TextAnchor.MiddleCenter, UiKit.BottomCenter, UiKit.BottomCenter, new Vector2(0f, 24f), new Vector2(1000f, 18f));
-            UiKit.Shadow(hint);
+            noticeText = kit.Label(root, "", titleFont, 26, UiTheme.Primary, TextAnchor.MiddleCenter, UiKit.Center, UiKit.Center, new Vector2(0f, 120f), new Vector2(900f, 34f));
+            UiKit.Shadow(noticeText);
         }
 
-        void BuildTags()
+        void BuildTips()
         {
-            for (int i = 0; i < 10; i++)
+            goalText = kit.Label(root, "", monoFont, 15, UiTheme.WithAlpha(UiTheme.Text, 0.8f), TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(24f, -20f), new Vector2(560f, 20f));
+            UiKit.Shadow(goalText);
+            tipText = kit.Label(root, "", bodyFont, 25, UiTheme.Text, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(24f, -46f), new Vector2(560f, 90f));
+            tipText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            UiKit.Shadow(tipText);
+        }
+
+        void BuildBattery()
+        {
+            var track = kit.Rt("BatteryTrack", root, UiKit.TopRight, UiKit.TopRight, new Vector2(-24f, -24f), new Vector2(BatteryWidth, 6f));
+            kit.Img(track, UiTheme.WithAlpha(UiTheme.Text, 0.2f));
+            batteryFill = kit.Rt("BatteryFill", track, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(BatteryWidth, 6f));
+            batteryImage = kit.Img(batteryFill, UiTheme.Primary);
+
+            var sTrack = kit.Rt("SonarTrack", root, UiKit.TopRight, UiKit.TopRight, new Vector2(-24f, -36f), new Vector2(BatteryWidth, 2f));
+            kit.Img(sTrack, UiTheme.WithAlpha(UiTheme.Text, 0.15f));
+            sonarFill = kit.Rt("SonarFill", sTrack, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(BatteryWidth, 2f));
+            sonarImage = kit.Img(sonarFill, UiTheme.Success);
+
+            for (int i = 0; i < MaxPips; i++)
             {
-                var rt = kit.Rt("Tag", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(72f, 72f));
-                var tag = new Tag { Rt = rt };
-                tag.Frame = kit.Img(rt, UiTheme.Primary, bracket, Image.Type.Sliced);
-                tag.Name = kit.Label(rt, "", bodyFont, 17, UiTheme.Text, TextAnchor.MiddleCenter, UiKit.Center, UiKit.Center, new Vector2(0f, -52f), new Vector2(240f, 22f));
-                tag.Info = kit.Label(rt, "", monoFont, 12, UiTheme.Primary, TextAnchor.MiddleCenter, UiKit.Center, UiKit.Center, new Vector2(0f, -70f), new Vector2(240f, 16f));
-                UiKit.Shadow(tag.Name);
-                UiKit.Shadow(tag.Info);
-                rt.gameObject.SetActive(false);
-                tags.Add(tag);
+                var p = kit.Img(kit.Rt("Pip", root, UiKit.TopRight, UiKit.TopRight, new Vector2(-24f - i * 14f, -50f), new Vector2(10f, 10f)), UiTheme.Warning);
+                p.gameObject.SetActive(false);
+                pips.Add(p);
             }
+            essenceText = kit.Label(root, "", monoFont, 15, UiTheme.WithAlpha(UiTheme.Text, 0.75f), TextAnchor.UpperRight, UiKit.TopRight, UiKit.TopRight, new Vector2(-24f, -66f), new Vector2(200f, 18f));
+            UiKit.Shadow(essenceText);
+        }
+
+        void BuildMirror()
+        {
+            mirrorFrame = kit.Rt("Mirror", root, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, -16f), new Vector2(288f, 96f));
+            var raw = kit.Rt("View", mirrorFrame, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(282f, 90f));
+            mirrorImage = raw.gameObject.AddComponent<RawImage>();
+            mirrorImage.raycastTarget = false;
+            kit.Img(kit.Stretch("Frame", mirrorFrame), UiTheme.WithAlpha(UiTheme.Text, 0.55f), bracket, Image.Type.Sliced);
+            var label = kit.Label(mirrorFrame, "ARKA", monoFont, 10, UiTheme.WithAlpha(UiTheme.Text, 0.7f), TextAnchor.UpperCenter, UiKit.TopCenter, UiKit.TopCenter, new Vector2(0f, -4f), new Vector2(60f, 14f));
+            UiKit.Shadow(label);
+
+            mirror = gameObject.AddComponent<RearMirror>();
+            mirror.Init(viewer);
+            if (mirror.Texture != null) mirrorImage.texture = mirror.Texture;
+            else mirrorFrame.gameObject.SetActive(false);        // düzenleyicide (oynatmadan) çizilmez
         }
 
         // ------------------------------------------------------------------ olaylar
@@ -328,12 +223,12 @@ namespace ARaki.UI
         void OnNotice(string message)
         {
             noticeText.text = message;
-            noticeTimer = 3.0f;
+            noticeTimer = 2.6f;
         }
 
         void OnComms(string message)
         {
-            if (commsFull.Length == 0) { commsFull = message; commsShown = 0f; }
+            if (commsFull.Length == 0) { commsFull = message; commsShown = 0f; commsHold = 0f; }
             else commsQueue.Enqueue(message);
         }
 
@@ -344,258 +239,181 @@ namespace ARaki.UI
             if (!built || rootGroup.alpha < 0.01f) return;
             var tel = robot.Telemetry;
 
-            // pil / vites / sonar
-            fuelFill.sizeDelta = new Vector2(BarWidth * tel.Battery01, 6f);
-            int fuel = Mathf.RoundToInt(tel.Battery01 * 100f);
-            if (fuel != shownFuel) { shownFuel = fuel; fuelValue.text = fuel + "%"; }
-            fuelImage.color = tel.Battery01 < 0.15f ? UiTheme.Danger : tel.Battery01 < 0.3f ? UiTheme.Warning : UiTheme.Primary;
-
-            powerFill.sizeDelta = new Vector2(BarWidth * robot.PwmLimit, 6f);
-            int power = Mathf.RoundToInt(robot.PwmLimit * 100f);
-            if (power != shownPower) { shownPower = power; powerValue.text = power + "%"; }
-
+            // pil / sonar
+            batteryFill.sizeDelta = new Vector2(BatteryWidth * tel.Battery01, 6f);
+            batteryImage.color = tel.Battery01 < 0.15f ? UiTheme.Danger : tel.Battery01 < 0.3f ? UiTheme.Warning : UiTheme.Primary;
             float ready = 1f - expedition.SonarCooldownLeft / Mathf.Max(0.1f, expedition.Profile.SonarCooldown);
-            sonarFill.sizeDelta = new Vector2(BarWidth * ready, 6f);
-            bool sonarReady = expedition.SonarCooldownLeft <= 0f;
-            sonarImage.color = sonarReady ? UiTheme.Success : UiTheme.Warning;
-            sonarValue.text = sonarReady ? "HAZIR" : expedition.SonarCooldownLeft.ToString("0.0") + " sn";
+            sonarFill.sizeDelta = new Vector2(BatteryWidth * Mathf.Clamp01(ready), 2f);
+            sonarImage.color = ready >= 1f ? UiTheme.Success : UiTheme.TextDim;
 
-            SetMotor(motorLeft, robot.LastCommand.Left * robot.PwmLimit);
-            SetMotor(motorRight, robot.LastCommand.Right * robot.PwmLimit);
-
-            UpdateChapter();
-            UpdateMap(dt);
-            UpdateTags();
-            UpdatePrompt();
-            UpdateLed(dt);
-            UpdateComms(dt);
-            UpdateBanners(dt);
-        }
-
-        void UpdateChapter()
-        {
-            var c = expedition.Chapter;
-            int key = expedition.ChapterIndex * 100 + expedition.ChapterProgress + (expedition.IsFinished ? 5000 : 0);
-            if (key != shownChapter)
-            {
-                shownChapter = key;
-                int chapters = expedition.Theme.Chapters.Length;
-                string title = c.Title;
-                int dot = title.IndexOf('·');
-                chapterHeader.text = expedition.IsFinished ? "SERBEST GEZİ" : "BÖLÜM " + (expedition.ChapterIndex + 1) + " / " + chapters;
-                chapterTitle.text = expedition.IsFinished ? "KEŞFE DEVAM" : (dot >= 0 ? title.Substring(dot + 1).Trim() : title);
-                goalText.text = expedition.IsFinished ? "Yeni bulgular çıkmaya devam ediyor. Öz topla, robotu geliştir." : expedition.GoalText();
-                goalCount.text = expedition.IsFinished ? "" : expedition.ChapterProgress + " / " + c.Count;
-                goalFill.rectTransform.sizeDelta = new Vector2(308f * (expedition.IsFinished ? 1f : Mathf.Clamp01(expedition.ChapterProgress / (float)c.Count)), 3f);
-            }
             int carried = expedition.Carried.Count;
-            if (carried != shownCarried || expedition.Essence != shownEssence)
-            {
-                shownCarried = carried;
-                shownEssence = expedition.Essence;
-                carryText.text = "TAŞINAN " + carried + "   ·   ÖZ " + expedition.Essence + (carried > 0 ? "   ·   ÜSSE GÖTÜR" : "");
-                carryText.color = carried > 0 ? UiTheme.Warning : UiTheme.TextDim;
-            }
-        }
+            for (int i = 0; i < pips.Count; i++) pips[i].gameObject.SetActive(i < carried);
+            essenceText.text = "ÖZ " + expedition.Essence;
 
-        void UpdateMap(float dt)
-        {
-            Vector2 me = ToMap(robot.transform.position);
-            meRoot.anchoredPosition = me;
-            meRoot.localRotation = Quaternion.Euler(0f, 0f, -robot.Telemetry.YawDegrees);
-            sweep.anchoredPosition = me;
-            sweep.localRotation *= Quaternion.Euler(0f, 0f, -140f * dt);
-            baseMark.localScale = Vector3.one * (1f + 0.15f * Mathf.Sin(Time.realtimeSinceStartup * 4f));
-
-            var room = expedition.CurrentRoom;
-            roomText.text = room != null ? room.Name : "";
-            mapRoomText.text = room != null ? room.Name : "";
-
-            // gezilen odaların adı haritada belirir
-            for (int i = 0; i < roomLabels.Count; i++)
-            {
-                bool seen = expedition.IsVisited(HouseLayout.Rooms[i]);
-                var c = roomLabels[i].color;
-                c.a = seen ? 0.55f : 0f;
-                roomLabels[i].color = c;
-            }
-
-            // efsane bulgunun odası
-            var legend = expedition.IsLegendPending ? expedition.LegendRoom : null;
-            if (legendFrame.gameObject.activeSelf != (legend != null)) legendFrame.gameObject.SetActive(legend != null);
-            if (legend != null)
-            {
-                Vector2 a = ToMap(new Vector3(legend.Rect.xMin, 0f, legend.Rect.yMin));
-                Vector2 b = ToMap(new Vector3(legend.Rect.xMax, 0f, legend.Rect.yMax));
-                legendFrame.anchoredPosition = a;
-                legendFrame.sizeDelta = b - a;
-                var img = legendFrame.GetComponent<Image>();
-                img.color = UiTheme.WithAlpha(UiTheme.Danger, 0.35f + 0.5f * Mathf.Abs(Mathf.Sin(Time.realtimeSinceStartup * 3f)));
-            }
-
-            SyncBlips();
+            UpdateCenter();
+            UpdateTips(dt);
+            UpdateMarkers();
             UpdateDanger();
-        }
+            if (mirror != null) mirror.Active = rootGroup.alpha > 0.5f && Application.isPlaying;
 
-        void SyncBlips()
-        {
-            var list = expedition.Finds;
-            while (blips.Count < list.Count)
-            {
-                var r = kit.Rt("Blip", mapHolder, UiKit.BottomLeft, UiKit.Center, Vector2.zero, new Vector2(7f, 7f));
-                blips.Add(new Blip { Image = kit.Img(r, UiTheme.Primary) });
-            }
-            for (int i = 0; i < blips.Count; i++)
-            {
-                var b = blips[i];
-                Find f = i < list.Count ? list[i] : null;
-                bool show = f != null && f.Alive && (f.Revealed || expedition.IsNearbyUnseen(f, 4.2f));
-                if (b.Image.gameObject.activeSelf != show) b.Image.gameObject.SetActive(show);
-                if (!show) continue;
-                Vector2 p = ToMap(f.Position);
-                if (!f.Revealed)    // henüz görülmemiş: belirsiz "yakında bir şey var" noktası
-                    p += new Vector2(Mathf.Sin(Time.time * 1.7f + i), Mathf.Cos(Time.time * 1.3f + i)) * 5f;
-                b.Image.rectTransform.anchoredPosition = p;
-                var c = KindColor(f.Kind);
-                c.a = f.Revealed ? 1f : 0.35f + 0.25f * Mathf.Sin(Time.time * 5f);
-                b.Image.color = c;
-                b.Image.rectTransform.localRotation = Quaternion.Euler(0f, 0f, f.Kind == FindKind.Legend ? 45f : 0f);
-                b.Image.rectTransform.localScale = Vector3.one * (f.Kind == FindKind.Legend ? 1.5f : 1f);
-            }
-        }
-
-        Color KindColor(FindKind kind)
-        {
-            switch (kind)
-            {
-                case FindKind.Shy: return UiTheme.Warning;
-                case FindKind.Lure: return UiTheme.Primary;
-                case FindKind.Hidden: return UiTheme.Text;
-                case FindKind.Legend: return UiTheme.Danger;
-                default: return UiTheme.Success;
-            }
-        }
-
-        Vector2 ToMap(Vector3 world) => new Vector2((world.x - map.Origin.x) / map.Size.x * MapW, (world.z - map.Origin.y) / map.Size.y * MapH);
-
-        void UpdateTags()
-        {
-            var cam = viewer.ViewCamera;
-            var list = expedition.Finds;
-            int used = 0;
-            for (int i = 0; i < list.Count && used < tags.Count; i++)
-            {
-                var f = list[i];
-                if (f == null || !f.Alive || !f.Revealed) continue;
-                Vector3 world = f.Position + Vector3.up * (f.Kind == FindKind.Lure || f.Kind == FindKind.Legend ? 0.42f : 0.3f);
-                Vector3 screen = cam.WorldToScreenPoint(rig.ToRig(world));
-                bool visible = screen.z > 0.15f && screen.x > -40f && screen.x < cam.pixelWidth + 40f && screen.y > -40f && screen.y < cam.pixelHeight + 40f;
-                if (!visible) continue;
-
-                var tag = tags[used++];
-                tag.Find = f;
-                tag.Rt.gameObject.SetActive(true);
-                RectTransformUtility.ScreenPointToLocalPointInRectangle(root, screen,
-                    canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : cam, out Vector2 local);
-                tag.Rt.anchoredPosition = local;
-
-                float dist = Vector3.Distance(new Vector3(robot.transform.position.x, 0f, robot.transform.position.z), f.Position);
-                var names = expedition.Theme.NamesOf(f.Kind);
-                Color color = KindColor(f.Kind);
-                tag.Frame.color = color;
-                tag.Name.text = names.Name + (f.Tier > 1 ? "  ★" : "");
-                tag.Info.text = f.Progress > 0.02f ? "KAYIT  %" + Mathf.RoundToInt(f.Progress * 100f) : dist.ToString("0.0") + " m";
-                tag.Info.color = color;
-            }
-            for (int i = used; i < tags.Count; i++)
-                if (tags[i].Rt.gameObject.activeSelf) tags[i].Rt.gameObject.SetActive(false);
-        }
-
-        void UpdatePrompt()
-        {
-            var f = expedition.NearestRevealed(3.2f);
-            float progress = 0f;
-            if (f != null)
-            {
-                var names = expedition.Theme.NamesOf(f.Kind);
-                promptName.text = names.Name + (f.Tier > 1 ? "  ★" : "");
-                string hint = names.Hint.ToUpperInvariant();
-                if (f.Kind == FindKind.Lure && robot.LedOn) hint = "IŞIĞI KAPATMA  ·  YANINDA BEKLE";
-                else if (f.Kind == FindKind.Legend && robot.LedOn) hint = "SESSİZ KAL  ·  YANINDA BEKLE";
-                promptHint.text = f.State == FindState.Fleeing ? "KAÇIYOR" : hint;
-                promptHint.color = f.State == FindState.Fleeing ? UiTheme.Danger : UiTheme.Primary;
-                progress = f.Progress;
-            }
-            else
-            {
-                promptName.text = "";
-                promptHint.text = "";
-            }
-            captureRing.fillAmount = progress;
-
-            // sessizlik göstergesi: ürkek bir bulgu yakındaysa göster
-            bool shyNear = f != null && (f.Kind == FindKind.Shy || f.Kind == FindKind.Legend);
-            float noise = expedition.Noise;
-            noiseLabel.gameObject.SetActive(shyNear);
-            noiseTrack.gameObject.SetActive(shyNear);
-            noiseFill.gameObject.SetActive(shyNear);
-            if (shyNear)
-            {
-                noiseFill.sizeDelta = new Vector2(140f * noise, 3f);
-                noiseImage.color = noise < 0.2f ? UiTheme.Success : noise < 0.45f ? UiTheme.Warning : UiTheme.Danger;
-            }
-
-            // üs ipucu
-            if (expedition.InBase)
-                baseText.text = "ÜS  ·  U: LABORATUVAR  ·  ÖZ " + expedition.Essence;
-            else baseText.text = "";
-        }
-
-        void UpdateLed(float dt)
-        {
-            ledLevel = Mathf.MoveTowards(ledLevel, robot.LedOn ? 1f : 0f, dt * 6f);
-            ledFill.sizeDelta = new Vector2(LedBarWidth * ledLevel, 3f);
-            ledLabel.text = robot.LedOn ? "LED AÇIK  ·  PİL AKIYOR" : "LED  ·  L YA DA SOL TIK (BASILI TUT)";
-            ledLabel.color = robot.LedOn ? UiTheme.Warning : UiTheme.WithAlpha(UiTheme.Text, 0.6f);
-        }
-
-        void UpdateComms(float dt)
-        {
-            if (commsShown < commsFull.Length)
-            {
-                commsShown = Mathf.Min(commsFull.Length, commsShown + CommsCharsPerSecond * dt);
-                commsText.text = commsFull.Substring(0, Mathf.FloorToInt(commsShown)) + "_";
-                commsHold = 0f;
-            }
-            else
-            {
-                commsText.text = commsFull;
-                commsHold += dt;
-                if (commsQueue.Count > 0 && commsHold > 3.5f)
-                {
-                    commsFull = commsQueue.Dequeue();
-                    commsShown = 0f;
-                }
-            }
-            bool visible = commsFull.Length > 0 && (commsShown < commsFull.Length || commsHold < 8f || commsQueue.Count > 0);
-            commsGroup.alpha = Mathf.MoveTowards(commsGroup.alpha, visible ? 1f : 0f, dt * 2.5f);
-        }
-
-        void UpdateBanners(float dt)
-        {
             noticeTimer -= dt;
             var c = UiTheme.Primary;
             c.a = Mathf.Clamp01(noticeTimer / 0.6f);
             noticeText.color = c;
             if (noticeTimer <= 0f) noticeText.text = "";
+
+            var kb = Keyboard.current;
+            if (kb != null && kb.tabKey.wasPressedThisFrame && TryThreatBearing(out float bearing, out _)) viewer.SnapTo(bearing);
         }
 
-        static void SetMotor(RectTransform fill, float v)
+        /// <summary>En yakın gölgenin görüş yönüne değil robotun önüne göre açısı (derece, sağ = +) ve uzaklığı.</summary>
+        bool TryThreatBearing(out float bearing, out float distance)
         {
-            float half = MotorTrack * 0.5f;
-            float w = Mathf.Abs(v) * half;
-            fill.sizeDelta = new Vector2(w, 4f);
-            fill.anchoredPosition = new Vector2(70f + half + Mathf.Min(0f, v) * half, fill.anchoredPosition.y);
+            bearing = 0f; distance = float.MaxValue;
+            Ghost best = null;
+            foreach (var g in expedition.Ghosts)
+            {
+                if (g == null || !g.Alive) continue;
+                float d = Vector3.Distance(robot.transform.position, g.Position);
+                if (d < distance && (g.State == GhostState.Chase || d < 5f)) { distance = d; best = g; }
+            }
+            if (best == null) return false;
+            bearing = BearingTo(best.Position);
+            return true;
+        }
+
+        float BearingTo(Vector3 world)
+        {
+            Vector3 local = robot.transform.InverseTransformPoint(world);
+            return Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg;
+        }
+
+        void UpdateCenter()
+        {
+            var f = expedition.NearestRevealed(3.2f);
+            captureRing.fillAmount = f != null ? f.Progress : 0f;
+
+            bool relevant = (f != null && (f.Kind == FindKind.Shy || f.Kind == FindKind.Legend)) || expedition.GhostThreat > 0.05f;
+            if (noiseTrack.gameObject.activeSelf != relevant) noiseTrack.gameObject.SetActive(relevant);
+            if (!relevant) return;
+            float noise = expedition.Noise;
+            noiseFill.sizeDelta = new Vector2(64f * noise, 3f);
+            noiseImage.color = noise > 0.5f ? UiTheme.Danger : noise > 0.2f ? UiTheme.Warning : UiTheme.Success;
+        }
+
+        // ---- sol üst: hedef + ipucu
+
+        void UpdateTips(float dt)
+        {
+            string goal = expedition.IsFinished ? "SERBEST GEZİ" : (expedition.ChapterIndex + 1) + "/" + expedition.Theme.Chapters.Length + "  ·  " + expedition.GoalText() + "  (" + expedition.ChapterProgress + "/" + expedition.Chapter.Count + ")";
+            if (goal != shownGoal) { shownGoal = goal; goalText.text = goal; }
+
+            // telsiz mesajı varsa o gösterilir (daktilo gibi), yoksa duruma göre ipucu
+            if (commsFull.Length > 0)
+            {
+                commsShown = Mathf.Min(commsFull.Length, commsShown + dt * CommsCharsPerSecond);
+                tipText.text = commsFull.Substring(0, Mathf.FloorToInt(commsShown));
+                tipText.color = UiTheme.Text;
+                if (commsShown >= commsFull.Length)
+                {
+                    commsHold += dt;
+                    if (commsHold > 2.2f + commsFull.Length * 0.03f)
+                    {
+                        commsFull = commsQueue.Count > 0 ? commsQueue.Dequeue() : "";
+                        commsShown = 0f; commsHold = 0f;
+                    }
+                }
+                return;
+            }
+
+            string tip = ContextTip(out bool urgent);
+            tipText.text = tip;
+            tipText.color = urgent ? UiTheme.Danger : UiTheme.Text;
+        }
+
+        string ContextTip(out bool urgent)
+        {
+            urgent = false;
+            foreach (var g in expedition.Ghosts)
+            {
+                if (g == null || !g.Alive) continue;
+                float d = Vector3.Distance(robot.transform.position, g.Position);
+                if (g.State == GhostState.Chase && d < 6f)
+                {
+                    urgent = true;
+                    return g.Burn > 0.1f ? "Işığı üzerinde tut, eriyor..." : "GÖLGE yaklaşıyor!  Kaç, ya da LED'i üzerine tut  ·  Tab: bak";
+                }
+                if (d < 3.5f) { urgent = true; return "Soğuk bir şey var yakında.  Sessiz kal  ·  Tab: bak"; }
+            }
+
+            var f = expedition.NearestRevealed(3.2f);
+            if (f != null)
+            {
+                var names = expedition.Theme.NamesOf(f.Kind);
+                string hint = names.Hint;
+                if (f.State == FindState.Fleeing) hint = "kaçıyor";
+                else if (f.Kind == FindKind.Shy && f.Alarm > 0.25f) hint = "tedirgin! Yavaşla  ·  SHIFT";
+                else if (f.Kind == FindKind.Lure && robot.LedOn) hint = "Işığı kapatma, yanında bekle";
+                else if (f.Kind == FindKind.Legend && robot.LedOn) hint = "Sessiz kal, yanında bekle";
+                return names.Name + (f.Tier == 3 ? "  (çok nadir)" : f.Tier == 2 ? "  (nadir)" : "") + "  ·  " + hint;
+            }
+            if (expedition.InBase) return expedition.Carried.Count > 0 ? "Teslim ediliyor..." : "Üs  ·  U: atölye";
+            var room = expedition.CurrentRoom;
+            return room != null ? room.Name : "";
+        }
+
+        // ---- ekran çevresinde yön üçgenleri
+
+        void UpdateMarkers()
+        {
+            Vector2 half = root.rect.size * 0.5f;
+            float radius = Mathf.Min(half.x, half.y) * 0.72f;
+            float viewYaw = viewer.Yaw;
+            int used = 0;
+            float pulse = 0.65f + 0.35f * Mathf.Sin(Time.realtimeSinceStartup * 8f);
+
+            foreach (var g in expedition.Ghosts)
+            {
+                if (g == null || !g.Alive || used >= MaxMarkers) continue;
+                float d = Vector3.Distance(robot.transform.position, g.Position);
+                bool show = g.State == GhostState.Chase || d < 4.5f;
+                if (!show) continue;
+                float rel = Mathf.DeltaAngle(viewYaw, BearingTo(g.Position));
+                bool onScreen = Mathf.Abs(rel) < 30f;
+                var m = markers[used++];
+                m.gameObject.SetActive(true);
+                PlaceOnRing(m.rectTransform, rel, radius, onScreen ? 0.55f : 1f);
+                float size = Mathf.Lerp(24f, 46f, Mathf.Clamp01(1f - d / 6f));
+                m.rectTransform.sizeDelta = new Vector2(size, size);
+                m.color = UiTheme.WithAlpha(UiTheme.Danger, (g.State == GhostState.Chase ? 0.95f : 0.55f) * pulse);
+            }
+            for (int i = used; i < markers.Count; i++) markers[i].gameObject.SetActive(false);
+
+            // üs oku: üs görüş alanında değilse ya da uzaksa
+            float baseDistance = Vector3.Distance(robot.transform.position, expedition.BasePosition);
+            float baseRel = Mathf.DeltaAngle(viewYaw, BearingTo(expedition.BasePosition));
+            bool baseShow = baseDistance > 2.5f && !expedition.InBase;
+            if (baseMarker.gameObject.activeSelf != baseShow) baseMarker.gameObject.SetActive(baseShow);
+            if (baseShow)
+            {
+                PlaceOnRing(baseMarker.rectTransform, baseRel, radius * 0.92f, 1f);
+                baseMarker.color = UiTheme.WithAlpha(UiTheme.Success, Mathf.Abs(baseRel) < 25f ? 0.3f : 0.8f);
+            }
+        }
+
+        static void PlaceOnRing(RectTransform rt, float relDegrees, float radius, float scaleOut)
+        {
+            float a = relDegrees * Mathf.Deg2Rad;
+            rt.anchoredPosition = new Vector2(Mathf.Sin(a), Mathf.Cos(a)) * (radius * scaleOut);
+            rt.localRotation = Quaternion.Euler(0f, 0f, -relDegrees);
+        }
+
+        void UpdateDanger()
+        {
+            float t = expedition.GhostThreat;
+            float pulse = 0.65f + 0.35f * Mathf.Sin(Time.realtimeSinceStartup * (4f + t * 8f));
+            dangerTint.color = UiTheme.WithAlpha(UiTheme.Danger, t * 0.1f * pulse);
+            dangerFrame.color = UiTheme.WithAlpha(UiTheme.Danger, Mathf.Clamp01(t * 1.4f) * pulse);
         }
     }
 }

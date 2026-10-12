@@ -18,6 +18,7 @@ namespace ARaki.Game
         public float WanderTimer;
         public float Age;
         public float LostTimer;             // robotu fark etmediği süre
+        public float Burn;                  // fenerin altında geçen süre (dolunca eriyip gider)
         public float Alert;                 // 0..1 görsel/işitsel uyarı yoğunluğu
 
         public Vector3 Position => new Vector3(transform.position.x, 0f, transform.position.z);

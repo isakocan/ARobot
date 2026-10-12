@@ -627,7 +627,7 @@ namespace ARaki.EditorTools
 
             string themeName = Env("ARAKI_THEME");
             if (!string.IsNullOrEmpty(themeName))
-                ThemeCatalog.Set(themeName == "space" ? ThemeId.Space : themeName == "mystery" ? ThemeId.Mystery : themeName == "safari" ? ThemeId.Safari : ThemeId.Home, false);
+                ThemeCatalog.Set(ThemeId.Home, false);
             else UiTheme.EnsureApplied();
             Object.FindFirstObjectByType<ThemeSkin>().Apply();
             {
@@ -721,6 +721,15 @@ namespace ARaki.EditorTools
                 var sp = spawn.Split(':');
                 var f = SpawnNearRobot(expedition, link.transform, int.Parse(sp[0], inv), float.Parse(sp[1], inv), float.Parse(sp[2], inv));
                 f.Progress = sp.Length > 3 ? float.Parse(sp[3], inv) : 0f;
+            }
+            // gölge: "ileri:yan" (robota göre metre), kovalama durumunda
+            string ghostSpec = Env("ARAKI_GHOST");
+            if (!string.IsNullOrEmpty(ghostSpec))
+            {
+                var gp = ghostSpec.Split(':');
+                var g = expedition.SpawnGhost(link.transform.TransformPoint(new Vector3(float.Parse(gp[1], inv), 0f, float.Parse(gp[0], inv))));
+                g.State = GhostState.Chase;
+                for (int i = 0; i < 12; i++) expedition.Tick(0.05f);
             }
             if (Env("ARAKI_SHOWCASE") == "1")
                 for (int k = 0; k < 5; k++) SpawnNearRobot(expedition, link.transform, k, 1.35f + 0.05f * k, (k - 2) * 0.42f);

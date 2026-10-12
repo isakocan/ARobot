@@ -52,7 +52,6 @@ namespace ARaki.UI
         Screen current;
         Text menuSubtitle, menuTagline, menuInfo, pauseSub, labEssence, endText, endStats;
         Button continueButton;
-        readonly List<Button> themeButtons = new List<Button>();
         readonly List<LabCard> cards = new List<LabCard>();
 
         void Awake() => Build();
@@ -117,10 +116,10 @@ namespace ARaki.UI
             line.anchorMin = new Vector2(0f, 0f); line.anchorMax = new Vector2(0f, 1f); line.sizeDelta = new Vector2(2f, 0f);
             kit.Img(line, UiTheme.WithAlpha(UiTheme.Primary, 0.55f));
 
-            kit.Label(g, "BİTİRME PROJESİ  ·  AR KEŞİF OYUNU", monoFont, 12, UiTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(88f, -92f), new Vector2(500f, 18f));
-            var title = kit.Label(g, "ARAKI", titleFont, 150, UiTheme.Text, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(80f, -108f), new Vector2(520f, 170f));
+            kit.Label(g, "BİTİRME PROJESİ  ·  " + GameInfo.Subtitle, monoFont, 12, UiTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(88f, -92f), new Vector2(500f, 18f));
+            var title = kit.Label(g, GameInfo.Title, titleFont, 130, UiTheme.Text, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(80f, -108f), new Vector2(520f, 170f));
             UiKit.Shadow(title);
-            menuSubtitle = kit.Label(g, def.Name, titleFont, 30, UiTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(92f, -280f), new Vector2(500f, 36f));
+            menuSubtitle = kit.Label(g, "KÜÇÜK ROBOT  ·  BÜYÜK EV", titleFont, 26, UiTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(92f, -280f), new Vector2(500f, 36f));
             kit.Img(kit.Rt("Rule", g, UiKit.TopLeft, UiKit.TopLeft, new Vector2(92f, -326f), new Vector2(420f, 1f)), UiTheme.WithAlpha(UiTheme.Primary, 0.4f));
             menuTagline = kit.Label(g, def.Tagline, bodyFont, 19, UiTheme.TextDim, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(92f, -338f), new Vector2(430f, 52f));
             menuTagline.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -128,28 +127,19 @@ namespace ARaki.UI
             continueButton = AddButton(s, "OYNA", "ENTER", new Vector2(92f, -410f), new Vector2(420f, 54f), UiTheme.Primary, () => session.Continue(), g, UiKit.TopLeft);
             AddButton(s, "YENİ OYUN", "N", new Vector2(92f, -472f), new Vector2(420f, 44f), UiTheme.TextDim, () => session.NewGame(), g, UiKit.TopLeft, 22);
 
-            kit.Label(g, "TEMA  (görünüm ve hikaye; oynanış aynı)", monoFont, 11, UiTheme.TextDim, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(92f, -536f), new Vector2(420f, 16f));
-            string[] names = { "EV", "SAFARİ", "GEZEGEN", "GİZEM" };
-            ThemeId[] ids = { ThemeId.Home, ThemeId.Safari, ThemeId.Space, ThemeId.Mystery };
-            for (int i = 0; i < 4; i++)
-            {
-                var id = ids[i];
-                var b = AddButton(s, names[i], (i + 1).ToString(), new Vector2(92f + i * 107f, -558f), new Vector2(99f, 44f), ThemeCatalog.Get(id).Palette.Primary, () => session.SetTheme(id), g, UiKit.TopLeft, 17);
-                b.Selected = ThemeCatalog.Current == id;
-                themeButtons.Add(b);
-            }
             AddButton(s, "ÇIKIŞ", "ESC", new Vector2(92f, -622f), new Vector2(420f, 40f), UiTheme.TextDim, () => session.QuitGame(), g, UiKit.TopLeft, 22);
 
             menuInfo = kit.Label(g, "", monoFont, 13, UiTheme.TextDim, TextAnchor.LowerLeft, UiKit.BottomLeft, UiKit.BottomLeft, new Vector2(92f, 22f), new Vector2(480f, 18f));
 
-            var card = kit.Card("Controls", g, UiKit.BottomRight, UiKit.BottomRight, new Vector2(-40f, 40f), new Vector2(330f, 322f));
+            var card = kit.Card("Controls", g, UiKit.BottomRight, UiKit.BottomRight, new Vector2(-40f, 40f), new Vector2(330f, 440f));
             kit.Label(card, "KONTROLLER", monoFont, 11, UiTheme.Primary, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, -12f), new Vector2(200f, 16f));
             string[,] keys =
             {
-                { "W A S D", "Sür" }, { "SHIFT", "Sessiz (ürkekler için)" }, { "Q E  /  SAĞ TIK", "Etrafa bak" }, { "L  /  SOL TIK", "LED (basılı tut)" },
-                { "X", "Sonar (gizlileri bul)" }, { "R F", "Vites" }, { "U", "Laboratuvar (üste)" }, { "K", "Sesi aç / kapat" }, { "ESC", "Duraklat" },
+                { "W A S D", "Sür" }, { "SHIFT", "Sessiz (ürkekler için)" }, { "Q E  /  SAĞ TIK", "Etrafa bak" }, { "L  /  SOL TIK", "LED / fener (basılı tut)" },
+                { "B", "Arkaya bak (tekrar: öne)" }, { "TAB", "Tehdide dön" }, { "Z", "Dürbün (basılı tut)" }, { "X", "Sonar (gizlileri bul)" },
+                { "R F", "Vites" }, { "U", "Atölye (üste)" }, { "K", "Sesi aç / kapat" }, { "ESC", "Duraklat" },
             };
-            for (int i = 0; i < 9; i++)
+            for (int i = 0; i < 12; i++)
             {
                 float y = -38f - i * 30f;
                 kit.Label(card, keys[i, 0], monoFont, 13, UiTheme.Text, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(16f, y), new Vector2(150f, 18f));
@@ -249,8 +239,7 @@ namespace ARaki.UI
                         var save = SaveData.Load(ThemeCatalog.Current);
                         menuInfo.text = save != null
                             ? "KAYITLI  ·  BÖLÜM " + (Mathf.Min(save.chapter, def.Chapters.Length - 1) + 1) + "/" + def.Chapters.Length + "  ·  ÖZ " + save.essence + "  ·  " + save.total + " BULGU"
-                            : "BU TEMADA HENÜZ KAYIT YOK";
-                        for (int i = 0; i < themeButtons.Count; i++) themeButtons[i].Selected = (int)ThemeCatalog.Current == i;
+                            : "HENÜZ KAYIT YOK";
                         break;
                     }
                 case GameState.Paused:

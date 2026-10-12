@@ -152,7 +152,7 @@ namespace ARaki.Tests
         public IEnumerator ThemeSurfacesFollowTheSelectedTheme()
         {
             var skin = Object.FindFirstObjectByType<ThemeSkin>();
-            foreach (ThemeId id in new[] { ThemeId.Space, ThemeId.Mystery, ThemeId.Safari, ThemeId.Home })
+            foreach (ThemeId id in new[] { ThemeId.Home })
             {
                 skin.Apply(id);
                 int walls = 0;

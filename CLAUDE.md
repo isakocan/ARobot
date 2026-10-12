@@ -39,3 +39,11 @@ Not: motor sürücüler Arduino uyumlu; hocada tek noktalı lidar ve yakınlık 
 
 ## Ana riskler
 Düşük gecikmeli video · AR kayması · değişen ışıkta obje tanıma · Theta S Linux uyumu · Nano işlem yükü
+
+## Güncel durum (son tur)
+- Tek tema: Ev. Safari/Gezegen/Gizem silindi (git geçmişinde: önceki commit). Oyun adı geçici: TENHA (Core/GameInfo.cs; değiştirmek için tek yer).
+- Arayüz sade: yazı yalnızca sol üstte (hedef + ipucu); pil/sonar ince çubuk, taşınan kayıtlar küçük kareler, dikiz aynası (Video/RearMirror.cs), ekran çevresinde yön üçgenleri (kırmızı tehdit, yeşil üs).
+- 360° kamera özellikleri: Tab = tehdide dön, B = arkaya bak (tekrar: öne), Z = dürbün, Q/E ve sağ tık = serbest bakış, dikiz aynası.
+- Gölge: LED'i üzerine tutarsan (40° koni, 3,4 m) donar, 2,5 sn sonra erir (+2 öz). Ürkek bulgu önce tedirgin olur (0,9 sn), 5 kaçışta gider.
+- Üs (Ocak): katı lamba kulesi (hologram değil), kule platformun batı kenarında. Tasarım planı: docs/oyun-kurgusu.md (Faz B-E sırada: Pazar/Atölye, yeni gölge türleri, bina yerleri, Soğuk Dalga).
+

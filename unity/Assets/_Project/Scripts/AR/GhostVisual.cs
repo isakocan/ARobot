@@ -25,7 +25,8 @@ namespace ARaki.AR
             {
                 body.localPosition = new Vector3(0f, hover + Mathf.Sin(t * (1.6f + chase)) * 0.025f, 0f);
                 body.localRotation = Quaternion.Euler(Mathf.Sin(t * 1.1f) * 5f, 0f, Mathf.Sin(t * 1.4f) * 8f);
-                float s = 1f + chase * 0.18f + Mathf.Sin(t * 6f) * 0.03f * chase;
+                float burn = Mathf.Clamp01(g.Burn / 2.5f);
+                float s = (1f + chase * 0.18f + Mathf.Sin(t * 6f) * 0.03f * chase) * (1f - burn * 0.5f);
                 body.localScale = Vector3.one * s;
             }
             if (tail != null) tail.localRotation = Quaternion.Euler(0f, t * 40f, Mathf.Sin(t * 2f) * 10f);

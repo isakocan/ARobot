@@ -28,6 +28,15 @@ namespace ARaki.Video
         /// <summary>Dışarıdan eklenen sarsıntı (derece): güneş parlaması, elektrik şoku...</summary>
         public float ExtraShake { get; set; }
 
+        float? snapYaw;
+        float baseFov;
+        bool lookedBack;
+
+        /// <summary>Bakışı verilen yöne (robota göre derece) hızla çevirir; elle bakmaya başlayınca iptal olur.</summary>
+        public void SnapTo(float yaw) { snapYaw = yaw; lookedBack = Mathf.Abs(Mathf.DeltaAngle(yaw, 180f)) < 1f; }
+
+        public bool Zooming { get; private set; }
+
         public float Yaw { get; private set; }
         public float Pitch { get; private set; }
         public Camera ViewCamera => viewCamera;
@@ -36,6 +45,7 @@ namespace ARaki.Video
         void Start()
         {
             Pitch = defaultPitch;
+            baseFov = viewCamera.fieldOfView;
             Bind();
             Apply();
             source.TargetsRecreated += Bind;     // kalite değişince doku yeniden bağlanır
@@ -74,17 +84,34 @@ namespace ARaki.Video
 
             if (kb != null)
             {
+                if (kb.eKey.isPressed || kb.qKey.isPressed) snapYaw = null;
                 if (kb.eKey.isPressed) Yaw += keyLookSpeed * dt;
                 if (kb.qKey.isPressed) Yaw -= keyLookSpeed * dt;
                 if (kb.spaceKey.isPressed)
                 {
+                    snapYaw = null;
                     Yaw = Mathf.MoveTowardsAngle(Yaw, 0f, 240f * dt);
                     Pitch = Mathf.MoveTowards(Pitch, defaultPitch, 120f * dt);
                 }
+                // B: tek dokunuşla arkaya bak, tekrar basınca öne dön
+                if (kb.bKey.wasPressedThisFrame) SnapTo(lookedBack ? 0f : 180f);
+                Zooming = kb.zKey.isPressed;
             }
+
+            if (snapYaw.HasValue)
+            {
+                Yaw = Mathf.MoveTowardsAngle(Yaw, snapYaw.Value, 900f * dt);
+                Pitch = Mathf.MoveTowards(Pitch, defaultPitch, 200f * dt);
+                if (Mathf.Abs(Mathf.DeltaAngle(Yaw, snapYaw.Value)) < 0.5f) snapYaw = null;
+            }
+
+            // Z (basılı): dürbün; sinsice yaklaşırken uzaktaki yaratığı arabayı oynatmadan inceler
+            float targetFov = Zooming ? baseFov * 0.45f : baseFov;
+            if (baseFov > 0f) viewCamera.fieldOfView = Mathf.MoveTowards(viewCamera.fieldOfView, targetFov, 120f * dt);
 
             if (mouse != null && mouse.rightButton.isPressed)
             {
+                snapYaw = null;
                 Vector2 d = mouse.delta.ReadValue();
                 Yaw += d.x * mouseSensitivity;
                 Pitch -= d.y * mouseSensitivity;
