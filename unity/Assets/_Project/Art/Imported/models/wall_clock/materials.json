@@ -1,0 +1,6 @@
+{
+ "wall_clock": {
+  "baseColor": null,
+  "diff": "textures/wall_clock_diff_1k.jpg"
+ }
+}

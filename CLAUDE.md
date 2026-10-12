@@ -20,15 +20,17 @@ Not: motor sürücüler Arduino uyumlu; hocada tek noktalı lidar ve yakınlık 
 
 ## Kesin kararlar
 - Unity 6.3 LTS (6000.3.26f1), proje: `unity/`, URP + Input System. Telefon: Samsung S21+ (Android). Önce Unity Editor'de PC'de geliştirilir, telefona sonra geçilir.
-- Ana yön: gezegen keşif görevi (ASTRA-7). Robotun mesafe sensörü (simde ışın atma, gerçekte lidar/ToF) çevreyi haritalar (ExplorationMap); ORBİT-9 sinyali, mineral numuneleri ve enerji hücresi sensör bulana kadar görünmez; üs şarj/numune teslimi/kalibrasyon noktası. Odaya nesne koyma yok (oyun nesneleri sanal). Hikaye: Story.cs. Yarış modu kodda duruyor ama menüden kaldırıldı (sıkıcı bulundu); API: GameSession.StartRaceGame.
-- Performans: 360 yakalama 30 Hz ile sınırlı, telefonda 2K; Editor/Optimizer.cs mobil URP profili, ASTC doku ve Android ayarlarını sahne kurulurken uygular.
+- Oyun: serbest gezi. Çok odalı ev (HouseLayout: salon, koridor, mutfak, yatak odası, banyo, çalışma odası). Robotun mesafe sensörü evi haritalar (ExplorationMap); harita dolduğu yerlerde odaya göre "bulgu" çıkar (Pokémon GO gibi ama ev içinde, nesne koymadan). Beş bulgu türü, her biri ayrı bir fiil ister: ürkek (SHIFT ile sessiz yaklaş), ışığa gelen (LED), gizli (sonar X), hareketsiz (bekle), efsane (ışık + sessizlik). Yakalananlar robotun hafızasında taşınır, üste (şarj, kalibrasyon, laboratuvar) teslim edilir; pil biterse kaybolur. Teslim öz verir; öz robotu geliştirir (gerçek davranış) ve 6 bölümlük hikayeyi ilerletir. Mantık: unity/Assets/_Project/Scripts/Game/Expedition.cs.
+- Üç tema (Safari / Gezegen / Gizem) aynı oynanışın görünüm+hikaye katmanı: ThemeCatalog, duvar/tavan gökyüzü gölgelendiricisi ARaki/Sky, AR nesneleri ARaki/Toon (hologram değil). Menüden seçilir, sahne yeniden yüklenir; ilerleme tema başına kayıtlı. Hangi tema ana yön olur henüz seçilmedi. Gerçek robotta "zemin/eşya dışı = gökyüzü" için bölütleme modeli gerekir (simde geometri bilindiği için hile).
+- Yarış modu denendi ve sıkıcı bulunduğu için kaldırıldı (git geçmişinde: 7f1feaa).
+- Performans: 360 yakalama 30 Hz ile sınırlı, telefonda 2K; Editor/Optimizer.cs mobil URP profili, ASTC doku ve Android ayarlarını sahne kurulurken uygular. Ek modeller: python tools/fetch_polyhaven.py (CC0).
 - Simülasyon: 360 kamera "equirect → küre içinden bakış" hattıyla modelleniyor (Sim360Camera → PanoramaViewer); AR nesneleri robota göre konumla (ARRig) çiziliyor. Gerçek robotta yalnızca görüntü kaynağı değişecek.
 
 ## Henüz seçilmedi (kullanıcıyla konuşulacak)
 - Görsel tema/yön (uzay / savaş sonrası / maket / başka).
 - Wi-Fi: robotun kendi ağı kurulum için, günlük kullanım ev Wi-Fi'sinde (menzil için) fikri var; test edilecek.
 - Görev/hikaye üretimi için LLM (NVIDIA API vb.) denenecek; derinlik/mesafe sensörü seçimi.
-- Demo hikayesi: ORBİT-9 istasyonu salona düştü (unity/Assets/_Project/Scripts/Game/Story.cs); beğenilmezse değişir.
+- Hikaye metinleri: Theming/ThemeCatalog.cs (3 tema x 6 bölüm); beğenilmezse değişir.
 
 ## Kurallar
 - UI/UX profesyonel ve özgün olmalı; "AI slop" jenerik görünüm istenmiyor.

@@ -1,270 +1,328 @@
-using ARaki.AR;
+using System.Collections.Generic;
+using ARaki.Theming;
+using ARaki.World;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
 namespace ARaki.EditorTools
 {
-    /// <summary>Oturma odası: gerçek dokulu zemin ve duvarlar, model mobilyalar, perde, pencere ışığı ve tavan lambası.</summary>
+    /// <summary>
+    /// Çok odalı ev: HouseLayout'taki planı (zeminler, duvarlar, kapı açıklıkları, tavanlar) kurar, odaları mobilyayla döşer
+    /// (Poly Haven CC0 modelleri) ve her odaya bir ışık koyar. Duvar ve tavanlar seçili temaya göre gökyüzü/orman/duvar kağıdı olur.
+    /// </summary>
     public static class RoomBuilder
     {
-        public const float Width = 6f, Depth = 5f, Height = 2.5f;
-
-        /// <summary>Gerçekte oyuncu odaya 3D baskı obje koyabilir; şimdilik oyun nesneleri robotun sensörüyle keşfeder, odada obje yok.</summary>
-        public static bool ShowPrints = false;
-
-        public class PrintObjects
-        {
-            public Transform Station;     // ORBİT-9 maketi: AR istasyonunun gerçek karşılığı (3D baskı)
-            public Transform Fuel;
-            public Transform BasePad;
-        }
-
         static Color C(string hex) => SceneBuilder.C(hex);
+        static Transform house;
+        static Material trim, white;
+        static Material[] wallSky, ceilingSky, windowSky;
 
-        public static PrintObjects Build()
+        public static void Build()
         {
             AssetPipeline.PrepareTextures();
-            var room = new GameObject("Room").transform;
-            const float w = Width, d = Depth, h = Height, t = 0.1f;
+            house = new GameObject("House").transform;
+            trim = SceneBuilder.Mat("Trim", C("#F2EEE6"), smooth: 0.35f);
+            white = SceneBuilder.Mat("Porcelain", C("#F4F6F6"), smooth: 0.85f);
+            wallSky = SceneBuilder.SkyMaterials(SurfaceRole.Wall);
+            ceilingSky = SceneBuilder.SkyMaterials(SurfaceRole.Ceiling);
+            windowSky = SceneBuilder.SkyMaterials(SurfaceRole.Window);
 
-            // --- yüzeyler (gerçek PBR dokular)
-            var floorMat = AssetPipeline.TextureSetMaterial("laminate_floor_02", new Vector2(w / 1.6f, d / 1.6f), null, 1f);
-            var floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            floor.name = "Floor";
-            floor.transform.SetParent(room);
-            floor.transform.localScale = new Vector3(w / 10f, 1f, d / 10f);
-            floor.GetComponent<MeshRenderer>().sharedMaterial = floorMat;
-            Object.DestroyImmediate(floor.GetComponent<Collider>()); // zemin çarpma saymaz
+            BuildShells();
+            BuildDoorFrames();
+            BuildLiving();
+            BuildStudy();
+            BuildKitchen();
+            BuildBedroom();
+            BuildBath();
+            BuildHall();
+            BuildLights();
+            Debug.Log("[RoomBuilder] ThemeSurface sayısı (MarkStatic öncesi): " + house.GetComponentsInChildren<ThemeSurface>(true).Length);
+            MarkStatic(house);
+            Debug.Log("[RoomBuilder] ThemeSurface sayısı (MarkStatic sonrası): " + house.GetComponentsInChildren<ThemeSurface>(true).Length);
+        }
 
-            var wallEW = AssetPipeline.TextureSetMaterial("white_plaster_02", new Vector2(d / 2f, h / 2f), C("#FFFFFF"), 1f);
-            var wallNS = AssetPipeline.TextureSetMaterial("white_plaster_02", new Vector2(w / 2f, h / 2f), C("#FFFFFF"), 1f);
-            var ceilingMat = AssetPipeline.TextureSetMaterial("white_plaster_02", new Vector2(w / 2f, d / 2f), C("#F4F0E8"), 1f);
-            Box("WallN", room, new Vector3(0f, h / 2f, d / 2f + t / 2f), new Vector3(w + 2 * t, h, t), wallNS);
-            Box("WallS", room, new Vector3(0f, h / 2f, -d / 2f - t / 2f), new Vector3(w + 2 * t, h, t), wallNS);
-            Box("WallE", room, new Vector3(w / 2f + t / 2f, h / 2f, 0f), new Vector3(t, h, d), wallEW);
-            Box("WallW", room, new Vector3(-w / 2f - t / 2f, h / 2f, 0f), new Vector3(t, h, d), wallEW);
-            var ceiling = Box("Ceiling", room, new Vector3(0f, h + 0.025f, 0f), new Vector3(w + 2 * t, 0.05f, d + 2 * t), ceilingMat, false);
-            ceiling.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
-            ceiling.layer = 2; // üstten kamera tavanı çizmez
+        // ------------------------------------------------------------------ kabuk: zemin, duvar, tavan
 
-            // süpürgelik
-            var trim = SceneBuilder.Mat("Trim", C("#F7F4EE"), smooth: 0.35f);
-            Box("TrimN", room, new Vector3(0f, 0.06f, d / 2f - 0.012f), new Vector3(w, 0.12f, 0.024f), trim, false);
-            Box("TrimS", room, new Vector3(0f, 0.06f, -d / 2f + 0.012f), new Vector3(w, 0.12f, 0.024f), trim, false);
-            Box("TrimE", room, new Vector3(w / 2f - 0.012f, 0.06f, 0f), new Vector3(0.024f, 0.12f, d), trim, false);
-            Box("TrimW", room, new Vector3(-w / 2f + 0.012f, 0.06f, 0f), new Vector3(0.024f, 0.12f, d), trim, false);
+        static Material FloorFor(RoomInfo r)
+        {
+            float w = r.Rect.width, d = r.Rect.height;
+            switch (r.Kind)
+            {
+                case RoomKind.Kitchen: return AssetPipeline.TextureSetMaterial("kitchen_tiles", new Vector2(w / 1.4f, d / 1.4f), null, 1f);
+                case RoomKind.Bath: return AssetPipeline.TextureSetMaterial("bath_floor", new Vector2(w / 1.2f, d / 1.2f), null, 1f);
+                case RoomKind.Hall: return AssetPipeline.TextureSetMaterial("hall_parquet", new Vector2(w / 1.6f, d / 1.6f), null, 1f);
+                case RoomKind.Study: return AssetPipeline.TextureSetMaterial("laminate_floor_02", new Vector2(w / 1.6f, d / 1.6f), C("#C9B8A4"), 1f);
+                default: return AssetPipeline.TextureSetMaterial("laminate_floor_02", new Vector2(w / 1.6f, d / 1.6f), null, 1f);
+            }
+        }
 
-            BuildWindow(room);
+        static void BuildShells()
+        {
+            const float h = HouseLayout.WallHeight, t = HouseLayout.WallThickness;
+            foreach (var r in HouseLayout.Rooms)
+            {
+                var root = new GameObject("Room_" + r.Id).transform;
+                root.SetParent(house, false);
+                var rect = r.Rect;
 
-            // --- halı
-            var rugMat = AssetPipeline.TextureSetMaterial("wool_boucle", new Vector2(4.6f, 3.3f), C("#A9B4C2"), 0.8f);
-            var rug = Box("Rug", room, new Vector3(-0.2f, 0.007f, 0.2f), new Vector3(3.0f, 0.014f, 2.1f), rugMat, false);
-            rug.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
+                // zemin: oda büyüklüğünde bir kutu (çarpışma yok)
+                var floor = Box("Floor", root, new Vector3(rect.center.x, -0.02f, rect.center.y), new Vector3(rect.width, 0.04f, rect.height), FloorFor(r), false);
+                floor.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
 
-            // --- mobilya
-            Place("sofa_02", room, new Vector3(-1.2f, 0f, 2.05f), 180f);
-            Place("throw_pillows_01", room, new Vector3(-1.2f, 0.34f, 2.18f), 180f, 0.8f, false, false);
-            Place("modern_coffee_table_01", room, new Vector3(-1.2f, 0f, 0.9f), 0f);
-            Place("modern_arm_chair_01", room, new Vector3(0.45f, 0f, 2.0f), 205f);
-            Place("side_table_01", room, new Vector3(-2.55f, 0f, 2.1f), 0f);
-            Place("ceramic_vase_01", room, new Vector3(-2.55f, 0.55f, 2.1f), 0f, 0.8f, false, false);
-            Place("modern_wooden_cabinet", room, new Vector3(0.6f, 0f, -2.2f), 0f);
-            Place("standing_picture_frame_01", room, new Vector3(0.2f, 0.68f, -2.2f), 20f, 1f, false, false);
-            Place("wooden_display_shelves_01", room, new Vector3(-2.8f, 0f, -0.3f), 90f);
-            Place("potted_plant_02", room, new Vector3(2.55f, 0f, 2.05f), 0f);
-            Place("wicker_basket_02", room, new Vector3(-0.05f, 0f, 0.95f), 30f);
-            Place("hanging_picture_frame_01", room, new Vector3(-1.2f, 1.55f, 2.485f), 180f, 1f, false, false);
-            Place("hanging_picture_frame_02", room, new Vector3(-2.985f, 1.5f, -1.5f), 90f, 1f, false, false);
-            Place("hanging_picture_frame_02", room, new Vector3(2.985f, 1.45f, -0.9f), 270f, 1f, false, false);
-            Place("modern_ceiling_lamp_01", room, new Vector3(0f, h - 1.1f, 0.2f), 0f, 1f, false, false);
+                // tavan
+                var ceiling = Box("Ceiling", root, new Vector3(rect.center.x, h + 0.025f, rect.center.y), new Vector3(rect.width, 0.05f, rect.height), ceilingSky[0], false);
+                ceiling.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
+                ceiling.layer = 2;       // üstten kamera tavanı çizmez
+                Themed(ceiling, SurfaceRole.Ceiling, ceilingSky);
 
-            MarkStatic(room);
-            return BuildPrints(room);
+                // dört duvar: kapı açıklıkları kesilir
+                WallLine(root, true, rect.yMin + t * 0.5f, rect.xMin, rect.xMax, 1);       // güney
+                WallLine(root, true, rect.yMax - t * 0.5f, rect.xMin, rect.xMax, -1);      // kuzey
+                WallLine(root, false, rect.xMin + t * 0.5f, rect.yMin, rect.yMax, 1);      // batı
+                WallLine(root, false, rect.xMax - t * 0.5f, rect.yMin, rect.yMax, -1);     // doğu
+            }
         }
 
         /// <summary>
-        /// Hareket etmeyen oda öğelerini "statik" işaretler: Unity bunları malzeme başına tek mesh'te birleştirir
-        /// (statik batching), böylece çizim çağrısı sayısı düşer. Görev nesneleri (3D baskılar) taşındığı için hariç tutulur.
+        /// Bir duvar çizgisi. alongX = duvar x ekseninde uzanır (z sabit). Kapı açıklıklarında yalnızca lento (üst parça) kalır.
         /// </summary>
-        static void MarkStatic(Transform room)
+        static void WallLine(Transform root, bool alongX, float fixedCoord, float from, float to, int inwardSign)
         {
-            foreach (var t in room.GetComponentsInChildren<Transform>(true))
+            const float h = HouseLayout.WallHeight, t = HouseLayout.WallThickness, doorH = 2.1f;
+            float edge = fixedCoord - inwardSign * t * 0.5f;       // kapının tanımlandığı gerçek kenar
+            var doors = HouseLayout.DoorsOnWall(alongX, Mathf.Round(edge * 100f) / 100f);
+            doors.Sort((a, b) => (alongX ? a.Center.x : a.Center.z).CompareTo(alongX ? b.Center.x : b.Center.z));
+
+            float cursor = from;
+            foreach (var d in doors)
             {
-                if (t.GetComponent<Light>() != null || t.GetComponent<ParticleSystem>() != null) continue;
+                float c = alongX ? d.Center.x : d.Center.z;
+                float gapStart = c - d.Width * 0.5f, gapEnd = c + d.Width * 0.5f;
+                if (gapStart > cursor) WallPiece(root, alongX, fixedCoord, cursor, gapStart, 0f, h);
+                WallPiece(root, alongX, fixedCoord, gapStart, gapEnd, doorH, h);      // lento
+                cursor = gapEnd;
+            }
+            if (to > cursor) WallPiece(root, alongX, fixedCoord, cursor, to, 0f, h);
+        }
+
+        static void WallPiece(Transform root, bool alongX, float fixedCoord, float a, float b, float y0, float y1)
+        {
+            float len = b - a, height = y1 - y0;
+            if (len < 0.01f || height < 0.01f) return;
+            Vector3 center = alongX
+                ? new Vector3((a + b) * 0.5f, (y0 + y1) * 0.5f, fixedCoord)
+                : new Vector3(fixedCoord, (y0 + y1) * 0.5f, (a + b) * 0.5f);
+            Vector3 size = alongX
+                ? new Vector3(len, height, HouseLayout.WallThickness)
+                : new Vector3(HouseLayout.WallThickness, height, len);
+            var wall = Box("Wall", root, center, size, wallSky[0], true);
+            Themed(wall, SurfaceRole.Wall, wallSky);
+        }
+
+        static void Themed(GameObject go, SurfaceRole role, Material[] set)
+        {
+            var s = go.AddComponent<ThemeSurface>();
+            s.Role = role;
+            s.ThemeMaterials = set;
+        }
+
+        static void BuildDoorFrames()
+        {
+            foreach (var d in HouseLayout.Doors)
+            {
+                var frame = new GameObject("DoorFrame").transform;
+                frame.SetParent(house, false);
+                const float jamb = 0.05f, depth = 0.18f, height = 2.1f;
+                float half = d.Width * 0.5f;
+                if (d.AlongX)
+                {
+                    Box("JambL", frame, new Vector3(d.Center.x - half, height * 0.5f, d.Center.z), new Vector3(jamb, height, depth), trim, false);
+                    Box("JambR", frame, new Vector3(d.Center.x + half, height * 0.5f, d.Center.z), new Vector3(jamb, height, depth), trim, false);
+                    Box("Header", frame, new Vector3(d.Center.x, height, d.Center.z), new Vector3(d.Width + jamb, jamb, depth), trim, false);
+                }
+                else
+                {
+                    Box("JambL", frame, new Vector3(d.Center.x, height * 0.5f, d.Center.z - half), new Vector3(depth, height, jamb), trim, false);
+                    Box("JambR", frame, new Vector3(d.Center.x, height * 0.5f, d.Center.z + half), new Vector3(depth, height, jamb), trim, false);
+                    Box("Header", frame, new Vector3(d.Center.x, height, d.Center.z), new Vector3(depth, jamb, d.Width + jamb), trim, false);
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------ pencere
+
+        /// <summary>Duvara gömülü pencere: çerçeve + dışarıyı gösteren cam (temaya göre gökyüzü). side: "N","S","E","W".</summary>
+        static void Window(string side, float along, float y, float width, float height)
+        {
+            const float t = HouseLayout.WallThickness;
+            var bounds = HouseLayout.Bounds;
+            Vector3 pos; Vector3 size; Vector3 glassSize;
+            switch (side)
+            {
+                case "N": pos = new Vector3(along, y, bounds.yMax - t - 0.01f); size = new Vector3(width + 0.1f, height + 0.1f, 0.05f); glassSize = new Vector3(width, height, 0.02f); break;
+                case "S": pos = new Vector3(along, y, bounds.yMin + t + 0.01f); size = new Vector3(width + 0.1f, height + 0.1f, 0.05f); glassSize = new Vector3(width, height, 0.02f); break;
+                case "E": pos = new Vector3(bounds.xMax - t - 0.01f, y, along); size = new Vector3(0.05f, height + 0.1f, width + 0.1f); glassSize = new Vector3(0.02f, height, width); break;
+                default: pos = new Vector3(bounds.xMin + t + 0.01f, y, along); size = new Vector3(0.05f, height + 0.1f, width + 0.1f); glassSize = new Vector3(0.02f, height, width); break;
+            }
+            Box("WindowFrame", house, pos, size, trim, false);
+            Vector3 inward = side == "N" ? Vector3.back : side == "S" ? Vector3.forward : side == "E" ? Vector3.left : Vector3.right;
+            var glass = Box("WindowGlass", house, pos + inward * 0.03f, glassSize, windowSky[0], false);
+            glass.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
+            Themed(glass, SurfaceRole.Window, windowSky);
+            if (side == "N" || side == "S")
+                Box("Mullion", house, pos + inward * 0.045f, new Vector3(0.04f, height, 0.03f), trim, false);
+            else
+                Box("Mullion", house, pos + inward * 0.045f, new Vector3(0.03f, height, 0.04f), trim, false);
+        }
+
+        // ------------------------------------------------------------------ odalar
+
+        static void P(string id, float x, float z, float yaw, float y = 0f, float scale = 1f, bool collider = true, bool shadow = true)
+            => AssetPipeline.Place(id, house, new Vector3(x, y, z), yaw, scale, collider, shadow);
+
+        static void Rug(string name, float x, float z, float w, float d, string tint = "#A9B4C2")
+        {
+            var mat = AssetPipeline.TextureSetMaterial("wool_boucle", new Vector2(w * 1.5f, d * 1.5f), C(tint), 0.8f);
+            var rug = Box(name, house, new Vector3(x, 0.007f, z), new Vector3(w, 0.014f, d), mat, false);
+            rug.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
+        }
+
+        static void BuildLiving()
+        {
+            Rug("RugLiving", -3.2f, -2.9f, 3.2f, 2.3f);
+            P("sofa_03", -3.4f, -4.1f, 0f);
+            P("throw_pillows_01", -3.9f, -4.0f, 0f, 0.36f, 0.8f, false, false);
+            P("modern_coffee_table_01", -3.4f, -2.95f, 0f);
+            P("modern_arm_chair_01", -4.78f, -3.0f, 85f);
+            P("side_table_01", -5.1f, -4.3f, 0f);
+            P("ceramic_vase_01", -5.1f, -4.3f, 0f, 0.55f, 0.8f, false, false);
+            P("wooden_display_shelves_01", -5.3f, -1.5f, 90f);
+            P("potted_plant_02", -4.9f, -0.95f, 0f);
+            P("modern_wooden_cabinet", -0.3f, -4.4f, 0f);
+            P("standing_picture_frame_01", -0.6f, -4.4f, 20f, 0.68f, 1f, false, false);
+            P("mid_century_lounge_chair", 0.55f, -1.55f, 215f);
+            P("wicker_basket_02", 0.9f, -4.3f, 30f);
+            P("hanging_picture_frame_01", -3.4f, -4.665f, 0f, 1.55f, 1f, false, false);
+            P("hanging_picture_frame_02", -5.465f, -2.7f, 90f, 1.5f, 1f, false, false);
+            P("modern_ceiling_lamp_01", -2.6f, -2.8f, 0f, HouseLayout.WallHeight - 1.1f, 1f, false, false);
+            Window("S", -0.3f, 1.55f, 1.2f, 1.0f);
+        }
+
+        static void BuildStudy()
+        {
+            P("painted_wooden_table", 3.9f, -4.05f, 0f);
+            P("painted_wooden_chair_02", 3.7f, -3.3f, 180f);
+            P("wooden_bookshelf_worn", 5.15f, -2.6f, 270f);
+            P("vintage_grandfather_clock_01", 5.15f, -1.2f, 270f);
+            P("GothicCommode_01", 2.25f, -4.05f, 90f);
+            P("potted_plant_04", 2.25f, -4.05f, 0f, 0.58f, 1f, false, false);
+            P("Ottoman_01", 3.1f, -1.7f, 15f);
+            P("wicker_basket_01", 4.7f, -4.3f, 0f);
+            P("hanging_picture_frame_02", 3.9f, -4.665f, 0f, 1.6f, 1f, false, false);
+            Window("E", -3.6f, 1.5f, 1.2f, 1.0f);
+        }
+
+        static void BuildKitchen()
+        {
+            P("painted_wooden_cabinet", 1.85f, 3.85f, 180f);
+            P("painted_wooden_cabinet", 3.05f, 3.85f, 180f);
+            P("painted_wooden_cabinet", 4.25f, 3.85f, 180f);
+            P("painted_wooden_cabinet_02", 5.1f, 2.9f, 270f);
+            P("steel_frame_shelves_01", 1.3f, 2.3f, 90f);
+            P("round_wooden_table_02", 3.1f, 2.2f, 0f);
+            P("painted_wooden_chair_01", 2.35f, 2.2f, 90f);
+            P("painted_wooden_chair_01", 3.85f, 2.2f, 270f);
+            P("painted_wooden_stool", 3.1f, 1.45f, 0f);
+            P("vintage_electric_kettle", 3.1f, 2.2f, 30f, 0.75f, 1f, false, false);
+            P("jug_01", 2.95f, 2.3f, 0f, 0.75f, 1f, false, false);
+            P("pot_enamel_01", 4.9f, 1.2f, 20f);
+            P("wooden_bowl_02", 3.25f, 2.1f, 0f, 0.75f, 1f, false, false);
+            P("hanging_picture_frame_01", 1.04f, 2.2f, 270f, 1.6f, 1f, false, false);
+            Window("N", 3.05f, 1.75f, 1.3f, 0.9f);
+        }
+
+        static void BuildBedroom()
+        {
+            Rug("RugBedroom", -3.5f, 2.5f, 2.4f, 1.9f, "#C9A9A0");
+            P("vintage_day_bed", -4.8f, 2.7f, 90f);
+            P("throw_pillows_01", -5.1f, 2.6f, 90f, 0.5f, 0.9f, false, false);
+            P("painted_wooden_nightstand", -5.05f, 1.45f, 90f);
+            P("ClassicNightstand_01", -5.1f, 3.95f, 90f);
+            P("GothicCommode_01", -3.2f, 3.9f, 180f);
+            P("ornate_mirror_01", -3.2f, 4.14f, 180f, 1.35f, 1f, false, false);
+            P("chinese_screen_panels", -2.35f, 1.4f, 35f);
+            P("wicker_basket_01", -2.2f, 3.85f, 0f);
+            P("hanging_picture_frame_02", -5.465f, 1.0f, 90f, 1.5f, 1f, false, false);
+            Window("N", -4.8f, 1.6f, 1.1f, 1.0f);
+        }
+
+        static void BuildBath()
+        {
+            Box("Bathtub", house, new Vector3(-0.55f, 0.28f, 3.8f), new Vector3(1.7f, 0.56f, 0.75f), white, true);
+            Box("TubInside", house, new Vector3(-0.55f, 0.57f, 3.8f), new Vector3(1.5f, 0.02f, 0.55f), SceneBuilder.Mat("TubInside", C("#BFD0D4"), smooth: 0.9f), false);
+            Box("Faucet", house, new Vector3(0.22f, 0.7f, 3.8f), new Vector3(0.05f, 0.18f, 0.05f), SceneBuilder.Mat("Chrome", C("#C9CED2"), smooth: 0.95f), false);
+            Box("VanityCabinet", house, new Vector3(0.72f, 0.38f, 2.2f), new Vector3(0.5f, 0.76f, 0.75f), SceneBuilder.Mat("VanityWood", C("#9B7B5C"), smooth: 0.5f), true);
+            Box("Basin", house, new Vector3(0.72f, 0.79f, 2.2f), new Vector3(0.44f, 0.06f, 0.5f), white, false);
+            P("ornate_mirror_01", 0.97f, 2.2f, 270f, 1.35f, 0.9f, false, false);
+            Box("ToiletBase", house, new Vector3(-1.4f, 0.2f, 2.5f), new Vector3(0.62f, 0.4f, 0.38f), white, true);
+            Box("ToiletTank", house, new Vector3(-1.55f, 0.55f, 2.5f), new Vector3(0.2f, 0.36f, 0.4f), white, false);
+            P("wooden_stool_02", -1.35f, 1.35f, 0f);
+            P("rubber_duck_toy", -0.95f, 3.8f, 200f, 0.57f, 1f, false, false);
+            P("wicker_basket_01", 0.7f, 1.2f, 0f);
+        }
+
+        static void BuildHall()
+        {
+            P("painted_wooden_bench", -5.15f, 0f, 90f);
+            P("ClassicConsole_01", 1.7f, -0.38f, 0f);
+            P("potted_plant_04", 1.7f, -0.38f, 0f, 0.95f, 1f, false, false);
+            P("Shelf_01", 1.2f, 0.58f, 180f);
+            P("hanging_picture_frame_01", 3.0f, 0.665f, 180f, 1.5f, 1f, false, false);
+            P("wall_clock", -3.0f, 0.665f, 180f, 1.9f, 1f, false, false);
+            P("painted_wooden_bench", 5.15f, 0f, 270f);
+        }
+
+        // ------------------------------------------------------------------ ışık
+
+        static void BuildLights()
+        {
+            var colors = new Dictionary<RoomKind, string>
+            {
+                { RoomKind.Living, "#FFD9A8" }, { RoomKind.Kitchen, "#FFF1D6" }, { RoomKind.Bedroom, "#FFC890" },
+                { RoomKind.Bath, "#E6F2FF" }, { RoomKind.Study, "#FFD08A" }, { RoomKind.Hall, "#FFE2BC" },
+            };
+            foreach (var r in HouseLayout.Rooms)
+            {
+                var go = new GameObject("Light_" + r.Id);
+                go.transform.SetParent(house, false);
+                go.transform.position = new Vector3(r.Rect.center.x, HouseLayout.WallHeight - 0.35f, r.Rect.center.y);
+                var l = go.AddComponent<Light>();
+                l.type = LightType.Point;
+                l.color = C(colors[r.Kind]);
+                l.intensity = r.Kind == RoomKind.Hall ? 2.2f : 3.2f;
+                l.range = Mathf.Max(r.Rect.width, r.Rect.height) * 0.85f + 1.2f;
+                l.shadows = LightShadows.None;
+            }
+        }
+
+        // ------------------------------------------------------------------ yardımcılar
+
+        /// <summary>Hareket etmeyen oda öğelerini statik batching'e alır (tema yüzeyleri hariç: malzemeleri çalışırken değişir).</summary>
+        static void MarkStatic(Transform root)
+        {
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.GetComponent<Light>() != null || t.GetComponent<ThemeSurface>() != null) continue;
                 GameObjectUtility.SetStaticEditorFlags(t.gameObject, StaticEditorFlags.BatchingStatic);
             }
         }
-
-        static void BuildWindow(Transform room)
-        {
-            const float x = Width / 2f;
-            var frame = SceneBuilder.Mat("WindowFrame", C("#F4F1EA"), smooth: 0.4f);
-            var glass = SceneBuilder.Mat("WindowPane", C("#FFE2B0"), smooth: 0.9f, emission: C("#FFC878") * 1.8f);
-            var curtain = AssetPipeline.TextureSetMaterial("wool_boucle", new Vector2(0.5f, 2f), C("#CFC6B8"), 0.3f);
-
-            Box("WindowPane", room, new Vector3(x - 0.015f, 1.5f, 0.2f), new Vector3(0.02f, 1.2f, 1.7f), glass, false);
-            // çerçeve
-            Box("FrameTop", room, new Vector3(x - 0.03f, 2.13f, 0.2f), new Vector3(0.05f, 0.06f, 1.82f), frame, false);
-            Box("FrameBottom", room, new Vector3(x - 0.04f, 0.87f, 0.2f), new Vector3(0.09f, 0.05f, 1.86f), frame, false);
-            Box("FrameL", room, new Vector3(x - 0.03f, 1.5f, -0.68f), new Vector3(0.05f, 1.26f, 0.05f), frame, false);
-            Box("FrameR", room, new Vector3(x - 0.03f, 1.5f, 1.08f), new Vector3(0.05f, 1.26f, 0.05f), frame, false);
-            Box("FrameMid", room, new Vector3(x - 0.03f, 1.5f, 0.2f), new Vector3(0.04f, 1.2f, 0.035f), frame, false);
-            // perdeler
-            Box("CurtainA", room, new Vector3(x - 0.1f, 1.45f, -0.92f), new Vector3(0.07f, 2.1f, 0.34f), curtain, false);
-            Box("CurtainB", room, new Vector3(x - 0.1f, 1.45f, 1.32f), new Vector3(0.07f, 2.1f, 0.34f), curtain, false);
-            Box("CurtainRod", room, new Vector3(x - 0.1f, 2.45f, 0.2f), new Vector3(0.025f, 0.025f, 2.4f), SceneBuilder.Mat("Rod", C("#2B2B2B"), smooth: 0.6f), false);
-
-            // pencereden giren ışık huzmesi (gerçek ışığın görsel karşılığı)
-            var shaft = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            shaft.name = "LightShaft";
-            Object.DestroyImmediate(shaft.GetComponent<Collider>());
-            shaft.transform.SetParent(room, false);
-            var dir = Quaternion.Euler(30f, 262f, 0f) * Vector3.forward;       // güneşin gittiği yön
-            Vector3 start = new Vector3(x - 0.1f, 1.5f, 0.2f);
-            float length = 3.4f;
-            shaft.transform.position = start + dir * (length * 0.5f);
-            shaft.transform.rotation = Quaternion.LookRotation(dir, Vector3.up) * Quaternion.Euler(0f, 0f, 0f);
-            shaft.transform.localScale = new Vector3(1.4f, length, 1f);
-            // Quad'ın düzlemi XY; uzunluk ekseni Z olsun diye dönüştür
-            shaft.transform.rotation = Quaternion.LookRotation(Vector3.Cross(dir, Vector3.up).normalized, dir);
-            shaft.transform.localScale = new Vector3(1.4f, length, 1f);
-            var mat = SceneBuilder.AdditiveMat("LightShaft", C("#FFC47A") * 0.22f, SceneBuilder.GlowTexture());
-            var r = shaft.GetComponent<MeshRenderer>();
-            r.sharedMaterial = mat;
-            r.shadowCastingMode = ShadowCastingMode.Off;
-            r.receiveShadows = false;
-
-            // havada uçuşan toz
-            var dust = new GameObject("Dust");
-            dust.transform.SetParent(room, false);
-            dust.transform.position = start + dir * 1.6f;
-            var ps = dust.AddComponent<ParticleSystem>();
-            var main = ps.main;
-            main.loop = true; main.prewarm = true;
-            main.startLifetime = 9f; main.startSpeed = 0.02f; main.startSize = 0.012f;
-            main.maxParticles = 90; main.simulationSpace = ParticleSystemSimulationSpace.World;
-            var em = ps.emission; em.rateOverTime = 10f;
-            var shape = ps.shape; shape.shapeType = ParticleSystemShapeType.Box; shape.scale = new Vector3(2.2f, 1.1f, 1.1f);
-            var fade = ps.colorOverLifetime; fade.enabled = true;
-            var g = new Gradient();
-            g.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
-                      new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(0.7f, 0.25f), new GradientAlphaKey(0.7f, 0.75f), new GradientAlphaKey(0f, 1f) });
-            fade.color = new ParticleSystem.MinMaxGradient(g);
-            var noise = ps.noise; noise.enabled = true; noise.strength = 0.05f; noise.frequency = 0.4f;
-            var pr = dust.GetComponent<ParticleSystemRenderer>();
-            pr.sharedMaterial = SceneBuilder.AdditiveMat("DustMote", C("#FFE2B8") * 1.0f, SceneBuilder.GlowTexture(), true);
-            pr.shadowCastingMode = ShadowCastingMode.Off;
-        }
-
-        // 3D baskı görev objeleri: oyuncunun odaya koyduğu gerçek nesneler. Konumları görev üreticisi belirler.
-        static PrintObjects BuildPrints(Transform room)
-        {
-            var orange = SceneBuilder.Mat("PrintOrange", C("#FF5A1F"), smooth: 0.35f);
-            var orangeDark = SceneBuilder.Mat("PrintOrangeDark", C("#D9470F"), smooth: 0.3f);
-            var teal = SceneBuilder.Mat("PrintTeal", C("#19A99A"), smooth: 0.4f);
-            var tealDark = SceneBuilder.Mat("PrintTealDark", C("#0F7A70"), smooth: 0.3f);
-            var pad = SceneBuilder.Mat("PrintPad", C("#3A424B"), smooth: 0.25f);
-
-            var result = new PrintObjects();
-
-            // ORBİT-9 maketi: üst üste basılmış turuncu gövde, ince direk ve küçük bir çanak anten
-            var station = new GameObject("PrintStation").transform;
-            station.SetParent(room, false);
-            station.position = new Vector3(0.4f, 0f, 0.4f);
-            Cyl(station, "Plinth", new Vector3(0f, 0.012f, 0f), new Vector3(0.2f, 0.012f, 0.2f), orangeDark);
-            for (int l = 0; l < 6; l++)
-            {
-                float radius = Mathf.Lerp(0.075f, 0.05f, l / 5f);
-                var layer = Cyl(station, "Layer" + l, new Vector3(0f, 0.034f + l * 0.021f, 0f), new Vector3(radius * 2f, 0.011f, radius * 2f), l % 2 == 0 ? orange : orangeDark);
-                layer.localRotation = Quaternion.Euler(0f, l * 13f, 0f);
-            }
-            Cyl(station, "Mast", new Vector3(0f, 0.2f, 0f), new Vector3(0.012f, 0.05f, 0.012f), orange);
-            var dish = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            dish.name = "Dish";
-            Object.DestroyImmediate(dish.GetComponent<Collider>());
-            dish.transform.SetParent(station, false);
-            dish.transform.localPosition = new Vector3(0.01f, 0.265f, 0f);
-            dish.transform.localScale = new Vector3(0.09f, 0.022f, 0.09f);
-            dish.transform.localRotation = Quaternion.Euler(0f, 0f, 24f);
-            dish.GetComponent<MeshRenderer>().sharedMaterial = orange;
-            var sc = station.gameObject.AddComponent<CapsuleCollider>();
-            sc.radius = 0.1f; sc.height = 0.3f; sc.center = new Vector3(0f, 0.15f, 0f);
-            if (ShowPrints) AssetPipeline.ContactShadow(room, new Bounds(Vector3.zero, new Vector3(0.22f, 0.1f, 0.22f)), 0.55f, 1.7f);
-            result.Station = station;
-
-            // yakıt tankı: turkuaz silindir, koyu bantlar ve kapak
-            var fuel = new GameObject("PrintFuel").transform;
-            fuel.SetParent(room, false);
-            fuel.position = new Vector3(2.2f, 0f, -1.2f);
-            var body = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            body.name = "Body";
-            Object.DestroyImmediate(body.GetComponent<Collider>());
-            body.transform.SetParent(fuel, false);
-            body.transform.localScale = new Vector3(0.13f, 0.1f, 0.13f);
-            body.transform.localPosition = new Vector3(0f, 0.1f, 0f);
-            body.GetComponent<MeshRenderer>().sharedMaterial = teal;
-            foreach (float y in new[] { 0.05f, 0.15f })
-            {
-                var band = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                band.name = "Band";
-                Object.DestroyImmediate(band.GetComponent<Collider>());
-                band.transform.SetParent(fuel, false);
-                band.transform.localScale = new Vector3(0.138f, 0.01f, 0.138f);
-                band.transform.localPosition = new Vector3(0f, y, 0f);
-                band.GetComponent<MeshRenderer>().sharedMaterial = tealDark;
-            }
-            var lid = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            lid.name = "Lid";
-            Object.DestroyImmediate(lid.GetComponent<Collider>());
-            lid.transform.SetParent(fuel, false);
-            lid.transform.localScale = new Vector3(0.07f, 0.012f, 0.07f);
-            lid.transform.localPosition = new Vector3(0f, 0.212f, 0f);
-            lid.GetComponent<MeshRenderer>().sharedMaterial = tealDark;
-            var fuelCol = fuel.gameObject.AddComponent<CapsuleCollider>();
-            fuelCol.radius = 0.07f; fuelCol.height = 0.22f; fuelCol.center = new Vector3(0f, 0.11f, 0f);
-            if (ShowPrints) AssetPipeline.ContactShadow(room, new Bounds(Vector3.zero, new Vector3(0.16f, 0.1f, 0.16f)), 0.5f, 1.6f);
-            result.Fuel = fuel;
-
-            // ana üs: yerdeki düz disk
-            var basePad = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            basePad.name = "PrintBasePad";
-            Object.DestroyImmediate(basePad.GetComponent<Collider>());
-            basePad.transform.SetParent(room, false);
-            basePad.transform.localScale = new Vector3(0.56f, 0.006f, 0.56f);
-            basePad.transform.position = new Vector3(-2.15f, 0.006f, -1.9f);
-            basePad.GetComponent<MeshRenderer>().sharedMaterial = pad;
-            basePad.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
-            result.BasePad = basePad.transform;
-            if (!ShowPrints)
-            {
-                result.Station.gameObject.SetActive(false);
-                result.Fuel.gameObject.SetActive(false);
-                result.BasePad.gameObject.SetActive(false);
-            }
-            return result;
-        }
-
-        static Transform Cyl(Transform parent, string name, Vector3 localPos, Vector3 scale, Material mat)
-        {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            go.name = name;
-            Object.DestroyImmediate(go.GetComponent<Collider>());
-            go.transform.SetParent(parent, false);
-            go.transform.localPosition = localPos;
-            go.transform.localScale = scale;
-            go.GetComponent<MeshRenderer>().sharedMaterial = mat;
-            return go.transform;
-        }
-
-        static void Place(string id, Transform parent, Vector3 pos, float yaw, float scale = 1f, bool collider = true, bool shadow = true)
-            => AssetPipeline.Place(id, parent, pos, yaw, scale, collider, shadow);
 
         static GameObject Box(string name, Transform parent, Vector3 pos, Vector3 size, Material mat, bool collider = true)
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.name = name;
-            go.transform.SetParent(parent);
+            go.transform.SetParent(parent, false);
             go.transform.position = pos;
             go.transform.localScale = size;
             go.GetComponent<MeshRenderer>().sharedMaterial = mat;

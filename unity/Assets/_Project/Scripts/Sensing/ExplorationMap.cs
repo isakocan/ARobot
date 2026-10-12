@@ -26,7 +26,7 @@ namespace ARaki.Sensing
 
         public int Width { get; private set; }
         public int Height { get; private set; }
-        public float Range => range;
+        public float Range { get => range; set => range = value; }
         public float CellSize => cellSize;
         public Vector2 Origin => origin;
         public Vector2 Size => size;
@@ -179,6 +179,16 @@ namespace ARaki.Sensing
         }
 
         /// <summary>Bu noktaya yakın bir yerde robotun gördüğü boş zemin var mı?</summary>
+        /// <summary>Yakında (hücre sayısı içinde) bilinen bir engel var mı? Eşyanın kuytusunu bulmak için.</summary>
+        public bool HasWallNear(Vector3 world, int radiusCells)
+        {
+            var c = ToCell(world);
+            for (int dz = -radiusCells; dz <= radiusCells; dz++)
+                for (int dx = -radiusCells; dx <= radiusCells; dx++)
+                    if (At(c.x + dx, c.y + dz) == CellState.Wall) return true;
+            return false;
+        }
+
         public bool IsKnownFree(Vector3 world, int radiusCells = 1)
         {
             var c = ToCell(world);

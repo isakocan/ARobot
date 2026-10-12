@@ -1,9 +1,10 @@
+using ARaki.Theming;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace ARaki.UI
 {
-    /// <summary>Kodla arayüz kurmak için küçük yardımcılar (panel, metin, çerçeve). Renkler SpaceTheme'den gelir.</summary>
+    /// <summary>Kodla arayüz kurmak için küçük yardımcılar (panel, metin, çerçeve). Renkler UiTheme'den gelir.</summary>
     public class UiKit
     {
         public Font Title, Body, Mono;
@@ -76,9 +77,9 @@ namespace ARaki.UI
         public RectTransform Card(string name, Transform parent, Vector2 anchor, Vector2 pivot, Vector2 pos, Vector2 size, Color? border = null)
         {
             var rt = Rt(name, parent, anchor, pivot, pos, size);
-            Img(rt, SpaceTheme.Panel);
+            Img(rt, UiTheme.Panel);
             var frame = Stretch("Frame", rt);
-            Img(frame, border ?? SpaceTheme.WithAlpha(SpaceTheme.Primary, 0.9f), Bracket, Image.Type.Sliced);
+            Img(frame, border ?? UiTheme.WithAlpha(UiTheme.Primary, 0.9f), Bracket, Image.Type.Sliced);
             return rt;
         }
     }

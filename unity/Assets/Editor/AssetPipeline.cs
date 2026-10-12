@@ -173,12 +173,8 @@ namespace ARaki.EditorTools
             if (root == null || !root.TryGetValue(materialName, out var entryObj)) return null;
             var entry = entryObj as Dictionary<string, object>;
             if (entry == null) return null;
-            var info = new Info
-            {
-                diff = entry["diff"] as string,
-                arm = entry["arm"] as string,
-                nor = entry["nor"] as string,
-            };
+            string Get(string key) => entry.TryGetValue(key, out var v) ? v as string : null;
+            var info = new Info { diff = Get("diff"), arm = Get("arm"), nor = Get("nor") };
             if (entry.TryGetValue("baseColor", out var bc) && bc is List<object> list && list.Count >= 3)
                 info.baseColor = new Color(ToF(list[0]), ToF(list[1]), ToF(list[2]), 1f);
             return info;

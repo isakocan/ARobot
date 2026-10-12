@@ -115,12 +115,30 @@ namespace ARaki.AR
             mesh.RecalculateBounds();
         }
 
+        float burstStart = -100f, burstRadius;
+
+        /// <summary>Sonar: robotun etrafında hızlı, parlak tek bir halka yayar.</summary>
+        public void TriggerPulse(float radius)
+        {
+            burstStart = Time.time;
+            burstRadius = radius;
+        }
+
         void UpdatePulse()
         {
             if (pulseRing == null) return;
             float t = (Time.time % pulsePeriod) / pulsePeriod;
             float eased = 1f - (1f - t) * (1f - t);
             float radius = Mathf.Lerp(0.2f, map.Range, eased);
+            float boost = 1f;
+            float burstT = (Time.time - burstStart) / 0.9f;
+            if (burstT >= 0f && burstT < 1f)
+            {
+                t = burstT;
+                eased = 1f - (1f - t) * (1f - t);
+                radius = Mathf.Lerp(0.2f, burstRadius, eased);
+                boost = 2.4f;
+            }
             var tr = pulseRing.transform;
             tr.position = rig.ToRig(rig.Robot.position) + Vector3.up * 0.004f;
             tr.rotation = Quaternion.identity;
@@ -128,7 +146,7 @@ namespace ARaki.AR
             if (ringMaterial != null)
             {
                 float fade = (1f - t) * (1f - t);
-                var c = new Color(0.37f, 0.89f, 1f) * (0.9f * fade);
+                var c = new Color(0.37f, 0.89f, 1f) * (0.9f * fade * boost);
                 c.a = 1f;
                 ringMaterial.SetColor("_BaseColor", c);
             }

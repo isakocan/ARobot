@@ -52,6 +52,9 @@ namespace ARaki.Robot
         /// <summary>LED'in yakıt tüketim çarpanı (verimli LED yükseltmesi).</summary>
         public float LedDrainMultiplier { get; set; } = 1f;
 
+        /// <summary>Hareket sırasındaki pil tüketim çarpanı (geniş batarya yükseltmesi küçültür).</summary>
+        public float DrainMultiplier { get; set; } = 1f;
+
         public float TrackWidth => trackWidth;
         public float MaxWheelSpeed => maxWheelSpeed;
         public DriveCommand LastCommand { get; private set; }
@@ -132,7 +135,7 @@ namespace ARaki.Robot
             }
 
             float load = (Mathf.Abs(left) + Mathf.Abs(right)) / (2f * maxWheelSpeed);
-            float drain = batteryIdleDrain + batteryDrainPerSecond * load + (LedOn ? ledDrainPerSecond * LedDrainMultiplier : 0f);
+            float drain = batteryIdleDrain + batteryDrainPerSecond * load * DrainMultiplier + (LedOn ? ledDrainPerSecond * LedDrainMultiplier : 0f);
             battery = Mathf.Max(0f, battery - drain * dt);
             if (battery <= 0f) LedOn = false;
 

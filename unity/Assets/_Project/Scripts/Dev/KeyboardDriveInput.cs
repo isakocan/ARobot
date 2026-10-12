@@ -27,7 +27,9 @@ namespace ARaki.Dev
             float l = throttle + steer;
             float r = throttle - steer;
             float max = Mathf.Max(1f, Mathf.Abs(l), Mathf.Abs(r));
-            link.SendDrive(new DriveCommand(l / max, r / max));
+            // SHIFT: sessiz mod. Komutlar kısılır, ürkek bulgular robotu duymaz.
+            float quiet = kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed ? 0.3f : 1f;
+            link.SendDrive(new DriveCommand(l / max * quiet, r / max * quiet));
 
             var mouse = Mouse.current;
             link.SetLed(kb.lKey.isPressed || (mouse != null && mouse.leftButton.isPressed));
