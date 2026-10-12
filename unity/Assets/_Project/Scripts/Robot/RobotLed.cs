@@ -11,7 +11,7 @@ namespace ARaki.Robot
         [SerializeField] MockRobotLink link;
         [SerializeField] Light spot;
         [SerializeField] Renderer lens;
-        [SerializeField] float maxIntensity = 22f;
+        [SerializeField] float maxIntensity = 9f;
         [SerializeField] float fadeSpeed = 9f;
 
         float level;

@@ -126,8 +126,9 @@ namespace ARaki.UI
             kit.Img(kit.Rt("Dot", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(3f, 3f)), UiTheme.WithAlpha(UiTheme.Text, 0.7f));
 
             // yakalama ilerlemesi: çarpı ortasındaki halka dolar
-            var cr = kit.Rt("CaptureRing", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(64f, 64f));
-            captureRing = kit.Img(cr, UiTheme.Primary, ring);
+            kit.Img(kit.Rt("CaptureBack", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(78f, 78f)), UiTheme.WithAlpha(UiTheme.Text, 0.12f), ring);
+            var cr = kit.Rt("CaptureRing", root, UiKit.Center, UiKit.Center, Vector2.zero, new Vector2(78f, 78f));
+            captureRing = kit.Img(cr, UiTheme.Warning, ring);
             captureRing.type = Image.Type.Filled;
             captureRing.fillMethod = Image.FillMethod.Radial360;
             captureRing.fillOrigin = 2;
@@ -481,7 +482,10 @@ namespace ARaki.UI
             {
                 var names = expedition.Theme.NamesOf(f.Kind);
                 promptName.text = names.Name + (f.Tier > 1 ? "  ★" : "");
-                promptHint.text = f.State == FindState.Fleeing ? "KAÇIYOR" : names.Hint.ToUpperInvariant();
+                string hint = names.Hint.ToUpperInvariant();
+                if (f.Kind == FindKind.Lure && robot.LedOn) hint = "IŞIĞI KAPATMA  ·  YANINDA BEKLE";
+                else if (f.Kind == FindKind.Legend && robot.LedOn) hint = "SESSİZ KAL  ·  YANINDA BEKLE";
+                promptHint.text = f.State == FindState.Fleeing ? "KAÇIYOR" : hint;
                 promptHint.color = f.State == FindState.Fleeing ? UiTheme.Danger : UiTheme.Primary;
                 progress = f.Progress;
             }

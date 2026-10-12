@@ -460,6 +460,30 @@ namespace ARaki.Tests
         }
 
         [UnityTest]
+        public IEnumerator RealTimeLoopRunsWithoutErrors()
+        {
+            // Gerçek güncelleme döngüsüyle: robot sürer, LED yanıp söner, sonar atılır; arayüz, harita ve çıkış sistemi birlikte çalışır.
+            ex.enabled = true;
+            ex.AutoSpawn = true;
+            Time.timeScale = 4f;
+            float end = Time.realtimeSinceStartup + 14f;
+            int frame = 0;
+            while (Time.realtimeSinceStartup < end)
+            {
+                frame++;
+                float turn = Mathf.Sin(frame * 0.02f);
+                robot.SendDrive(new DriveCommand(0.8f + turn * 0.5f, 0.8f - turn * 0.5f));
+                robot.SetLed((frame / 60) % 2 == 0);
+                if (frame % 120 == 0) ex.TrySonar();
+                yield return null;
+            }
+            Time.timeScale = 1f;
+            Assert.Greater(map.ExploredArea, 6f, "gezerken harita dolmalı");
+            Assert.Greater(ex.Finds.Count, 0, "bulgular çıkmış olmalı");
+            Assert.Less(robot.Telemetry.Battery01, 1f, "pil harcanmalı");
+        }
+
+        [UnityTest]
         public IEnumerator SessionStatesFollowTheGameFlow()
         {
             Assert.AreEqual(GameState.Playing, session.State);
