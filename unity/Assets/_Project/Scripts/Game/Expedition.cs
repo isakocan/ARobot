@@ -163,8 +163,8 @@ namespace ARaki.Game
             wasInBase = true;
             InBase = true;
             spawnTimer = 0.5f;
-            nextFindTime = clock + 4f;
-            nextGhostTime = clock + 60f;
+            nextFindTime = clock + 3f;
+            nextGhostTime = clock + 35f;
             SonarCooldownLeft = 0f;
             Running = true;
             StartChapterIntro();
@@ -309,11 +309,11 @@ namespace ARaki.Game
             var kind = PickKind(room);
             if (!TryPickSpot(room, kind, out var spot)) return;
             Spawn(kind, room, spot, RollTier());
-            nextFindTime = clock + Mathf.Lerp(22f, 48f, (float)rng.NextDouble());
+            nextFindTime = clock + Mathf.Lerp(9f, 20f, (float)rng.NextDouble());
         }
 
         /// <summary>Evde aynı anda en çok bu kadar bulgu bulunur: çıkışlar seyrek ve değerli.</summary>
-        public const int MaxAliveFinds = 3;
+        public const int MaxAliveFinds = 4;
 
         int AliveCount()
         {
@@ -381,13 +381,15 @@ namespace ARaki.Game
                 float z = Mathf.Lerp(room.Rect.yMin + 0.4f, room.Rect.yMax - 0.4f, (float)rng.NextDouble());
                 var p = new Vector3(x, 0f, z);
                 if (map != null && !map.IsKnownFree(p, 1)) continue;
-                if (Vector3.Distance(p, me) < 1.1f) continue;
+                float distance = Vector3.Distance(p, me);
+                if (distance < 1.1f) continue;
+                if (attempt < 45 && distance > 5.0f) continue;     // önce yakında dene: çok gezdirmesin
                 if (HouseLayout.NearDoor(p, 0.9f)) continue;
                 if (Vector3.Distance(p, HouseLayout.BasePosition) < 1.4f) continue;
                 if (NearOtherFind(p, 0.9f)) continue;
                 if (kind == FindKind.Hidden && (map == null || !map.HasWallNear(p, 4))) continue;
                 // robotun gözü önünde belirmesin
-                if (map != null && Vector3.Distance(p, me) < detectRange + 0.3f && map.LineOfSight(me, p)) continue;
+                if (map != null && Vector3.Distance(p, me) < detectRange + 0.1f && map.LineOfSight(me, p)) continue;
                 spot = p;
                 return true;
             }
@@ -567,7 +569,7 @@ namespace ARaki.Game
                     f.State = FindState.Gone;
                     Notice?.Invoke(Theme.NamesOf(f.Kind).Name + " KAÇTI");
                     FindFled?.Invoke(f);
-                    f.Room.NextRefillTime = Mathf.Max(f.Room.NextRefillTime, clock + 45f);
+                    f.Room.NextRefillTime = Mathf.Max(f.Room.NextRefillTime, clock + 15f);
                     if (f.Visual != null) f.Visual.gameObject.SetActive(false);
                 }
             }
@@ -611,13 +613,13 @@ namespace ARaki.Game
             var names = Theme.NamesOf(f.Kind);
             Notice?.Invoke(names.Name + "  KAYDEDİLDİ");
             if (carried.Count == 1 && TotalDelivered == 0) Comms?.Invoke("Kayıt robotun hafızasında. Üsse götürünce teslim edilir; pil biterse kaybolur.");
-            f.Room.NextRefillTime = Mathf.Max(f.Room.NextRefillTime, clock + 50f);
+            f.Room.NextRefillTime = Mathf.Max(f.Room.NextRefillTime, clock + 20f);
             if (f.Visual != null) f.Visual.PlayCapture();
         }
 
         // ------------------------------------------------------------------ gölgeler (kaçılacak tehdit)
 
-        public bool GhostsActive => ChapterIndex >= 1 || TotalDelivered >= 3;
+        public bool GhostsActive => true;
         int MaxGhosts => ChapterIndex >= 4 ? 2 : 1;
         const float GhostBaseSpeed = 0.24f;       // robotun varsayılan hızından (0,3 m/s) biraz yavaş
         const float SafeRadius = 1.25f;           // üssün çevresinde gölge giremez
@@ -636,7 +638,7 @@ namespace ARaki.Game
                 if (d < 3.4f || d > 6.5f) continue;
                 if (Vector3.Distance(p, HouseLayout.BasePosition) < SafeRadius + 1.5f) continue;
                 SpawnGhost(p);
-                nextGhostTime = clock + Mathf.Lerp(55f, 100f, (float)rng.NextDouble());
+                nextGhostTime = clock + Mathf.Lerp(40f, 70f, (float)rng.NextDouble());
                 return;
             }
         }
@@ -981,9 +983,14 @@ namespace ARaki.Game
             foreach (var f in finds)
             {
                 if (f == null || f.Visual == null || f.State == FindState.Captured) continue;
-                bool show = Running && f.Alive && f.Revealed;
+                // duvarın/eşyanın arkasındaki şey çizilmez (gerçekte mesafe sensörü haritası bunu söyler)
+                bool show = Running && f.Alive && f.Revealed && CanSee(me, f.Position);
                 var go = f.Visual.gameObject;
-                if (go.activeSelf != show) { go.SetActive(show); if (show) f.Visual.PlayReveal(); }
+                if (go.activeSelf != show)
+                {
+                    go.SetActive(show);
+                    if (show && !f.RevealPlayed) { f.RevealPlayed = true; f.Visual.PlayReveal(); }
+                }
                 if (!show) continue;
                 Vector3 toRobot = me - f.Position;
                 toRobot.y = 0f;
@@ -995,12 +1002,19 @@ namespace ARaki.Game
             SyncGhostVisuals(me);
         }
 
+        /// <summary>Robotun kamerası bu noktayı görebilir mi? Aradaki duvar ya da eşya varsa hayır.</summary>
+        bool CanSee(Vector3 me, Vector3 target)
+        {
+            if (map == null) return true;
+            return map.LineOfSight(me, target, 0.12f);
+        }
+
         void SyncGhostVisuals(Vector3 me)
         {
             foreach (var g in ghosts)
             {
                 if (g == null || g.Visual == null) continue;
-                bool show = Running && g.Alive && Vector3.Distance(me, g.Position) < 4.2f;
+                bool show = Running && g.Alive && Vector3.Distance(me, g.Position) < 4.2f && CanSee(me, g.Position);
                 var go = g.Visual.gameObject;
                 if (go.activeSelf != show) go.SetActive(show);
                 if (!show) continue;
@@ -1028,6 +1042,19 @@ namespace ARaki.Game
         }
 
         /// <summary>Henüz görülmemiş ama yakındaki bulgular: haritada belirsiz "?" olarak gösterilir.</summary>
+        /// <summary>Görünmeyen ama yakındaki en yakın bulgunun uzaklığı (yoksa büyük bir değer).</summary>
+        public float NearestUnseenDistance()
+        {
+            float best = float.MaxValue;
+            Vector3 me = Flat(robot.position);
+            foreach (var f in finds)
+            {
+                if (f == null || !f.Alive || f.Revealed) continue;
+                best = Mathf.Min(best, Vector3.Distance(me, f.Position));
+            }
+            return best;
+        }
+
         public bool IsNearbyUnseen(Find f, float within)
         {
             if (f == null || !f.Alive || f.Revealed || f.Kind == FindKind.Hidden) return false;

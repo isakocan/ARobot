@@ -307,7 +307,7 @@ namespace ARaki.UI
             {
                 var b = findBlips[i];
                 Find f = i < list.Count ? list[i] : null;
-                bool show = f != null && f.Alive && (f.Revealed || expedition.IsNearbyUnseen(f, 4.2f));
+                bool show = f != null && f.Alive && (f.Revealed || expedition.IsNearbyUnseen(f, 6f));
                 if (b.gameObject.activeSelf != show) b.gameObject.SetActive(show);
                 if (!show) continue;
                 Vector2 p = ToMap(f.Position);
@@ -547,6 +547,8 @@ namespace ARaki.UI
                 else if (f.Kind == FindKind.Legend && robot.LedOn) hint = "Sessiz kal, yanında bekle";
                 return names.Name + (f.Tier == 3 ? "  (çok nadir)" : f.Tier == 2 ? "  (nadir)" : "") + "  ·  " + hint;
             }
+            float unseen = expedition.NearestUnseenDistance();
+            if (unseen < 4.5f) return "Yakında bir şey var...  Etrafa bak";
             if (expedition.InBase) return expedition.Carried.Count > 0 ? "Teslim ediliyor..." : "Üs  ·  U: atölye";
             var room = expedition.CurrentRoom;
             return room != null ? room.Name : "";

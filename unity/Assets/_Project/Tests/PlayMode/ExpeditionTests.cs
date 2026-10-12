@@ -67,7 +67,9 @@ namespace ARaki.Tests
         {
             ex.AutoSpawn = true;
             map.Clear();
-            for (int i = 0; i < 3; i++) map.Scan();
+            // robot salonu gezmiş gibi: birkaç noktadan tarar
+            var r = HouseLayout.Living.Rect;
+            map.SurveyFrom(new[] { new Vector3(r.xMin + 1f, 0f, r.center.y), new Vector3(r.center.x, 0f, r.center.y), new Vector3(r.xMax - 1f, 0f, r.center.y) }, 2);
             Run(40f, 0.5f);
             yield return null;
 

@@ -150,21 +150,22 @@ namespace ARaki.EditorTools
             var lamp = Toon("BaseLamp", "#FFE7A8", "#FFC060", "#FFFFFF", "#FFD27A", 2.2f, rimStrength: 0.2f);
             var roof = Toon("BaseRoof", "#B5503A", "#5C2218", "#FFB8A0", rimStrength: 0.6f);
 
-            var glow = AdditiveMat("BaseGlow", C("#FFC878") * 0.35f, GlowTexture());
+            var glow = AdditiveMat("BaseGlow", C("#FFC878") * 0.25f, GlowTexture());
             var pool = GameObject.CreatePrimitive(PrimitiveType.Plane);
             pool.name = "LightPool";
             Object.DestroyImmediate(pool.GetComponent<Collider>());
             pool.transform.SetParent(root, false);
             pool.transform.localPosition = new Vector3(0f, 0.003f, 0f);
-            pool.transform.localScale = Vector3.one * 0.2f;
+            pool.transform.localScale = Vector3.one * 0.12f;
             pool.GetComponent<MeshRenderer>().sharedMaterial = glow;
             pool.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
 
-            Prim(root, PrimitiveType.Cylinder, "Platform", new Vector3(0f, 0.02f, 0f), new Vector3(1.0f, 0.02f, 1.0f), stone);
-            Prim(root, PrimitiveType.Cylinder, "Inlay", new Vector3(0f, 0.0235f, 0f), new Vector3(0.84f, 0.0235f, 0.84f), amber);
+            // ortası boş halka: robot ortada kenetlenir, gövdesi platformun içinde kalmaz
+            MeshPart(root, "Platform", ARaki.AR.ProceduralMeshes.Annulus(0.3f, 0.52f, 0.04f, 48), Vector3.zero, Vector3.zero, stone);
+            MeshPart(root, "Inlay", ARaki.AR.ProceduralMeshes.Annulus(0.34f, 0.47f, 0.048f, 48), Vector3.zero, Vector3.zero, amber);
             var tower = new GameObject("Tower").transform;      // kule platformun batı kenarında: robot ortada kenetlenir
             tower.SetParent(root, false);
-            tower.localPosition = new Vector3(-0.36f, 0f, 0f);
+            tower.localPosition = new Vector3(-0.42f, 0f, 0f);
             Prim(tower, PrimitiveType.Cylinder, "Post", new Vector3(0f, 0.315f, 0f), new Vector3(0.07f, 0.275f, 0.07f), iron);
             Prim(tower, PrimitiveType.Cylinder, "Collar", new Vector3(0f, 0.6f, 0f), new Vector3(0.14f, 0.015f, 0.14f), iron);
             Prim(tower, PrimitiveType.Cube, "Lantern", new Vector3(0f, 0.7f, 0f), new Vector3(0.15f, 0.18f, 0.15f), lamp);
