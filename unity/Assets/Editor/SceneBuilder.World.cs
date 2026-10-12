@@ -21,17 +21,37 @@ namespace ARaki.EditorTools
         /// <summary>Duvar/tavan/pencere için her tema için bir malzeme (ThemeId sırasıyla).</summary>
         internal static Material[] SkyMaterials(SurfaceRole role)
         {
-            var result = new Material[3];
+            var result = new Material[4];
             string r = role.ToString();
             bool ceiling = role == SurfaceRole.Ceiling;
             bool window = role == SurfaceRole.Window;
 
-            result[0] = SkyMat("Sky_Safari_" + r, 0, "#4F9A4A", "#C8DDB4", "#F6F06A", window ? 1.5f : ceiling ? 1.1f : 1.0f, ceiling);
-            result[1] = SkyMat("Sky_Space_" + r, 1, "#3A4FA8", "#04051A", "#8A3FD0", window ? 1.2f : 1.0f, ceiling);
-            result[2] = window
+            // Ev: sıradan boyalı duvar, beyaz tavan, gündüz ışığı gelen pencere
+            result[0] = role == SurfaceRole.Wall ? HomeWall(RoomKind.Hall)
+                : ceiling ? Mat("Home_Ceiling", C("#F6F3EE"), smooth: 0.1f)
+                : Mat("Home_Window", C("#CFE4F7"), smooth: 0.1f, emission: C("#A8CDF0") * 1.1f);
+            result[1] = SkyMat("Sky_Safari_" + r, 0, "#4F9A4A", "#C8DDB4", "#F6F06A", window ? 1.5f : ceiling ? 1.1f : 1.0f, ceiling);
+            result[2] = SkyMat("Sky_Space_" + r, 1, "#3A4FA8", "#04051A", "#8A3FD0", window ? 1.2f : 1.0f, ceiling);
+            result[3] = window
                 ? SkyMat("Sky_Mystery_" + r, 1, "#1A2450", "#05060F", "#2A3A7A", 0.9f, false)
                 : SkyMat("Sky_Mystery_" + r, 2, "#3A2030", "#150A14", "#B8924A", ceiling ? 0.7f : 1.0f, ceiling);
             return result;
+        }
+
+        /// <summary>Ev temasında her odanın kendi duvar rengi var.</summary>
+        internal static Material HomeWall(RoomKind kind)
+        {
+            string hex;
+            switch (kind)
+            {
+                case RoomKind.Living: hex = "#E6D3B8"; break;
+                case RoomKind.Kitchen: hex = "#F0E2B0"; break;
+                case RoomKind.Bedroom: hex = "#CFD9C8"; break;
+                case RoomKind.Bath: hex = "#C9DDE3"; break;
+                case RoomKind.Study: hex = "#C7CEDC"; break;
+                default: hex = "#EADFCF"; break;
+            }
+            return Mat("Home_Wall_" + kind, C(hex), smooth: 0.12f);
         }
 
         static Material SkyMat(string name, int mode, string a, string b, string c, float intensity, bool ceiling)
@@ -88,6 +108,7 @@ namespace ARaki.EditorTools
         {
             var profiles = new[]
             {
+                MakeProfile("ARaki_Volume_Home", 0.05f, 6f, 5f, "#FFF8EC", 0.2f, 0.05f, 0.3f, 0.0f),
                 MakeProfile("ARaki_Volume_Safari", 0.15f, 14f, 6f, "#FFF6DD", 0.26f, 0.15f, 0.5f, 0.1f),
                 MakeProfile("ARaki_Volume_Space", 0.05f, 6f, 14f, "#E6EEFF", 0.32f, 0.2f, 0.85f, 0.18f),
                 MakeProfile("ARaki_Volume_Mystery", -0.1f, -22f, 12f, "#FFE9D6", 0.42f, 0.32f, 0.5f, 0.2f),

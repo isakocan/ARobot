@@ -48,6 +48,8 @@ namespace ARaki.Audio
             expedition.ChapterCompleted += OnChapter;
             expedition.SonarFired += OnSonar;
             expedition.Rescued += OnRescued;
+            expedition.GhostSpotted += OnGhostSpotted;
+            expedition.GhostHit += OnGhostHit;
         }
 
         void OnDestroy()
@@ -62,6 +64,8 @@ namespace ARaki.Audio
             expedition.ChapterCompleted -= OnChapter;
             expedition.SonarFired -= OnSonar;
             expedition.Rescued -= OnRescued;
+            expedition.GhostSpotted -= OnGhostSpotted;
+            expedition.GhostHit -= OnGhostHit;
         }
 
         void Update()
@@ -107,6 +111,13 @@ namespace ARaki.Audio
         void OnChapter(int index) => effects.PlayOneShot(chime, 1f * masterVolume);
         void OnSonar() => effects.PlayOneShot(zap, 0.5f * masterVolume);
         void OnRescued() => effects.PlayOneShot(alarm, 0.7f * masterVolume);
+        void OnGhostSpotted(Ghost g) => effects.PlayOneShot(alarm, 0.45f * masterVolume);
+
+        void OnGhostHit(bool lostOne)
+        {
+            effects.PlayOneShot(zap, 1f * masterVolume);
+            effects.PlayOneShot(alarm, 0.6f * masterVolume);
+        }
 
         AudioSource Source(string name)
         {

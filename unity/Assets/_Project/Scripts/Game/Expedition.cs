@@ -27,6 +27,7 @@ namespace ARaki.Game
         [SerializeField] Transform arRoot;
         [SerializeField] LidarOverlay lidar;
         [SerializeField] GameObject[] templates;      // [tema * 5 + bulgu türü]
+        [SerializeField] GameObject ghostTemplate;
         [SerializeField] Transform baseMarker;
 
         [Header("Ayarlar")]
@@ -49,6 +50,9 @@ namespace ARaki.Game
         public event Action SonarFired;
         public event Action Rescued;
         public event Action EnergyChanged;
+        public event Action<Ghost> GhostSpotted;        // gölge seni fark etti
+        public event Action<bool> GhostHit;              // gölge dokundu (true = bir kayıt kaybedildi)
+        public event Action GhostLost;                   // gölgeden kurtuldun
 
         public bool Running { get; set; }
 
@@ -86,6 +90,11 @@ namespace ARaki.Game
         public Vector3 BasePosition => HouseLayout.BasePosition;
         public ThemeDef Theme => ThemeCatalog.Def;
         public ChapterDef Chapter => Theme.Chapters[Mathf.Min(ChapterIndex, Theme.Chapters.Length - 1)];
+        public IReadOnlyList<Ghost> Ghosts => ghosts;
+
+        /// <summary>0..1: en yakın gölgenin yakınlığı (arayüzdeki kırmızı uyarı için).</summary>
+        public float GhostThreat { get; private set; }
+
         public bool IsLegendPending => !IsFinished && Chapter.Goal == GoalKind.Legend;
 
         /// <summary>Motorların gürültüsü 0..1 (tekerlek hızı). Ürkek bulgular bundan kaçar.</summary>
@@ -101,6 +110,8 @@ namespace ARaki.Game
 
         readonly List<Find> finds = new List<Find>();
         readonly List<Find> carried = new List<Find>();
+        readonly List<Ghost> ghosts = new List<Ghost>();
+        float nextFindTime, nextGhostTime, clock;      // clock: oyun saati (Tick ile ilerler)
         readonly HashSet<string> visited = new HashSet<string>();
         readonly bool[] tutorialShown = new bool[5];
         System.Random rng = new System.Random();
@@ -145,12 +156,15 @@ namespace ARaki.Game
             Physics.SyncTransforms();
 
             foreach (var r in HouseLayout.Rooms) r.NextRefillTime = 0f;
+            clock = 0f;
             visited.Clear();
             Array.Clear(tutorialShown, 0, tutorialShown.Length);
             CurrentRoom = null;
             wasInBase = true;
             InBase = true;
             spawnTimer = 0.5f;
+            nextFindTime = clock + 4f;
+            nextGhostTime = clock + 60f;
             SonarCooldownLeft = 0f;
             Running = true;
             StartChapterIntro();
@@ -161,7 +175,15 @@ namespace ARaki.Game
             foreach (var f in finds) if (f != null) DestroyFind(f);
             finds.Clear();
             carried.Clear();
+            ClearGhosts();
             LegendRoom = null;
+        }
+
+        void ClearGhosts()
+        {
+            foreach (var g in ghosts) if (g != null) DestroyGhost(g);
+            ghosts.Clear();
+            GhostThreat = 0f;
         }
 
         /// <summary>Yükseltme düzeylerini robota ve sensöre uygular.</summary>
@@ -215,6 +237,7 @@ namespace ARaki.Game
 
         public void Tick(float dt)
         {
+            clock += dt;
             Vector3 pos = Flat(robot.position);
             UpdateRoom(pos);
             SonarCooldownLeft = Mathf.Max(0f, SonarCooldownLeft - dt);
@@ -225,6 +248,7 @@ namespace ARaki.Game
                 spawnTimer = 1.4f;
                 TrySpawnFor(CurrentRoom);
                 if (IsLegendPending) TrySpawnLegend();
+                TrySpawnGhost(pos);
             }
 
             for (int i = finds.Count - 1; i >= 0; i--)
@@ -234,6 +258,7 @@ namespace ARaki.Game
                 UpdateFind(f, pos, dt);
             }
 
+            UpdateGhosts(pos, dt);
             UpdateDepot(pos, dt);
 
             if (link.Telemetry.Battery01 <= 0.0005f) Rescue();
@@ -276,14 +301,25 @@ namespace ARaki.Game
 
         void TrySpawnFor(RoomInfo room)
         {
-            if (room == null || Time.time < room.NextRefillTime) return;
-            if (AliveIn(room) >= room.TargetFinds) return;
+            if (room == null || clock < room.NextRefillTime || clock < nextFindTime) return;
+            if (AliveIn(room) >= room.TargetFinds || AliveCount() >= MaxAliveFinds) return;
             coverageCache = RoomCoverage(room);
             if (coverageCache < 0.10f) return;
 
             var kind = PickKind(room);
             if (!TryPickSpot(room, kind, out var spot)) return;
             Spawn(kind, room, spot, RollTier());
+            nextFindTime = clock + Mathf.Lerp(22f, 48f, (float)rng.NextDouble());
+        }
+
+        /// <summary>Evde aynı anda en çok bu kadar bulgu bulunur: çıkışlar seyrek ve değerli.</summary>
+        public const int MaxAliveFinds = 3;
+
+        int AliveCount()
+        {
+            int n = 0;
+            foreach (var f in finds) if (f != null && f.Alive && f.Kind != FindKind.Legend) n++;
+            return n;
         }
 
         void TrySpawnLegend()
@@ -332,7 +368,7 @@ namespace ARaki.Game
         int RollTier()
         {
             double r = rng.NextDouble();
-            return r < 0.04 ? 3 : r < 0.20 ? 2 : 1;
+            return r < 0.03 ? 3 : r < 0.15 ? 2 : 1;
         }
 
         bool TryPickSpot(RoomInfo room, FindKind kind, out Vector3 spot)
@@ -420,6 +456,15 @@ namespace ARaki.Game
                 OnRevealed(f);
             }
 
+            if (f.ExpireAt > 0f && clock > f.ExpireAt && f.Progress < 0.05f && f.Revealed)
+            {
+                f.State = FindState.Gone;
+                Notice?.Invoke(Theme.NamesOf(f.Kind).Name + " KAYBOLDU");
+                FindFled?.Invoke(f);
+                if (f.Visual != null) f.Visual.gameObject.SetActive(false);
+                return;
+            }
+
             bool satisfied = false;
 
             switch (f.Kind)
@@ -465,7 +510,8 @@ namespace ARaki.Game
                 tutorialShown[(int)f.Kind] = true;
                 Comms?.Invoke(names.Name + " görüldü. " + Tutorial(f.Kind));
             }
-            Notice?.Invoke(names.Name + (f.Tier > 1 ? "  ·  NADİR" : "") + "  GÖRÜLDÜ");
+            if (f.Tier > 1 && f.ExpireAt <= 0f) f.ExpireAt = clock + (f.Tier == 3 ? 40f : 75f);
+            Notice?.Invoke(names.Name + (f.Tier == 3 ? "  ·  ÇOK NADİR" : f.Tier == 2 ? "  ·  NADİR" : "") + "  GÖRÜLDÜ");
         }
 
         static string Tutorial(FindKind kind)
@@ -518,7 +564,7 @@ namespace ARaki.Game
                     f.State = FindState.Gone;
                     Notice?.Invoke(Theme.NamesOf(f.Kind).Name + " KAÇTI");
                     FindFled?.Invoke(f);
-                    f.Room.NextRefillTime = Mathf.Max(f.Room.NextRefillTime, Time.time + 25f);
+                    f.Room.NextRefillTime = Mathf.Max(f.Room.NextRefillTime, clock + 45f);
                     if (f.Visual != null) f.Visual.gameObject.SetActive(false);
                 }
             }
@@ -562,8 +608,163 @@ namespace ARaki.Game
             var names = Theme.NamesOf(f.Kind);
             Notice?.Invoke(names.Name + "  KAYDEDİLDİ");
             if (carried.Count == 1 && TotalDelivered == 0) Comms?.Invoke("Kayıt robotun hafızasında. Üsse götürünce teslim edilir; pil biterse kaybolur.");
-            f.Room.NextRefillTime = Mathf.Max(f.Room.NextRefillTime, Time.time + 20f);
+            f.Room.NextRefillTime = Mathf.Max(f.Room.NextRefillTime, clock + 50f);
             if (f.Visual != null) f.Visual.PlayCapture();
+        }
+
+        // ------------------------------------------------------------------ gölgeler (kaçılacak tehdit)
+
+        public bool GhostsActive => ChapterIndex >= 1 || TotalDelivered >= 3;
+        int MaxGhosts => ChapterIndex >= 4 ? 2 : 1;
+        const float GhostBaseSpeed = 0.24f;       // robotun varsayılan hızından (0,3 m/s) biraz yavaş
+        const float SafeRadius = 1.25f;           // üssün çevresinde gölge giremez
+        bool tutorialGhost;
+
+        void TrySpawnGhost(Vector3 me)
+        {
+            if (!GhostsActive || clock < nextGhostTime || ghosts.Count >= MaxGhosts) return;
+            if (InBase || Vector3.Distance(me, HouseLayout.BasePosition) < 3.5f) return;
+            for (int attempt = 0; attempt < 40; attempt++)
+            {
+                var room = HouseLayout.Rooms[rng.Next(HouseLayout.Rooms.Count)];
+                var p = new Vector3(Mathf.Lerp(room.Rect.xMin + 0.5f, room.Rect.xMax - 0.5f, (float)rng.NextDouble()), 0f,
+                                    Mathf.Lerp(room.Rect.yMin + 0.5f, room.Rect.yMax - 0.5f, (float)rng.NextDouble()));
+                float d = Vector3.Distance(p, me);
+                if (d < 3.4f || d > 6.5f) continue;
+                if (Vector3.Distance(p, HouseLayout.BasePosition) < SafeRadius + 1.5f) continue;
+                SpawnGhost(p);
+                nextGhostTime = clock + Mathf.Lerp(55f, 100f, (float)rng.NextDouble());
+                return;
+            }
+        }
+
+        /// <summary>Bir gölge oluşturur (testler de kullanır).</summary>
+        public Ghost SpawnGhost(Vector3 position)
+        {
+            var go = new GameObject("Ghost");
+            go.transform.SetParent(transform, false);
+            go.transform.position = new Vector3(position.x, 0f, position.z);
+            var g = go.AddComponent<Ghost>();
+            g.WanderTarget = g.Position;
+            if (ghostTemplate != null)
+            {
+                var inst = Instantiate(ghostTemplate, arRoot);
+                inst.name = "AR_Ghost";
+                inst.SetActive(false);
+                g.Visual = inst.GetComponent<GhostVisual>();
+            }
+            ghosts.Add(g);
+            return g;
+        }
+
+        void DestroyGhost(Ghost g)
+        {
+            if (g.Visual != null) { if (Application.isPlaying) Destroy(g.Visual.gameObject); else DestroyImmediate(g.Visual.gameObject); }
+            if (Application.isPlaying) Destroy(g.gameObject); else DestroyImmediate(g.gameObject);
+        }
+
+        void UpdateGhosts(Vector3 me, float dt)
+        {
+            float threat = 0f;
+            float noise = Noise;
+            bool led = link.LedOn;
+            Vector3 basePos = HouseLayout.BasePosition;
+
+            for (int i = ghosts.Count - 1; i >= 0; i--)
+            {
+                var g = ghosts[i];
+                if (g == null) { ghosts.RemoveAt(i); continue; }
+                if (g.State == GhostState.Gone) { ghosts.RemoveAt(i); DestroyGhost(g); continue; }
+                g.Age += dt;
+                float d = Vector3.Distance(me, g.Position);
+
+                // fark etme: yakınsa her zaman; gürültü ve ışık menzili büyütür; hareketsiz + ışıksız olunca biraz saklanır
+                float notice = 1.7f + noise * 2.6f + (led ? 2.6f : 0f);
+                if (noise < 0.15f && !led) notice = 1.0f;
+                bool detected = d < notice && !InBase;
+
+                if (g.State == GhostState.Drift)
+                {
+                    g.WanderTimer -= dt;
+                    if (g.WanderTimer <= 0f || Vector3.Distance(g.Position, g.WanderTarget) < 0.1f)
+                    {
+                        g.WanderTimer = 3f + (float)rng.NextDouble() * 3f;
+                        var room = HouseLayout.RoomAt(g.Position);
+                        g.WanderTarget = new Vector3(Mathf.Lerp(room.Rect.xMin + 0.4f, room.Rect.xMax - 0.4f, (float)rng.NextDouble()), 0f,
+                                                     Mathf.Lerp(room.Rect.yMin + 0.4f, room.Rect.yMax - 0.4f, (float)rng.NextDouble()));
+                    }
+                    GhostStep(g, g.WanderTarget, 0.14f * dt, basePos);
+                    if (detected)
+                    {
+                        g.State = GhostState.Chase;
+                        g.LostTimer = 0f;
+                        Notice?.Invoke("GÖLGE SENİ FARK ETTİ  ·  KAÇ");
+                        if (!tutorialGhost)
+                        {
+                            tutorialGhost = true;
+                            Comms?.Invoke("Bu bir GÖLGE: toplanmaz, kaçılır. Uzaklaş, LED'i kapat, ya da üsse koş. Üssün çevresi güvenli.");
+                        }
+                        GhostSpotted?.Invoke(g);
+                    }
+                    else if (g.Age > 110f && d > 5f) g.State = GhostState.Gone;
+                }
+                else
+                {
+                    g.LostTimer = detected ? 0f : g.LostTimer + dt;
+                    float speed = Mathf.Min(0.3f, GhostBaseSpeed + ChapterIndex * 0.012f);
+                    GhostStep(g, me, speed * dt, basePos);
+                    if (InBase || d > 6f || g.LostTimer > 5f)
+                    {
+                        g.State = GhostState.Drift;
+                        g.WanderTimer = 0f;
+                        Notice?.Invoke("GÖLGEDEN KURTULDUN");
+                        GhostLost?.Invoke();
+                    }
+                    else if (d < 0.42f)
+                    {
+                        HitByGhost(g);
+                        continue;
+                    }
+                }
+
+                g.Alert = Mathf.MoveTowards(g.Alert, g.State == GhostState.Chase ? 1f : 0f, dt * 2f);
+                float near = Mathf.Clamp01(1f - (d - 0.4f) / 3.4f);
+                threat = Mathf.Max(threat, g.State == GhostState.Chase ? Mathf.Max(near, 0.25f) : near * 0.5f);
+            }
+            GhostThreat = Mathf.MoveTowards(GhostThreat, threat, dt * 2.5f);
+        }
+
+        /// <summary>Gölge duvarlardan geçer; yalnızca üssün güvenli alanına giremez.</summary>
+        static void GhostStep(Ghost g, Vector3 target, float maxStep, Vector3 basePos)
+        {
+            Vector3 delta = target - g.Position;
+            float dist = delta.magnitude;
+            if (dist < 0.001f) return;
+            Vector3 next = g.Position + delta / dist * Mathf.Min(maxStep, dist);
+            Vector3 fromBase = next - basePos;
+            fromBase.y = 0f;
+            if (fromBase.magnitude < SafeRadius)
+                next = basePos + (fromBase.sqrMagnitude < 0.0001f ? Vector3.forward : fromBase.normalized) * SafeRadius;
+            g.transform.position = new Vector3(next.x, 0f, next.z);
+        }
+
+        void HitByGhost(Ghost g)
+        {
+            link.AddBattery(-0.12f);
+            bool lostOne = false;
+            if (carried.Count > 0)
+            {
+                var victim = carried[rng.Next(carried.Count)];
+                carried.Remove(victim);
+                if (victim.Visual != null) { if (Application.isPlaying) Destroy(victim.Visual.gameObject); else DestroyImmediate(victim.Visual.gameObject); }
+                if (Application.isPlaying) Destroy(victim.gameObject); else DestroyImmediate(victim.gameObject);
+                lostOne = true;
+            }
+            g.State = GhostState.Gone;
+            nextGhostTime = Mathf.Max(nextGhostTime, clock + 45f);
+            Notice?.Invoke(lostOne ? "GÖLGE DOKUNDU  ·  BİR KAYIT KAYBOLDU  ·  PİL -12%" : "GÖLGE DOKUNDU  ·  PİL -12%");
+            GhostHit?.Invoke(lostOne);
+            EnergyChanged?.Invoke();
         }
 
         // ------------------------------------------------------------------ sonar
@@ -725,6 +926,7 @@ namespace ARaki.Game
                 if (Application.isPlaying) Destroy(f.gameObject); else DestroyImmediate(f.gameObject);
             }
             carried.Clear();
+            ClearGhosts();
             link.Teleport(HouseLayout.BasePosition, HouseLayout.BaseYaw);
             link.SetBattery(0.4f);
             link.SetLed(false);
@@ -761,6 +963,25 @@ namespace ARaki.Game
                 go.transform.position = rig.ToRig(f.Position);
                 go.transform.rotation = rig.ToRig(Quaternion.LookRotation(toRobot.normalized, Vector3.up));
                 f.Visual.Refresh(Time.deltaTime, f);
+            }
+            SyncGhostVisuals(me);
+        }
+
+        void SyncGhostVisuals(Vector3 me)
+        {
+            foreach (var g in ghosts)
+            {
+                if (g == null || g.Visual == null) continue;
+                bool show = Running && g.Alive && Vector3.Distance(me, g.Position) < 4.2f;
+                var go = g.Visual.gameObject;
+                if (go.activeSelf != show) go.SetActive(show);
+                if (!show) continue;
+                Vector3 toRobot = me - g.Position;
+                toRobot.y = 0f;
+                if (toRobot.sqrMagnitude < 0.0001f) toRobot = Vector3.forward;
+                go.transform.position = rig.ToRig(g.Position);
+                go.transform.rotation = rig.ToRig(Quaternion.LookRotation(toRobot.normalized, Vector3.up));
+                g.Visual.Refresh(Time.deltaTime, g);
             }
         }
 

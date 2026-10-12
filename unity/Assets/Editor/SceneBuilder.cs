@@ -58,6 +58,7 @@ namespace ARaki.EditorTools
             var lidar = BuildLidar(map, rig, arRoot);
             var baseMarker = BuildBaseMarker(arRoot);
             var templates = BuildFindTemplates(arRoot);
+            var ghostTemplate = BuildGhostTemplate(arRoot);
 
             var expedition = new GameObject("Expedition").AddComponent<Expedition>();
             SetRef(expedition, "robot", robot.transform);
@@ -68,6 +69,7 @@ namespace ARaki.EditorTools
             SetRef(expedition, "lidar", lidar);
             SetRef(expedition, "baseMarker", baseMarker);
             SetRefs(expedition, "templates", templates);
+            SetRef(expedition, "ghostTemplate", ghostTemplate);
 
             var session = new GameObject("GameSession").AddComponent<GameSession>();
             SetRef(session, "robot", link);
@@ -625,7 +627,7 @@ namespace ARaki.EditorTools
 
             string themeName = Env("ARAKI_THEME");
             if (!string.IsNullOrEmpty(themeName))
-                ThemeCatalog.Set(themeName == "space" ? ThemeId.Space : themeName == "mystery" ? ThemeId.Mystery : ThemeId.Safari, false);
+                ThemeCatalog.Set(themeName == "space" ? ThemeId.Space : themeName == "mystery" ? ThemeId.Mystery : themeName == "safari" ? ThemeId.Safari : ThemeId.Home, false);
             else UiTheme.EnsureApplied();
             Object.FindFirstObjectByType<ThemeSkin>().Apply();
             {

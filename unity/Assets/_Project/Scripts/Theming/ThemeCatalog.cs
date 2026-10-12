@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace ARaki.Theming
 {
-    public enum ThemeId { Safari = 0, Space = 1, Mystery = 2 }
+    public enum ThemeId { Home = 0, Safari = 1, Space = 2, Mystery = 3 }
 
     public class ThemePalette
     {
@@ -53,7 +53,7 @@ namespace ARaki.Theming
     /// <summary>Üç temanın tanımı ve seçili tema. Seçim kayıtlıdır; tema değişince sahne yeniden yüklenir.</summary>
     public static class ThemeCatalog
     {
-        const string Key = "ARaki.Theme";
+        const string Key = "ARaki.Theme.v2";
         static ThemeId? current;
         static readonly ThemeDef[] defs = Build();
 
@@ -217,7 +217,49 @@ namespace ARaki.Theming
                 },
             };
 
-            return new[] { safari, space, mystery };
+            var home = new ThemeDef
+            {
+                Id = ThemeId.Home,
+                Name = "EVİMİZ",
+                Tagline = "Gördüğün ev, gerçek ev. Küçük evcikleri bul, ama gölgelerden kaç.",
+                RobotName = "MİNİK",
+                CommsName = "EV DEFTERİ  //  KANAL 4",
+                Palette = new ThemePalette
+                {
+                    Primary = C("#FFB86B"), Text = C("#FFF6EA"), TextDim = C("#B8A898"), Warning = C("#FFD166"),
+                    Danger = C("#FF6B6B"), Success = C("#8FE3A0"), Panel = C(24, 16, 12, 185),
+                },
+                SunColor = C("#FFF0D6"), SunIntensity = 2.0f,
+                AmbientSky = C("#BFC7D6"), AmbientEquator = C("#A89C8E"), AmbientGround = C("#5C5248"),
+                Finds = Names(new FindNames("TOZ TOPU", quiet), new FindNames("IŞIK KURDU", light), new FindNames("GİZLİ CEP", sonar),
+                              new FindNames("UNUTULMUŞ TOHUM", wait), new FindNames("EVİN KALBİ", both)),
+                Chapters = new[]
+                {
+                    Ch("BÖLÜM 1  ·  EVİN SESİ", GoalKind.DeliverAny, 3, FindKind.Relic, RoomKind.Hall,
+                        "Üç kayıt Ev Defteri'nde. Ev seni tanımaya başladı.",
+                        "Ev Defteri'nden Minik'e: bu evde senin boyundaki küçük evcikler yaşıyor. Sen robot olunca onları görebiliyorsun.",
+                        "Seyrek çıkarlar: odaları dolaş, sensörün haritayı doldurdukça bir şey belirebilir. Yanında bekle, kayıt al, üsse getir."),
+                    Ch("BÖLÜM 2  ·  TOZ TOPLARI", GoalKind.DeliverKind, 2, FindKind.Shy, RoomKind.Hall,
+                        "Toz topları sana alıştı. Ama dikkat: gölgeler uyandı.",
+                        "Toz topları gürültüden ürker. SHIFT'e basılı tut ya da vitesi düşür, sessizce yaklaş.",
+                        "Bir de uyarı: ev bazen soğuyor. Soğuk bir şey yaklaşırsa o bir GÖLGE. Onlardan koş ya da üsse sığın."),
+                    Ch("BÖLÜM 3  ·  IŞIK KURTLARI", GoalKind.DeliverKind, 2, FindKind.Lure, RoomKind.Hall,
+                        "Işık kurtları yolunu buldu.",
+                        "Işık kurtları LED'e gelir. L ile ışığı yak ve çağır. Ama gölgeler de ışığı fark eder; ışıkla fazla oyalanma."),
+                    Ch("BÖLÜM 4  ·  GİZLİ CEPLER", GoalKind.DeliverKind, 2, FindKind.Hidden, RoomKind.Hall,
+                        "Evin gizli ceplerini artık biliyorsun.",
+                        "Bazıları mobilyaların köşesine saklanmış. X ile sonar at; yakındakileri kısa süre gösterir."),
+                    Ch("BÖLÜM 5  ·  MUTFAK", GoalKind.DeliverRoom, 3, FindKind.Relic, RoomKind.Kitchen,
+                        "Mutfak da artık senin.",
+                        "Mutfak evin kalbi gibi; en çok orada şey çıkar. Git, üç kayıt getir. Gölgelere dikkat."),
+                    Ch("BÖLÜM 6  ·  EVİN KALBİ", GoalKind.Legend, 1, FindKind.Legend, RoomKind.Hall,
+                        "Evin Kalbi Ev Defteri'nde. Ev artık huzurlu. İstersen gezmeye devam et: yeni evcikler çıkar, gölgeler de.",
+                        "Son kayıt: Evin Kalbi. Işığı sever ama gürültüden ürker.",
+                        "LED'ini yak, çok yavaş yaklaş ve yanında bekle."),
+                },
+            };
+
+            return new[] { home, safari, space, mystery };
         }
     }
 

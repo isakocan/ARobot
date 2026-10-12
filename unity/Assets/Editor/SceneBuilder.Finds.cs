@@ -18,8 +18,8 @@ namespace ARaki.EditorTools
         {
             var holder = new GameObject("FindTemplates").transform;
             holder.SetParent(arRoot, false);
-            var result = new GameObject[15];
-            for (int theme = 0; theme < 3; theme++)
+            var result = new GameObject[20];
+            for (int theme = 0; theme < 4; theme++)
                 for (int kind = 0; kind < 5; kind++)
                 {
                     var go = BuildFind((ThemeId)theme, (FindKind)kind, holder);
@@ -28,6 +28,49 @@ namespace ARaki.EditorTools
                 }
             holder.gameObject.SetActive(true);
             return result;
+        }
+
+        /// <summary>Gölge: toplanmaz, kaçılır. Koyu, yarı saydam, kızıl gözlü.</summary>
+        static GameObject BuildGhostTemplate(Transform parent)
+        {
+            var root = new GameObject("Ghost_Template");
+            root.transform.SetParent(parent, false);
+            Prim(root.transform, PrimitiveType.Quad, "Shadow", new Vector3(0f, 0.003f, 0f), Vector3.one * 0.5f, FindShadowMaterial(), new Vector3(90f, 0f, 0f));
+
+            var body = new GameObject("Body").transform;
+            body.SetParent(root.transform, false);
+            var cloth = Toon("GhostCloth", "#2A2440", "#0C0A18", "#7C86FF", "#3A3A90", 0.5f, 0.88f, 1f);
+            var cloth2 = Toon("GhostClothDark", "#17132A", "#05040C", "#5A62E0", rimStrength: 1f);
+            var eyeMat = Toon("GhostEye", "#FF4040", "#A01010", "#FFFFFF", "#FF2020", 1.6f, rimStrength: 0f);
+
+            Ball(body, "Head", new Vector3(0f, 0.26f, 0f), new Vector3(0.17f, 0.2f, 0.16f), cloth);
+            var skirt = new GameObject("Tail").transform;
+            skirt.SetParent(body, false);
+            MeshPart(skirt, "Skirt", ARaki.AR.ProceduralMeshes.Cone(0.15f, 0.03f, 0.3f, 16), new Vector3(0f, 0.02f, 0f), Vector3.zero, cloth2);
+            for (int i = 0; i < 6; i++)
+            {
+                float a = i * Mathf.PI * 2f / 6f;
+                Ball(skirt, "Rag", new Vector3(Mathf.Sin(a) * 0.12f, 0.04f, Mathf.Cos(a) * 0.12f), new Vector3(0.06f, 0.1f, 0.06f), cloth);
+            }
+            foreach (float side in new[] { -1f, 1f })
+                Prim(body, PrimitiveType.Sphere, "Arm", new Vector3(0.14f * side, 0.14f, 0.05f), new Vector3(0.045f, 0.16f, 0.045f), cloth2, new Vector3(0f, 0f, 18f * -side));
+
+            var eyes = new List<Object>();
+            foreach (float side in new[] { -1f, 1f })
+            {
+                var e = Ball(body, "Eye", new Vector3(0.05f * side, 0.285f, 0.12f), new Vector3(0.036f, 0.05f, 0.02f), eyeMat);
+                eyes.Add(e.GetComponent<Renderer>());
+            }
+
+            var visual = root.AddComponent<GhostVisual>();
+            var so = new SerializedObject(visual);
+            so.FindProperty("body").objectReferenceValue = body;
+            so.FindProperty("tail").objectReferenceValue = skirt;
+            SetArray(so.FindProperty("eyes"), eyes);
+            so.ApplyModifiedPropertiesWithoutUndo();
+            root.transform.localScale = Vector3.one * 1.25f;
+            root.SetActive(false);
+            return root;
         }
 
         // ------------------------------------------------------------------ malzeme ve parça yardımcıları
@@ -144,6 +187,7 @@ namespace ARaki.EditorTools
             var parts = new Parts();
             switch (theme)
             {
+                case ThemeId.Home:
                 case ThemeId.Safari: BuildSafari(kind, body, parts); break;
                 case ThemeId.Space: BuildSpace(kind, body, parts); break;
                 default: BuildMystery(kind, body, parts); break;

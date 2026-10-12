@@ -143,9 +143,10 @@ namespace ARaki.Game
                 case GameState.Menu:
                     if (Pressed(k => k.enterKey) || Pressed(k => k.spaceKey)) Continue();
                     else if (Pressed(k => k.nKey)) NewGame();
-                    else if (Pressed(k => k.digit1Key)) SetTheme(ThemeId.Safari);
-                    else if (Pressed(k => k.digit2Key)) SetTheme(ThemeId.Space);
-                    else if (Pressed(k => k.digit3Key)) SetTheme(ThemeId.Mystery);
+                    else if (Pressed(k => k.digit1Key)) SetTheme(ThemeId.Home);
+                    else if (Pressed(k => k.digit2Key)) SetTheme(ThemeId.Safari);
+                    else if (Pressed(k => k.digit3Key)) SetTheme(ThemeId.Space);
+                    else if (Pressed(k => k.digit4Key)) SetTheme(ThemeId.Mystery);
                     else if (Pressed(k => k.escapeKey)) Quit();
                     break;
 

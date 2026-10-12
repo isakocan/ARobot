@@ -25,8 +25,8 @@ namespace ARaki.Tests
         public IEnumerator LoadScene()
         {
             Time.timeScale = 1f;
-            foreach (ThemeId id in new[] { ThemeId.Safari, ThemeId.Space, ThemeId.Mystery }) SaveData.Delete(id);
-            ThemeCatalog.Set(ThemeId.Safari, false);
+            foreach (ThemeId id in new[] { ThemeId.Home, ThemeId.Safari, ThemeId.Space, ThemeId.Mystery }) SaveData.Delete(id);
+            ThemeCatalog.Set(ThemeId.Home, false);
             yield return SceneManager.LoadSceneAsync("DriveSim");
             yield return null;
 
@@ -481,6 +481,75 @@ namespace ARaki.Tests
             Assert.Greater(map.ExploredArea, 6f, "gezerken harita dolmalı");
             Assert.Greater(ex.Finds.Count, 0, "bulgular çıkmış olmalı");
             Assert.Less(robot.Telemetry.Battery01, 1f, "pil harcanmalı");
+        }
+
+        // ---------------------------------------------------------------- gölgeler
+
+        void PlaceRobotFar() { robot.Teleport(new Vector3(-3.4f, 0f, -3.4f), 0f); Physics.SyncTransforms(); }
+
+        [UnityTest]
+        public IEnumerator GhostChasesNoisyRobotAndTakesBatteryAndOneCarriedFind()
+        {
+            PlaceRobotFar();
+            var carried = SpawnAhead(FindKind.Relic, 0.3f);
+            carried.Revealed = true;
+            carried.Progress = 0.99f;
+            ex.NoiseOverride = 0f;
+            Run(0.3f);
+            ex.NoiseOverride = 0.6f;
+            Assert.AreEqual(1, ex.Carried.Count, "kayıt taşınmalı");
+
+            float before = robot.Telemetry.Battery01;
+            robot.SetBattery(0.8f);
+            var g = ex.SpawnGhost(robot.transform.position + Vector3.forward * 2.0f);
+            bool hit = false;
+            ex.GhostHit += _ => hit = true;
+            Run(14f);
+            yield return null;
+            Assert.IsTrue(hit, "gölge yetişip dokunmalı");
+            Assert.AreEqual(0, ex.Carried.Count, "dokunuş bir kaydı almalı");
+            Assert.Less(robot.Telemetry.Battery01, 0.75f, "pil düşmeli");
+            _ = before; _ = g;
+        }
+
+        [UnityTest]
+        public IEnumerator GhostDoesNotNoticeQuietRobotFarAway()
+        {
+            PlaceRobotFar();
+            ex.NoiseOverride = 0f;
+            robot.SetLed(false);
+            var g = ex.SpawnGhost(robot.transform.position + Vector3.forward * 2.4f);
+            Run(4f);
+            yield return null;
+            Assert.AreEqual(GhostState.Drift, g.State, "sessiz ve ışıksız robotu 2,4 m'den fark etmemeli");
+        }
+
+        [UnityTest]
+        public IEnumerator GhostGivesUpWhenRobotReachesBase()
+        {
+            robot.Teleport(HouseLayout.BasePosition + new Vector3(2.2f, 0f, 0f), 0f);
+            Physics.SyncTransforms();
+            ex.NoiseOverride = 0.6f;
+            var g = ex.SpawnGhost(robot.transform.position + new Vector3(0.9f, 0f, 0f));
+            Run(0.5f);
+            Assert.AreEqual(GhostState.Chase, g.State);
+            robot.Teleport(HouseLayout.BasePosition, 0f);
+            Physics.SyncTransforms();
+            Run(3f);
+            yield return null;
+            Assert.AreEqual(GhostState.Drift, g.State, "robot üste girince gölge bırakmalı");
+            Assert.GreaterOrEqual(Vector3.Distance(g.Position, HouseLayout.BasePosition), 1.2f, "gölge güvenli alana girmemeli");
+        }
+
+        [UnityTest]
+        public IEnumerator FindsStaySparse()
+        {
+            ex.AutoSpawn = true;
+            map.Clear();
+            for (int i = 0; i < 3; i++) map.Scan();
+            Run(90f, 0.5f);
+            yield return null;
+            Assert.LessOrEqual(ex.Finds.Count, Expedition.MaxAliveFinds, "aynı anda en fazla " + Expedition.MaxAliveFinds + " bulgu");
         }
 
         [UnityTest]

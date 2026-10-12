@@ -16,7 +16,7 @@ namespace ARaki.EditorTools
         static Color C(string hex) => SceneBuilder.C(hex);
         static Transform house;
         static Material trim, white;
-        static Material[] wallSky, ceilingSky, windowSky;
+        static Material[] wallSky, ceilingSky, windowSky, roomWalls;
 
         public static void Build()
         {
@@ -65,6 +65,8 @@ namespace ARaki.EditorTools
                 var root = new GameObject("Room_" + r.Id).transform;
                 root.SetParent(house, false);
                 var rect = r.Rect;
+                roomWalls = (Material[])wallSky.Clone();
+                roomWalls[0] = SceneBuilder.HomeWall(r.Kind);
 
                 // zemin: oda büyüklüğünde bir kutu (çarpışma yok)
                 var floor = Box("Floor", root, new Vector3(rect.center.x, -0.02f, rect.center.y), new Vector3(rect.width, 0.04f, rect.height), FloorFor(r), false);
@@ -116,8 +118,8 @@ namespace ARaki.EditorTools
             Vector3 size = alongX
                 ? new Vector3(len, height, HouseLayout.WallThickness)
                 : new Vector3(HouseLayout.WallThickness, height, len);
-            var wall = Box("Wall", root, center, size, wallSky[0], true);
-            Themed(wall, SurfaceRole.Wall, wallSky);
+            var wall = Box("Wall", root, center, size, roomWalls[0], true);
+            Themed(wall, SurfaceRole.Wall, roomWalls);
         }
 
         static void Themed(GameObject go, SurfaceRole role, Material[] set)

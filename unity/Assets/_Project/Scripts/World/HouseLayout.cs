@@ -54,12 +54,12 @@ namespace ARaki.World
         public static readonly Vector3 BasePosition = new Vector3(-2.7f, 0f, -1.7f);
         public static readonly float BaseYaw = 20f;
 
-        public static readonly RoomInfo Hall = new RoomInfo { Id = "hall", Name = "KORİDOR", Kind = RoomKind.Hall, Rect = new Rect(-5.5f, -0.7f, 11f, 1.4f), TargetFinds = 2 };
-        public static readonly RoomInfo Bedroom = new RoomInfo { Id = "bedroom", Name = "YATAK ODASI", Kind = RoomKind.Bedroom, Rect = new Rect(-5.5f, 0.7f, 3.8f, 3.5f), TargetFinds = 4 };
-        public static readonly RoomInfo Bath = new RoomInfo { Id = "bath", Name = "BANYO", Kind = RoomKind.Bath, Rect = new Rect(-1.7f, 0.7f, 2.7f, 3.5f), TargetFinds = 3 };
-        public static readonly RoomInfo Kitchen = new RoomInfo { Id = "kitchen", Name = "MUTFAK", Kind = RoomKind.Kitchen, Rect = new Rect(1.0f, 0.7f, 4.5f, 3.5f), TargetFinds = 4 };
-        public static readonly RoomInfo Living = new RoomInfo { Id = "living", Name = "SALON", Kind = RoomKind.Living, Rect = new Rect(-5.5f, -4.7f, 7.3f, 4.0f), TargetFinds = 5 };
-        public static readonly RoomInfo Study = new RoomInfo { Id = "study", Name = "ÇALIŞMA ODASI", Kind = RoomKind.Study, Rect = new Rect(1.8f, -4.7f, 3.7f, 4.0f), TargetFinds = 4 };
+        public static readonly RoomInfo Hall = new RoomInfo { Id = "hall", Name = "KORİDOR", Kind = RoomKind.Hall, Rect = new Rect(-5.5f, -0.7f, 11f, 1.4f), TargetFinds = 1 };
+        public static readonly RoomInfo Bedroom = new RoomInfo { Id = "bedroom", Name = "YATAK ODASI", Kind = RoomKind.Bedroom, Rect = new Rect(-5.5f, 0.7f, 3.8f, 3.5f), TargetFinds = 2 };
+        public static readonly RoomInfo Bath = new RoomInfo { Id = "bath", Name = "BANYO", Kind = RoomKind.Bath, Rect = new Rect(-1.7f, 0.7f, 2.7f, 3.5f), TargetFinds = 1 };
+        public static readonly RoomInfo Kitchen = new RoomInfo { Id = "kitchen", Name = "MUTFAK", Kind = RoomKind.Kitchen, Rect = new Rect(1.0f, 0.7f, 4.5f, 3.5f), TargetFinds = 2 };
+        public static readonly RoomInfo Living = new RoomInfo { Id = "living", Name = "SALON", Kind = RoomKind.Living, Rect = new Rect(-5.5f, -4.7f, 7.3f, 4.0f), TargetFinds = 2 };
+        public static readonly RoomInfo Study = new RoomInfo { Id = "study", Name = "ÇALIŞMA ODASI", Kind = RoomKind.Study, Rect = new Rect(1.8f, -4.7f, 3.7f, 4.0f), TargetFinds = 2 };
 
         public static readonly IReadOnlyList<RoomInfo> Rooms = new[] { Hall, Bedroom, Bath, Kitchen, Living, Study };
 

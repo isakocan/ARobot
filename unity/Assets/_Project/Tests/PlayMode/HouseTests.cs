@@ -19,7 +19,7 @@ namespace ARaki.Tests
         public IEnumerator LoadScene()
         {
             Time.timeScale = 1f;
-            ThemeCatalog.Set(ThemeId.Safari, false);
+            ThemeCatalog.Set(ThemeId.Home, false);
             yield return SceneManager.LoadSceneAsync("DriveSim");
             yield return null;
             Physics.SyncTransforms();
@@ -152,7 +152,7 @@ namespace ARaki.Tests
         public IEnumerator ThemeSurfacesFollowTheSelectedTheme()
         {
             var skin = Object.FindFirstObjectByType<ThemeSkin>();
-            foreach (ThemeId id in new[] { ThemeId.Space, ThemeId.Mystery, ThemeId.Safari })
+            foreach (ThemeId id in new[] { ThemeId.Space, ThemeId.Mystery, ThemeId.Safari, ThemeId.Home })
             {
                 skin.Apply(id);
                 int walls = 0;

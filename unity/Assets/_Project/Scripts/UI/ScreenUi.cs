@@ -129,12 +129,12 @@ namespace ARaki.UI
             AddButton(s, "YENİ OYUN", "N", new Vector2(92f, -472f), new Vector2(420f, 44f), UiTheme.TextDim, () => session.NewGame(), g, UiKit.TopLeft, 22);
 
             kit.Label(g, "TEMA  (görünüm ve hikaye; oynanış aynı)", monoFont, 11, UiTheme.TextDim, TextAnchor.UpperLeft, UiKit.TopLeft, UiKit.TopLeft, new Vector2(92f, -536f), new Vector2(420f, 16f));
-            string[] names = { "SAFARİ", "GEZEGEN", "GİZEM" };
-            ThemeId[] ids = { ThemeId.Safari, ThemeId.Space, ThemeId.Mystery };
-            for (int i = 0; i < 3; i++)
+            string[] names = { "EV", "SAFARİ", "GEZEGEN", "GİZEM" };
+            ThemeId[] ids = { ThemeId.Home, ThemeId.Safari, ThemeId.Space, ThemeId.Mystery };
+            for (int i = 0; i < 4; i++)
             {
                 var id = ids[i];
-                var b = AddButton(s, names[i], (i + 1).ToString(), new Vector2(92f + i * 142f, -558f), new Vector2(134f, 44f), ThemeCatalog.Get(id).Palette.Primary, () => session.SetTheme(id), g, UiKit.TopLeft, 19);
+                var b = AddButton(s, names[i], (i + 1).ToString(), new Vector2(92f + i * 107f, -558f), new Vector2(99f, 44f), ThemeCatalog.Get(id).Palette.Primary, () => session.SetTheme(id), g, UiKit.TopLeft, 17);
                 b.Selected = ThemeCatalog.Current == id;
                 themeButtons.Add(b);
             }

@@ -30,6 +30,7 @@ namespace ARaki.Game
         public float FleeTimer;
         public Vector3 FleeTarget;
         public int Essence = 1;
+        public float ExpireAt;               // nadir bulgular görüldükten sonra bu süre dolunca kaybolur (0 = kaybolmaz)
         public FindVisual Visual;
 
         public Vector3 Position => new Vector3(transform.position.x, 0f, transform.position.z);
@@ -38,7 +39,7 @@ namespace ARaki.Game
         public static int EssenceFor(FindKind kind, int tier)
         {
             int baseValue = kind == FindKind.Shy ? 2 : kind == FindKind.Lure ? 2 : kind == FindKind.Hidden ? 3 : kind == FindKind.Legend ? 10 : 1;
-            return baseValue + (tier - 1);
+            return baseValue + (tier - 1) * 2;
         }
 
         /// <summary>Yakalama süresi (sn): kind'a göre; hızlı yakalama yükseltmesi çarpanla kısaltır.</summary>

@@ -46,6 +46,8 @@ namespace ARaki.UI
         CanvasGroup rootGroup, commsGroup;
         RawImage mapRaw;
         Text chapterHeader, chapterTitle, goalText, goalCount, carryText, roomText, mapRoomText, fuelValue, powerValue, sonarValue, noticeText, promptName, promptHint, ledLabel, baseText, commsText, essenceText, noiseLabel, essenceBadge;
+        Image dangerFrame, dangerTint;
+        readonly List<Image> ghostBlips = new List<Image>();
         Image fuelImage, goalFill, captureRing, noiseImage, sonarImage, ledFillImage;
         readonly List<Tag> tags = new List<Tag>();
         readonly List<Blip> blips = new List<Blip>();
@@ -93,6 +95,7 @@ namespace ARaki.UI
             root = go.GetComponent<RectTransform>();
             rootGroup = go.AddComponent<CanvasGroup>();
 
+            BuildDanger();
             BuildCrosshair();
             BuildChapterCard();
             BuildComms();
@@ -117,6 +120,39 @@ namespace ARaki.UI
             var rt = kit.Card(name, root, anchor, pivot, pos, size);
             rt.gameObject.AddComponent<Canvas>();       // kendi alt-canvas'ı: bir kartın metni değişince tüm HUD yeniden çizilmez
             return rt;
+        }
+
+        /// <summary>Gölge yaklaşınca ekran kenarları kırmızıya döner ve titrer.</summary>
+        void BuildDanger()
+        {
+            dangerTint = kit.Img(kit.Stretch("DangerTint", root), UiTheme.WithAlpha(UiTheme.Danger, 0f));
+            dangerTint.raycastTarget = false;
+            dangerFrame = kit.Img(kit.Stretch("DangerFrame", root), UiTheme.WithAlpha(UiTheme.Danger, 0f), bracket, Image.Type.Sliced);
+            dangerFrame.raycastTarget = false;
+        }
+
+        void UpdateDanger()
+        {
+            float t = expedition.GhostThreat;
+            float pulse = 0.65f + 0.35f * Mathf.Sin(Time.realtimeSinceStartup * (4f + t * 8f));
+            dangerTint.color = UiTheme.WithAlpha(UiTheme.Danger, t * 0.16f * pulse);
+            dangerFrame.color = UiTheme.WithAlpha(UiTheme.Danger, Mathf.Clamp01(t * 1.4f) * pulse);
+
+            var list = expedition.Ghosts;
+            while (ghostBlips.Count < list.Count)
+            {
+                var r = kit.Rt("GhostBlip", mapHolder, UiKit.BottomLeft, UiKit.Center, Vector2.zero, new Vector2(10f, 10f));
+                ghostBlips.Add(kit.Img(r, UiTheme.Danger, ring));
+            }
+            for (int i = 0; i < ghostBlips.Count; i++)
+            {
+                var g = i < list.Count ? list[i] : null;
+                bool show = g != null && g.Alive && (g.State == GhostState.Chase || Vector3.Distance(robot.transform.position, g.Position) < 4.2f);
+                if (ghostBlips[i].gameObject.activeSelf != show) ghostBlips[i].gameObject.SetActive(show);
+                if (!show) continue;
+                ghostBlips[i].rectTransform.anchoredPosition = ToMap(g.Position);
+                ghostBlips[i].color = UiTheme.WithAlpha(UiTheme.Danger, 0.5f + 0.5f * Mathf.Abs(Mathf.Sin(Time.realtimeSinceStartup * 6f)));
+            }
         }
 
         void BuildCrosshair()
@@ -398,6 +434,7 @@ namespace ARaki.UI
             }
 
             SyncBlips();
+            UpdateDanger();
         }
 
         void SyncBlips()
