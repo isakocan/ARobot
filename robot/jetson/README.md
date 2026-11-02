@@ -27,7 +27,12 @@ Tarayıcıda `http://jetson.local` ya da robotun IP adresi. İki işi var: Wi-Fi
 
 ## Sürüş köprüsü (`surus_koprusu/`)
 
-Tarayıcıda `http://<robot>:8080`: canlı 360° görüntü (WebGL, sürükleyerek bakılır), W A S D / ekrandaki tuşlarla sürüş, ışık (L), korna (boşluk), selektör (F), dörtlüler (H), yan aynalar (M), melodiler (1-7, 0 susturur), motor akımı. Lens ölçüleri (merkez, ölçek, 2. lensin dönmesi) bu kameranın karelerinden hesaplandı ve `surus.html` gölgelendiricisinde sabit; iki lens birleşme çizgisinde yumuşakça karışır. Kamera kareleri çözülmeden aktarılır (MJPEG); kamera yalnızca izleyen varken açılır. Kamera takılış açısı sayfadaki "Kamera ayarı"ndan düzeltilir, `~/.config/robot/kamera_ayari.json` içine kaydedilir.
+Tarayıcıda `http://<robot>:8080`: canlı 360° görüntü, vitesli sürüş, kokpit, yan aynalar, ışık/selektör/dörtlü, korna, motor sesi, melodiler. Kısayollar sayfada `?` düğmesinde. Nasıl çalıştığı ve sayıların gerekçesi: `docs/robot-teknik-notlar.md`; sıradaki işler: `docs/robot-yapilacaklar.md`.
+
+- `surus_koprusu.py`: Arduino (seri), kamera (GStreamer: JPEG + donanım H.264), web sunucusu.
+- `websoket.py`: küçük WebSocket sunucusu. `/kontrol` sürüş komutları ve durum, `/goruntu-h264` görüntü.
+- `surus.html`: sayfa. 360° düzeltme gölgelendiricide; lens ölçüleri `tools/lens_ayarla.py` ile kameranın karelerinden hesaplandı.
+- Kamera takılış açısı sayfadaki ayarlardan düzeltilir, `~/.config/robot/kamera_ayari.json` içine kaydedilir.
 
 Kullanıcı servisi, sudo gerekmez (bs otomatik giriş yaptığı için açılışta başlar):
 

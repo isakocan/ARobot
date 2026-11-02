@@ -2,18 +2,26 @@
 """
 Sürüş köprüsü (Jetson, bs kullanıcısıyla çalışır).
 
-Tarayıcı / telefon  <-- HTTP :8080 -->  bu program  <-- seri 115200 -->  Arduino (robot_kontrol)
-                                             ^
-                                   Theta S (/dev/video0, MJPEG)
+Tarayıcı / telefon  <-- HTTP + WebSocket :8080 -->  bu program  <-- seri 115200 -->  Arduino
+                                                        ^
+                                              Theta S (/dev/video0, MJPEG 1280x720 15 fps)
 
-- Görüntü: kamera zaten JPEG verdiği için kareler çözülmeden aktarılır (GStreamer yalnızca
-  kareleri ayırır). Kamera yalnızca izleyen biri varken açılır.
-- Sürüş: sayfa basılı tuş varken 100 ms'de bir /api/surus gönderir. Arduino 300 ms komut
-  alamazsa motorları kendisi durdurur; bu program son komutu tekrar etmez.
+Görüntü: GStreamer kameranın JPEG karelerini ikiye ayırır (tee):
+  - JPEG kolu: kareler çözülmeden aktarılır (/goruntu.mjpg, /kare.jpg). Yedek yol; ~20-50 Mbit/s.
+  - H.264 kolu: Jetson'un donanım kodlayıcısı sıkıştırır (/goruntu-h264, WebSocket). ~4 Mbit/s.
+  Kamera yalnızca izleyen biri varken açılır.
+
+Sürüş (/kontrol, WebSocket): sayfa basılı tuş varken ~60 ms'de bir {"t":"surus"} gönderir.
+  - Her komutta sayfanın saati (z) var. Ağ takılıp komutlar geç gelirse (sinyal zayıflayıp
+    düzelince biriken komutlar) bayat komut uygulanmaz, robot durdurulur: TCP sırayı korur ama
+    biz yalnızca en tazesini isteriz (UDP gibi davranış).
+  - Arduino 300 ms komut alamazsa motorları kendisi durdurur.
+  - Aynı anda iki kişi sürerse son hareket ettiren sürücü olur; öteki 0,6 sn yok sayılır.
 
 Python 3.6 uyumlu, standart kütüphane + pyserial.
 """
 
+import collections
 import json
 import os
 import socket
@@ -26,24 +34,37 @@ from urllib.parse import parse_qs, urlsplit
 
 import serial
 
+import websoket
+
 SERI_PORT = "/dev/ttyACM0"
 KAMERA = "/dev/video0"
 PORT = 8080
 KLASOR = os.path.dirname(os.path.abspath(__file__))
 SAYFA = os.path.join(KLASOR, "surus.html")
 KAMERA_AYARI = os.path.expanduser("~/.config/robot/kamera_ayari.json")
-KAMERA_BOSTA_KAPAT = 10    # sn: izleyen kalmayınca kamerayı kapat
+KAMERA_BOSTA_KAPAT = 10     # sn: izleyen kalmayınca kamerayı kapat
 VARSAYILAN_FPS = 15
-AKIS_TAMPONU = 64 * 1024   # bayt; bir kare ~150 KB, yani ağda en fazla ~1 kare bekler
+AKIS_TAMPONU = 128 * 1024   # bayt; ağ yavaşsa kareler kuyrukta birikmesin (~1 kare)
+H264_BIT_HIZI = 4000000     # bit/sn
+ANAHTAR_ARALIGI = 15        # kare; 15 fps'te saniyede bir tam kare (yeni izleyen en geç 1 sn bekler)
+ESKI_KOMUT_MS = 250         # bundan geç gelen hareket komutu uygulanmaz
+SURUCU_KILIDI = 0.6         # sn
+DURUM_ARALIGI = 0.1         # sn: WebSocket'ten durum gönderme
 
 
 def log(*parca):
     print(time.strftime("%H:%M:%S"), *parca, flush=True)
 
 
+def ms():
+    return time.monotonic() * 1000
+
+
 # ---------------------------------------------------------------- Arduino
 
 class Arduino:
+    ALANLAR = ("sol", "sag", "sol_ma", "sag_ma", "ariza", "led", "melodi", "dortlu", "motor_sesi", "geri_bip")
+
     def __init__(self):
         self.kilit = threading.Lock()
         self.port = None
@@ -91,21 +112,62 @@ class Arduino:
 
     def _durum_isle(self, satir):
         try:
-            deger = [int(x) for x in satir.split()[1:9]]
-            sol, sag, sol_ma, sag_ma, ariza, led = deger[:6]
+            deger = [int(x) for x in satir.split()[1:]]
         except ValueError:
             return
-        self.durum = {"sol": sol, "sag": sag, "sol_ma": sol_ma, "sag_ma": sag_ma,
-                      "ariza": bool(ariza), "led": bool(led),
-                      "melodi": deger[6] if len(deger) > 6 else 0,
-                      "dortlu": bool(deger[7]) if len(deger) > 7 else False}
+        if len(deger) < 6:
+            return
+        d = dict(zip(self.ALANLAR, deger))
+        for ad in ("ariza", "led", "dortlu", "motor_sesi", "geri_bip"):
+            if ad in d:
+                d[ad] = bool(d[ad])
+        self.durum = d
         self.son_durum_zamani = time.time()
 
 
 # ---------------------------------------------------------------- kamera
 
+def anahtar_kare_mi(au):
+    """H.264 erişim biriminde tam kare (IDR) ya da SPS var mı?"""
+    i = au.find(b"\x00\x00\x01")
+    while i != -1 and i + 3 < len(au):
+        tur = au[i + 3] & 0x1F
+        if tur in (5, 7):
+            return True
+        if tur == 1:
+            return False
+        i = au.find(b"\x00\x00\x01", i + 3)
+    return False
+
+
+class H264Abone:
+    """Bir izleyicinin kare kuyruğu. Ağ yetişmezse biriktirmez: kuyruğu boşaltıp sonraki
+    tam kareden devam eder (ara kareler öncekilere dayandığı için tek tek atılamaz)."""
+
+    def __init__(self):
+        self.kosul = threading.Condition()
+        self.kuyruk = collections.deque()
+        self.anahtar_bekle = True
+
+    def ekle(self, au, anahtar):
+        with self.kosul:
+            if len(self.kuyruk) >= 3:
+                self.kuyruk.clear()
+                self.anahtar_bekle = True
+            if self.anahtar_bekle and not anahtar:
+                return
+            self.anahtar_bekle = False
+            self.kuyruk.append((au, anahtar))
+            self.kosul.notify()
+
+    def al(self, sure):
+        with self.kosul:
+            self.kosul.wait_for(lambda: self.kuyruk, timeout=sure)
+            return self.kuyruk.popleft() if self.kuyruk else None
+
+
 class Kamera:
-    """Son kareyi tutar; izleyen varken GStreamer'ı çalıştırır."""
+    """Son JPEG kareyi tutar, H.264 kareleri abonelere dağıtır; izleyen varken GStreamer'ı çalıştırır."""
 
     def __init__(self):
         self.kosul = threading.Condition()
@@ -115,13 +177,24 @@ class Kamera:
         self.son_izleyen = 0
         self.durum = "kapali"      # kapali | yok | baslatiliyor | aktif
         self.fps = 0.0
+        self.h264_destek = True    # kodlayıcı açılamazsa yalnızca JPEG
+        self.aboneler = set()
+        self.gonderilen = 0        # izleyicilere giden bayt (veri hızı için)
+        self.veri_kbps = 0
         threading.Thread(target=self._dongu, daemon=True).start()
+        threading.Thread(target=self._hiz_olc, daemon=True).start()
 
     def izle(self, artis):
         with self.kosul:
             self.izleyen += artis
             self.son_izleyen = time.time()
             self.kosul.notify_all()
+
+    def _hiz_olc(self):
+        while True:
+            onceki = self.gonderilen
+            time.sleep(1)
+            self.veri_kbps = int((self.gonderilen - onceki) * 8 / 1000)
 
     def _dongu(self):
         while True:
@@ -134,17 +207,43 @@ class Kamera:
                 time.sleep(2)
                 continue
             self.durum = "baslatiliyor"
-            self._yayinla()
+            kare_geldi = self._yayinla()
+            if not kare_geldi and self.h264_destek:
+                log("kamera hattı kare vermedi; H.264 kapatılıp yalnızca JPEG denenecek")
+                self.h264_destek = False
             time.sleep(1)
 
-    def _yayinla(self):
+    def _komut(self, h264_fd):
         komut = ["gst-launch-1.0", "-q", "v4l2src", "device=" + KAMERA, "!",
-                 "image/jpeg,width=1280,height=720", "!",
+                 "image/jpeg,width=1280,height=720", "!", "tee", "name=t",
+                 "t.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!",
                  "multipartmux", "boundary=kare", "!", "fdsink", "fd=1"]
-        log("kamera açılıyor")
-        p = subprocess.Popen(komut, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+        if h264_fd is not None:
+            komut += ["t.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!",
+                      "jpegdec", "!", "nvvidconv", "!", "video/x-raw(memory:NVMM),format=NV12", "!",
+                      "nvv4l2h264enc", "bitrate={}".format(H264_BIT_HIZI),
+                      # idrinterval da şart: yalnız iframeinterval verilirse ara tam kareler IDR
+                      # olmaz ve yeni bağlanan tarayıcı çözmeye başlayamaz
+                      "iframeinterval={}".format(ANAHTAR_ARALIGI), "idrinterval={}".format(ANAHTAR_ARALIGI),
+                      "insert-sps-pps=true",
+                      "insert-aud=true", "maxperf-enable=true", "preset-level=1", "!",
+                      "h264parse", "!", "video/x-h264,stream-format=byte-stream", "!",
+                      "fdsink", "fd={}".format(h264_fd)]
+        return komut
+
+    def _yayinla(self):
+        h264_oku = h264_yaz = None
+        if self.h264_destek:
+            h264_oku, h264_yaz = os.pipe()
+        log("kamera açılıyor", "(JPEG + H.264)" if h264_yaz else "(JPEG)")
+        p = subprocess.Popen(self._komut(h264_yaz), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             bufsize=0, pass_fds=(h264_yaz,) if h264_yaz else ())
+        if h264_yaz:
+            os.close(h264_yaz)
+            threading.Thread(target=self._h264_oku, args=(h264_oku,), daemon=True).start()
         akis = p.stdout
         sayac_bas, zaman_bas = 0, time.time()
+        kare_geldi = False
         try:
             while True:
                 # izleyen kalmadıysa bir süre sonra kapat
@@ -154,7 +253,7 @@ class Kamera:
                 while True:                       # parça başlıkları
                     satir = akis.readline()
                     if not satir:
-                        return
+                        return kare_geldi
                     satir = satir.strip()
                     if satir.lower().startswith(b"content-length:"):
                         uzunluk = int(satir.split(b":")[1])
@@ -164,8 +263,9 @@ class Kamera:
                 while len(veri) < uzunluk:
                     parca = akis.read(uzunluk - len(veri))
                     if not parca:
-                        return
+                        return kare_geldi
                     veri += parca
+                kare_geldi = True
                 with self.kosul:
                     self.kare = veri
                     self.sayac += 1
@@ -180,6 +280,28 @@ class Kamera:
             p.wait()
             self.fps = 0.0
             log("kamera kapandı")
+        return kare_geldi
+
+    def _h264_oku(self, fd):
+        """Kodlayıcı çıktısını erişim birimlerine (bir kare) böler: her kare AUD ile başlar."""
+        AUD = b"\x00\x00\x00\x01\x09"
+        tampon = b""
+        with os.fdopen(fd, "rb", 0) as f:
+            while True:
+                parca = f.read(65536)
+                if not parca:
+                    return
+                tampon += parca
+                while True:
+                    bas = tampon.find(AUD)
+                    son = tampon.find(AUD, bas + 5) if bas != -1 else -1
+                    if son == -1:
+                        break
+                    au = tampon[bas:son]
+                    tampon = tampon[son:]
+                    anahtar = anahtar_kare_mi(au)
+                    for a in list(self.aboneler):
+                        a.ekle(au, anahtar)
 
     def sonraki_kare(self, son_sayac, sure=2.0):
         with self.kosul:
@@ -187,8 +309,60 @@ class Kamera:
             return self.sayac, self.kare
 
 
+# ---------------------------------------------------------------- sürücü ve sinyal
+
+class Surucu:
+    """Kim sürüyor + bayat komutları ayıklama."""
+
+    def __init__(self):
+        self.kilit = threading.Lock()
+        self.sahip = None
+        self.son_hareket = 0
+
+    def surus(self, baglanti, sol, sag):
+        simdi = time.time()
+        with self.kilit:
+            if self.sahip is not None and self.sahip is not baglanti and simdi - self.son_hareket < SURUCU_KILIDI:
+                return False
+            if sol or sag:
+                self.sahip, self.son_hareket = baglanti, simdi
+        return ARDUINO.gonder("M {} {}".format(sol, sag))
+
+    def ayrildi(self, baglanti):
+        with self.kilit:
+            if self.sahip is baglanti:
+                self.sahip = None
+                ARDUINO.gonder("M 0 0")
+
+
+def wifi_sinyali():
+    """wlan0 sinyal gücü (dBm) ya da None."""
+    try:
+        with open("/proc/net/wireless") as f:
+            for satir in f:
+                if satir.strip().startswith("wlan0:"):
+                    return int(float(satir.split()[3].rstrip(".")))
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
 ARDUINO = Arduino()
 KAM = Kamera()
+SURUCU = Surucu()
+
+
+def durum():
+    taze = time.time() - ARDUINO.son_durum_zamani < 1
+    return {
+        "arduino": ARDUINO.bagli and taze,
+        "motor": ARDUINO.durum if taze else None,
+        "kamera": KAM.durum,
+        "fps": round(KAM.fps, 1),
+        "h264": KAM.h264_destek,
+        "sinyal": wifi_sinyali(),
+        "veri_kbps": KAM.veri_kbps,
+    }
 
 
 # ---------------------------------------------------------------- web sunucusu
@@ -199,7 +373,6 @@ class Sunucu(ThreadingMixIn, HTTPServer):
 
 
 class Istek(BaseHTTPRequestHandler):
-    # Bağlantı açık kalsın: sürüş komutları her seferinde yeni TCP bağlantısı kurmasın
     protocol_version = "HTTP/1.1"
 
     def log_message(self, *a):
@@ -207,7 +380,7 @@ class Istek(BaseHTTPRequestHandler):
 
     def setup(self):
         super().setup()
-        # Küçük paketler (sürüş komutu yanıtı) bekletilmeden gitsin
+        # Küçük paketler (sürüş komutu, durum) bekletilmeden gitsin
         self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
     def _yanit(self, govde, tur, kod=200):
@@ -233,6 +406,10 @@ class Istek(BaseHTTPRequestHandler):
         if adres.path in ("/", "/index.html"):
             with open(SAYFA, "rb") as f:
                 self._yanit(f.read(), "text/html; charset=utf-8")
+        elif adres.path == "/kontrol":
+            self._kontrol()
+        elif adres.path == "/goruntu-h264":
+            self._h264_akisi()
         elif adres.path == "/goruntu.mjpg":
             fps = float(parse_qs(adres.query).get("fps", [VARSAYILAN_FPS])[0])
             self._goruntu_akisi(max(1.0, min(fps, 30.0)))
@@ -247,13 +424,7 @@ class Istek(BaseHTTPRequestHandler):
             else:
                 self._json({"hata": "Kamera görüntü vermiyor."}, 503)
         elif adres.path == "/api/durum":
-            taze = time.time() - ARDUINO.son_durum_zamani < 1
-            self._json({
-                "arduino": ARDUINO.bagli and taze,
-                "motor": ARDUINO.durum if taze else None,
-                "kamera": KAM.durum,
-                "fps": round(KAM.fps, 1),
-            })
+            self._json(durum())
         elif adres.path == "/api/kamera-ayari":
             try:
                 with open(KAMERA_AYARI) as f:
@@ -262,6 +433,109 @@ class Istek(BaseHTTPRequestHandler):
                 self._json({})
         else:
             self.send_error(404)
+
+    # -- sürüş ve durum (WebSocket)
+    def _kontrol(self):
+        ws = websoket.el_sikis(self)
+        if not ws:
+            return
+        baglanti = object()
+        fark_min = [None]          # sayfa saati ile bizim saat arasındaki en küçük fark (ms)
+        atilan = [0]
+
+        def durum_gonder():
+            try:
+                while ws.acik:
+                    d = durum()
+                    d.update(t="durum", atilan=atilan[0])
+                    ws.metin(json.dumps(d))
+                    time.sleep(DURUM_ARALIGI)
+            except websoket.Kapandi:
+                pass
+
+        threading.Thread(target=durum_gonder, daemon=True).start()
+        try:
+            while True:
+                tur, metin = ws.oku()
+                if tur != websoket.METIN:
+                    continue
+                try:
+                    m = json.loads(metin)
+                    self._mesaj(ws, baglanti, m, fark_min, atilan)
+                except (ValueError, TypeError, KeyError):
+                    continue
+        except websoket.Kapandi:
+            pass
+        finally:
+            ws.acik = False
+            SURUCU.ayrildi(baglanti)
+
+    def _mesaj(self, ws, baglanti, m, fark_min, atilan):
+        t = m.get("t")
+        if t == "ping":
+            ws.metin(json.dumps({"t": "pong", "z": m.get("z")}))
+        elif t == "surus":
+            sol = max(-255, min(255, int(m.get("sol", 0))))
+            sag = max(-255, min(255, int(m.get("sag", 0))))
+            # Bayat komut: sayfanın gönderdiği an ile bize geldiği an arasındaki fark,
+            # şimdiye kadarki en küçük farktan (ağın en iyi hâli) ESKI_KOMUT_MS fazlaysa
+            if "z" in m:
+                fark = ms() - float(m["z"])
+                if fark_min[0] is None or fark < fark_min[0]:
+                    fark_min[0] = fark
+                if (sol or sag) and fark - fark_min[0] > ESKI_KOMUT_MS:
+                    atilan[0] += 1
+                    SURUCU.surus(baglanti, 0, 0)
+                    return
+            SURUCU.surus(baglanti, sol, sag)
+        elif t == "led":
+            ARDUINO.gonder("L {}".format(1 if m.get("acik") else 0))
+        elif t == "selektor":
+            ARDUINO.gonder("F")
+        elif t == "dortlu":
+            ARDUINO.gonder("H {}".format(1 if m.get("acik") else 0))
+        elif t == "korna":
+            ARDUINO.gonder("K {}".format(max(50, min(1000, int(m.get("ms", 250))))))
+        elif t == "melodi":
+            ARDUINO.gonder("C {}".format(int(m.get("no", 0))))
+        elif t == "motor_sesi":
+            ARDUINO.gonder("E {}".format(1 if m.get("acik") else 0))
+        elif t == "geri_bip":
+            ARDUINO.gonder("V {}".format(1 if m.get("acik") else 0))
+
+    # -- görüntü
+    def _h264_akisi(self):
+        ws = websoket.el_sikis(self)
+        if not ws:
+            return
+        self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, AKIS_TAMPONU)
+        abone = H264Abone()
+        KAM.aboneler.add(abone)
+        KAM.izle(+1)
+        # Okuyan iş parçacığı: tarayıcı kapatınca ya da ping atınca haberimiz olsun
+        threading.Thread(target=self._oku_bos, args=(ws,), daemon=True).start()
+        try:
+            while ws.acik:
+                oge = abone.al(1.0)
+                if not oge:
+                    continue
+                au, anahtar = oge
+                ws.ikili((b"\x01" if anahtar else b"\x00") + au)
+                KAM.gonderilen += len(au)
+        except websoket.Kapandi:
+            pass
+        finally:
+            ws.acik = False
+            KAM.aboneler.discard(abone)
+            KAM.izle(-1)
+
+    @staticmethod
+    def _oku_bos(ws):
+        try:
+            while True:
+                ws.oku()
+        except websoket.Kapandi:
+            ws.acik = False
 
     def _goruntu_akisi(self, fps):
         # Gönderme tamponu küçük: ağ yavaşsa kareler kuyrukta birikip gecikme büyümesin,
@@ -285,6 +559,7 @@ class Istek(BaseHTTPRequestHandler):
                 son = time.time()
                 self.wfile.write(b"--kare\r\nContent-Type: image/jpeg\r\nContent-Length: " +
                                  str(len(kare)).encode() + b"\r\n\r\n" + kare + b"\r\n")
+                KAM.gonderilen += len(kare)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
         finally:
@@ -293,28 +568,8 @@ class Istek(BaseHTTPRequestHandler):
     def do_POST(self):
         yol = urlsplit(self.path).path
         veri = self._govde()
-        if yol == "/api/surus":
-            try:
-                sol = max(-255, min(255, int(veri.get("sol", 0))))
-                sag = max(-255, min(255, int(veri.get("sag", 0))))
-            except (TypeError, ValueError):
-                self._json({"hata": "sol/sag sayı olmalı"}, 400)
-                return
-            self._json({"tamam": ARDUINO.gonder("M {} {}".format(sol, sag))})
-        elif yol == "/api/dur":
+        if yol == "/api/dur":
             self._json({"tamam": ARDUINO.gonder("S")})
-        elif yol == "/api/led":
-            self._json({"tamam": ARDUINO.gonder("L {}".format(1 if veri.get("acik") else 0))})
-        elif yol == "/api/korna":
-            hz = int(veri.get("hz", 880))
-            ms = int(veri.get("ms", 200))
-            self._json({"tamam": ARDUINO.gonder("B {} {}".format(hz, ms))})
-        elif yol == "/api/melodi":
-            self._json({"tamam": ARDUINO.gonder("C {}".format(int(veri.get("no", 0))))})
-        elif yol == "/api/selektor":
-            self._json({"tamam": ARDUINO.gonder("F")})
-        elif yol == "/api/dortlu":
-            self._json({"tamam": ARDUINO.gonder("H {}".format(1 if veri.get("acik") else 0))})
         elif yol == "/api/kamera-ayari":
             os.makedirs(os.path.dirname(KAMERA_AYARI), exist_ok=True)
             with open(KAMERA_AYARI, "w") as f:

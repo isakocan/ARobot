@@ -7,17 +7,23 @@
 //   F               selektör: ışığı iki kez yakıp söndürür, eski hâline döner
 //   H <0|1>         dörtlüler: ışık kapatılana kadar yanıp söner (L komutu da kapatır)
 //   R <0|1>         ikinci röle (pin 5, şimdilik boşta)
-//   B <hz> <ms>     buzzer (pin 11); çalan melodiyi keser
+//   K <ms>          korna (iki tonlu), ms boyunca
+//   B <hz> <ms>     tek ton bip
 //   C <n>           n. melodiyi çal (1..MELODI_SAYISI), C 0 = sustur
+//   E <0|1>         motor sesi (hıza göre perdesi değişen uğultu)
+//   V <0|1>         geri vites bipi (iki motor da geri giderken)
 //   ?               durum satırını hemen gönder
 //
 // Saniyede 10 kez durum satırı gönderir:
-//   D <sol> <sag> <solmA> <sagmA> <ariza> <led> <melodi> <dortlu>
+//   D <sol> <sag> <solmA> <sagmA> <ariza> <led> <melodi> <dortlu> <motorSesi> <geriBip>
 //   sol/sag: o anki motor değeri, mA: motor akımı, ariza: 1 = sürücü arıza bildiriyor,
-//   melodi: çalan melodinin numarası (0 = yok), dortlu: 1 = dörtlüler açık
+//   melodi: çalan melodinin numarası (0 = yok), diğerleri 0/1
 //
 // Hiçbir yerde delay() yok: loop() her turda saate bakıp sırası gelen işi yapar,
 // böylece motor, LED, buzzer ve seri port birbirini bekletmez.
+//
+// Tek buzzer var; aynı anda birden çok ses istenirse öncelik:
+//   bip > korna > melodi > geri vites bipi > motor sesi
 
 // --- Pinler (VNH5019 shield düzeni; test edildi) ---
 const uint8_t SOL_A = 2, SOL_B = 4, SOL_PWM = 9, SOL_ARIZA = 6, SOL_AKIM = A0;   // Motor 1 = sol
@@ -36,71 +42,127 @@ const int OLU_BOLGE = 50;                      // bunun altındaki PWM motoru d�
 const unsigned long DURUM_ARALIGI = 100;       // ms
 const int PWM_UST = 400;                       // Timer1 20 kHz için tepe değeri
 const unsigned long SELEKTOR_ADIMI = 110;      // ms; röle mekanik, daha hızlı çevrilmez
-const unsigned long DORTLU_ADIMI = 400;        // ms; gerçek dörtlüler gibi ~1,25 Hz
+const unsigned long DORTLU_ADIMI = 500;        // ms; dakikada 60 yanıp sönme (arabalarda 60-120)
+
+// Ses
+const uint16_t KORNA_HZ_1 = 420, KORNA_HZ_2 = 500;  // arabaların iki tonlu kornası gibi
+const unsigned long KORNA_ADIMI = 4;                // ms; iki ton hızla değişince tek, kalın ve pürüzlü duyulur
+const uint16_t GERI_BIP_HZ = 1100;
+const unsigned long GERI_BIP_YARIM = 450;            // ms çalar, ms susar
+const uint16_t MOTOR_ROLANTI_HZ = 38;                // duruyorken
+const uint16_t MOTOR_EN_YUKSEK_HZ = 140;             // tam güçte
+const unsigned long MOTOR_TITRESIM = 30;             // ms; perde hafifçe oynar, düz vızıltı gibi durmaz
 
 int hedefSol = 0, hedefSag = 0;   // istenen
 int simdiSol = 0, simdiSag = 0;   // rampalı, motora giden
 bool ledAcik = false;
 uint8_t selektorKalan = 0;        // kalan yak/söndür adımı
 bool dortlu = false, dortluYanik = false;
-unsigned long sonKomut = 0, sonRampa = 0, sonDurum = 0, buzzerBitis = 0, selektorZamani = 0, dortluZamani = 0;
+bool motorSesi = false, geriBip = true;
+unsigned long sonKomut = 0, sonRampa = 0, sonDurum = 0, selektorZamani = 0, dortluZamani = 0;
+unsigned long bipBitis = 0, kornaBitis = 0, geriBaslangic = 0;
+uint16_t bipHz = 0;
 char satir[32];
 uint8_t uzunluk = 0;
 
 // ------------------------------------------------------------ melodiler
 // {frekans Hz, süre ms} çiftleri; frekans 0 = sus, {0, 0} = son.
-// Telifsiz: halk ezgileri, klasik müzik, borazan çağrısı ve kendi ritimlerimiz.
+// Buzzer (piezo) kalın seslerde kısık kaldığı için bazı ezgiler bir oktav yukarı taşındı.
 
-const uint16_t N_G4 = 392, N_A4 = 440, N_B4 = 494, N_C5 = 523, N_D5 = 587, N_E5 = 659, N_F5 = 698, N_G5 = 784, N_C6 = 1047;
+const uint16_t N_E4 = 330, N_G4 = 392, N_GS4 = 415, N_A4 = 440, N_AS4 = 466, N_B4 = 494,
+               N_C5 = 523, N_CS5 = 554, N_D5 = 587, N_DS5 = 622, N_E5 = 659, N_F5 = 698, N_FS5 = 740,
+               N_G5 = 784, N_GS5 = 831, N_A5 = 880, N_AS5 = 932, N_B5 = 988,
+               N_C6 = 1047, N_CS6 = 1109, N_D6 = 1175, N_DS6 = 1245, N_E6 = 1319, N_F6 = 1397,
+               N_FS6 = 1480, N_G6 = 1568;
 
 const uint16_t M_ACILIS[] PROGMEM = { N_C5, 110, N_E5, 110, N_G5, 110, N_C6, 260, 0, 0 };
+
+const uint16_t M_TETRIS[] PROGMEM = {        // Korobeiniki (Rus halk şarkısı, Tetris)
+  N_E5, 400, N_B4, 200, N_C5, 200, N_D5, 400, N_C5, 200, N_B4, 200,
+  N_A4, 400, N_A4, 200, N_C5, 200, N_E5, 400, N_D5, 200, N_C5, 200,
+  N_B4, 600, N_C5, 200, N_D5, 400, N_E5, 400, N_C5, 400, N_A4, 400, N_A4, 400, 0, 400,
+  0, 200, N_D5, 400, N_F5, 200, N_A5, 400, N_G5, 200, N_F5, 200,
+  N_E5, 600, N_C5, 200, N_E5, 400, N_D5, 200, N_C5, 200,
+  N_B4, 400, N_B4, 200, N_C5, 200, N_D5, 400, N_E5, 400, N_C5, 400, N_A4, 400, N_A4, 400, 0, 0 };
+
+const uint16_t M_MARIO[] PROGMEM = {         // Super Mario Bros. ana tema (başı)
+  N_E5, 150, N_E5, 150, 0, 150, N_E5, 150, 0, 150, N_C5, 150, N_E5, 300, N_G5, 300, 0, 300, N_G4, 300, 0, 300,
+  N_C5, 450, N_G4, 150, 0, 300, N_E4, 450, N_A4, 300, N_B4, 300, N_AS4, 150, N_A4, 300,
+  N_G4, 200, N_E5, 200, N_G5, 200, N_A5, 300, N_F5, 150, N_G5, 150, 0, 150, N_E5, 300, N_C5, 150, N_D5, 150, N_B4, 450, 0, 0 };
+
+const uint16_t M_IMPARATORLUK[] PROGMEM = {  // Star Wars, İmparatorluk Marşı (bir oktav yukarı)
+  N_G5, 500, N_G5, 500, N_G5, 500, N_DS5, 350, N_AS5, 150, N_G5, 500, N_DS5, 350, N_AS5, 150, N_G5, 1000,
+  N_D6, 500, N_D6, 500, N_D6, 500, N_DS6, 350, N_AS5, 150, N_FS5, 500, N_DS5, 350, N_AS5, 150, N_G5, 1000,
+  N_G6, 500, N_G5, 350, N_G5, 150, N_G6, 500, N_FS6, 350, N_F6, 150, N_E6, 125, N_DS6, 125, N_E6, 250, 0, 250,
+  N_GS5, 250, N_CS6, 500, N_C6, 350, N_B5, 150, N_AS5, 125, N_A5, 125, N_AS5, 250, 0, 250,
+  N_DS5, 250, N_FS5, 500, N_DS5, 350, N_G5, 150, N_AS5, 500, N_G5, 350, N_AS5, 150, N_D6, 1000, 0, 0 };
+
+const uint16_t M_GOT[] PROGMEM = {           // Game of Thrones ana tema (bir oktav yukarı)
+  N_G5, 450, N_C5, 450, N_DS5, 225, N_F5, 225, N_G5, 450, N_C5, 450, N_DS5, 225, N_F5, 225,
+  N_G5, 450, N_C5, 450, N_E5, 225, N_F5, 225, N_G5, 450, N_C5, 450, N_E5, 225, N_F5, 225,
+  N_G5, 1350, N_C5, 1350, N_DS5, 225, N_F5, 225, N_G5, 900, N_C5, 900, N_DS5, 225, N_F5, 225, N_D5, 1800,
+  N_F5, 1350, N_AS4, 1350, N_DS5, 225, N_D5, 225, N_F5, 900, N_AS4, 900, N_DS5, 225, N_D5, 225, N_C5, 1800, 0, 0 };
+
+const uint16_t M_NOKIA[] PROGMEM = {         // Gran Vals (Tárrega), Nokia zil sesi
+  N_E6, 120, N_D6, 120, N_FS5, 240, N_GS5, 240, N_CS6, 120, N_B5, 120, N_D5, 240, N_E5, 240,
+  N_B5, 120, N_A5, 120, N_CS5, 240, N_E5, 240, N_A5, 600, 0, 0 };
+
+const uint16_t M_ELISE[] PROGMEM = {         // Für Elise (Beethoven), başı, bir oktav yukarı
+  N_E6, 170, N_DS6, 170, N_E6, 170, N_DS6, 170, N_E6, 170, N_B5, 170, N_D6, 170, N_C6, 170, N_A5, 510, 0, 170,
+  N_C5, 170, N_E5, 170, N_A5, 170, N_B5, 510, 0, 170, N_E5, 170, N_GS5, 170, N_B5, 170, N_C6, 510, 0, 170,
+  N_E5, 170, N_E6, 170, N_DS6, 170, N_E6, 170, N_DS6, 170, N_E6, 170, N_B5, 170, N_D6, 170, N_C6, 170, N_A5, 510, 0, 170,
+  N_C5, 170, N_E5, 170, N_A5, 170, N_B5, 510, 0, 170, N_E5, 170, N_C6, 170, N_B5, 170, N_A5, 900, 0, 0 };
+
 const uint16_t M_CUCARACHA[] PROGMEM = {     // La Cucaracha (Meksika halk ezgisi)
   N_G4, 120, N_G4, 120, N_G4, 120, N_C5, 360, N_E5, 240, 0, 120,
   N_G4, 120, N_G4, 120, N_G4, 120, N_C5, 360, N_E5, 240, 0, 240,
   N_C5, 120, N_C5, 120, N_B4, 120, N_B4, 120, N_A4, 120, N_A4, 120, N_G4, 420, 0, 0 };
+
 const uint16_t M_NESE[] PROGMEM = {          // Neşeye Övgü (Beethoven, 9. senfoni)
   N_E5, 250, N_E5, 250, N_F5, 250, N_G5, 250, N_G5, 250, N_F5, 250, N_E5, 250, N_D5, 250,
   N_C5, 250, N_C5, 250, N_D5, 250, N_E5, 250, N_E5, 375, N_D5, 125, N_D5, 500, 0, 0 };
+
 const uint16_t M_HUCUM[] PROGMEM = {         // Hücum borazanı
   N_G4, 150, N_C5, 150, N_E5, 150, N_G5, 300, N_E5, 150, N_G5, 600, 0, 0 };
+
 const uint16_t M_SIREN[] PROGMEM = {
   650, 300, 950, 300, 650, 300, 950, 300, 650, 300, 950, 300, 650, 300, 950, 300, 0, 0 };
+
 const uint16_t M_DAVUL[] PROGMEM = {         // kendi ritmimiz: bas · zil · trampet (8'lik, ~120 bpm)
   90, 70, 0, 180, 4000, 15, 0, 235, 1800, 40, 0, 210, 4000, 15, 0, 235,
   90, 70, 0, 55, 90, 70, 0, 55, 4000, 15, 0, 235, 1800, 40, 0, 210, 4000, 15, 0, 110, 4000, 15, 0, 110,
   90, 70, 0, 180, 4000, 15, 0, 235, 1800, 40, 0, 210, 4000, 15, 0, 235,
   90, 70, 0, 55, 90, 70, 0, 55, 1800, 40, 0, 85, 1800, 40, 0, 85, 1800, 40, 0, 85, 2400, 60, 0, 0 };
+
 const uint16_t M_ROBOT[] PROGMEM = {         // kendi ezgimiz: "bip bop" robot konuşması
   1200, 70, 0, 40, 900, 70, 0, 40, 1500, 50, 0, 30, 1500, 50, 0, 120,
   700, 90, 0, 40, 1100, 60, 0, 30, 1800, 140, 0, 0 };
 
-const uint16_t *const MELODILER[] = { M_ACILIS, M_CUCARACHA, M_NESE, M_HUCUM, M_SIREN, M_DAVUL, M_ROBOT };
+// Sıra sürüş sayfasındaki listeyle aynı olmalı
+const uint16_t *const MELODILER[] = { M_ACILIS, M_TETRIS, M_MARIO, M_IMPARATORLUK, M_GOT, M_NOKIA, M_ELISE,
+                                      M_CUCARACHA, M_NESE, M_HUCUM, M_SIREN, M_DAVUL, M_ROBOT };
 const uint8_t MELODI_SAYISI = sizeof(MELODILER) / sizeof(MELODILER[0]);
 
 uint8_t melodi = 0;               // çalan melodi (1..), 0 = yok
-uint8_t notaSirasi = 0;
+uint16_t notaSirasi = 0;
+uint16_t melodiHz = 0;            // melodinin şu an istediği ses (0 = sessizlik)
 unsigned long notaBitis = 0, sesBitis = 0;
-
-void melodiDurdur() {
-  if (melodi) noTone(BUZZER);
-  melodi = 0;
-}
 
 // Sırası gelen notayı başlatır; melodi bittiyse susar.
 void notaBaslat(unsigned long simdi) {
   const uint16_t *m = MELODILER[melodi - 1] + notaSirasi * 2;
   uint16_t hz = pgm_read_word(m), ms = pgm_read_word(m + 1);
-  if (ms == 0) { melodiDurdur(); return; }
+  if (ms == 0) { melodi = 0; melodiHz = 0; return; }
   notaSirasi++;
   notaBitis = simdi + ms;
   // aynı nota art arda gelince ayrı duyulsun diye sonunda kısa bir sessizlik
   sesBitis = simdi + (ms > 60 ? ms - 20 : ms);
-  if (hz) tone(BUZZER, hz); else noTone(BUZZER);
+  melodiHz = hz;
 }
 
 void melodiCal(uint8_t n) {
-  melodiDurdur();
-  buzzerBitis = 0;
+  melodi = 0;
+  melodiHz = 0;
   if (n < 1 || n > MELODI_SAYISI) return;
   melodi = n;
   notaSirasi = 0;
@@ -109,8 +171,40 @@ void melodiCal(uint8_t n) {
 
 void melodiIlerlet(unsigned long simdi) {
   if (!melodi) return;
-  if (sesBitis && (long)(simdi - sesBitis) >= 0) { noTone(BUZZER); sesBitis = 0; }
+  if (sesBitis && (long)(simdi - sesBitis) >= 0) { melodiHz = 0; sesBitis = 0; }
   if ((long)(simdi - notaBitis) >= 0) notaBaslat(simdi);
+}
+
+// ------------------------------------------------------------ ses (tek buzzer, öncelikli)
+
+uint16_t calanHz = 0;
+
+void sesYaz(uint16_t hz) {
+  if (hz == calanHz) return;      // aynı sesi yeniden başlatma
+  calanHz = hz;
+  if (hz) tone(BUZZER, hz); else noTone(BUZZER);
+}
+
+void sesGuncelle(unsigned long simdi) {
+  bool geriGidiyor = hedefSol < 0 && hedefSag < 0;
+  if (!geriGidiyor) geriBaslangic = 0;
+  else if (!geriBaslangic) geriBaslangic = simdi;
+
+  uint16_t hz = 0;
+  if (bipBitis && (long)(simdi - bipBitis) < 0) {
+    hz = bipHz;
+  } else if (kornaBitis && (long)(simdi - kornaBitis) < 0) {
+    hz = (simdi / KORNA_ADIMI) % 2 ? KORNA_HZ_1 : KORNA_HZ_2;
+  } else if (melodi) {
+    hz = melodiHz;
+  } else if (geriBip && geriGidiyor) {
+    hz = (simdi - geriBaslangic) % (2 * GERI_BIP_YARIM) < GERI_BIP_YARIM ? GERI_BIP_HZ : 0;
+  } else if (motorSesi) {
+    int hiz = max(abs(simdiSol), abs(simdiSag));
+    hz = MOTOR_ROLANTI_HZ + (long)hiz * (MOTOR_EN_YUKSEK_HZ - MOTOR_ROLANTI_HZ) / 255;
+    if ((simdi / MOTOR_TITRESIM) % 2) hz += hz / 16;
+  }
+  sesYaz(hz);
 }
 
 // ------------------------------------------------------------ ışık
@@ -194,18 +288,21 @@ void durumGonder() {
   Serial.print(ariza ? 1 : 0); Serial.print(' ');
   Serial.print(ledAcik ? 1 : 0); Serial.print(' ');
   Serial.print(melodi); Serial.print(' ');
-  Serial.println(dortlu ? 1 : 0);
+  Serial.print(dortlu ? 1 : 0); Serial.print(' ');
+  Serial.print(motorSesi ? 1 : 0); Serial.print(' ');
+  Serial.println(geriBip ? 1 : 0);
 }
 
 void komutuIsle(char *k) {
   long a = 0, b = 0;
   int n = sscanf(k + 1, "%ld %ld", &a, &b);
+  unsigned long simdi = millis();
   switch (k[0]) {
     case 'M':
       if (n == 2) {
         hedefSol = constrain(a, -255, 255);
         hedefSag = constrain(b, -255, 255);
-        sonKomut = millis();
+        sonKomut = simdi;
       }
       break;
     case 'S':
@@ -215,7 +312,7 @@ void komutuIsle(char *k) {
       if (n >= 1) { ledAcik = a; dortluAyarla(false); }
       break;
     case 'F':
-      if (!selektorKalan && !dortlu) { selektorKalan = 4; selektorZamani = millis() - SELEKTOR_ADIMI; }
+      if (!selektorKalan && !dortlu) { selektorKalan = 4; selektorZamani = simdi - SELEKTOR_ADIMI; }
       break;
     case 'H':
       if (n >= 1) dortluAyarla(a);
@@ -223,15 +320,23 @@ void komutuIsle(char *k) {
     case 'R':
       if (n >= 1) digitalWrite(YEDEK_ROLE, a ? ROLE_ACIK : !ROLE_ACIK);
       break;
+    case 'K':
+      if (n >= 1 && a > 0) kornaBitis = simdi + constrain(a, 1, 2000);
+      break;
     case 'B':
       if (n == 2 && a > 0 && b > 0) {
-        melodiDurdur();
-        tone(BUZZER, constrain(a, 31, 10000));
-        buzzerBitis = millis() + constrain(b, 1, 5000);
+        bipHz = constrain(a, 31, 10000);
+        bipBitis = simdi + constrain(b, 1, 5000);
       }
       break;
     case 'C':
       if (n >= 1) melodiCal(a);
+      break;
+    case 'E':
+      if (n >= 1) motorSesi = a;
+      break;
+    case 'V':
+      if (n >= 1) geriBip = a;
       break;
     case '?':
       durumGonder();
@@ -289,11 +394,8 @@ void loop() {
     motorYaz(SAG_A, SAG_B, OCR1B, simdiSag, SAG_TERS);
   }
 
-  if (buzzerBitis && (long)(simdi - buzzerBitis) >= 0) {
-    noTone(BUZZER);
-    buzzerBitis = 0;
-  }
   melodiIlerlet(simdi);
+  sesGuncelle(simdi);
   selektorIlerlet(simdi);
   dortluIlerlet(simdi);
 
