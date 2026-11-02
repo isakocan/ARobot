@@ -1,0 +1,3 @@
+# Jetson'da çalışan dosyalar Linux satır sonuyla kalmalı
+robot/** text eol=lf
+tools/*.ps1 text eol=crlf

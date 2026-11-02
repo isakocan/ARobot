@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Robot paneli</title>
+<style>
+  :root {
+    --zemin: #f3f1ec;
+    --kart: #ffffff;
+    --yazi: #1d1f21;
+    --soluk: #6b6f73;
+    --cizgi: #e2ded6;
+    --vurgu: #d9631e;
+    --vurgu-yazi: #ffffff;
+    --iyi: #2f8f5b;
+    --kotu: #c0392b;
+    --hata-zemin: #fbeae7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --zemin: #15171a;
+      --kart: #1e2125;
+      --yazi: #eceae6;
+      --soluk: #9a9ea3;
+      --cizgi: #2e3238;
+      --vurgu: #f08a45;
+      --vurgu-yazi: #15171a;
+      --iyi: #5cc28b;
+      --kotu: #ef7466;
+      --hata-zemin: #3a2220;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--zemin); color: var(--yazi);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  main { max-width: 460px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
+  .marka { font: 700 13px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .18em; }
+  .marka b { color: var(--vurgu); }
+  .etiket { font: 12px/1 ui-monospace, Menlo, Consolas, monospace; color: var(--soluk); }
+  h1 { font-size: 24px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -.01em; }
+  .alt { color: var(--soluk); margin: 0 0 20px; font-size: 15px; }
+
+  .durum {
+    display: grid; grid-template-columns: 10px 1fr; gap: 4px 12px; align-items: center;
+    background: var(--kart); border: 1px solid var(--cizgi); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px;
+  }
+  .nokta { width: 10px; height: 10px; border-radius: 50%; background: var(--soluk); }
+  .nokta.iyi { background: var(--iyi); box-shadow: 0 0 0 4px color-mix(in srgb, var(--iyi) 20%, transparent); }
+  .nokta.bekle { background: var(--vurgu); animation: nabiz 1.2s ease-in-out infinite; }
+  @keyframes nabiz { 50% { opacity: .3; } }
+  .durum strong { font-weight: 600; }
+  .durum small { grid-column: 2; color: var(--soluk); font: 13px/1.3 ui-monospace, Menlo, Consolas, monospace; }
+
+  .internet { padding: 14px 16px 12px; margin-bottom: 14px; transition: box-shadow .3s; }
+  .internet.flas { box-shadow: 0 0 0 3px color-mix(in srgb, var(--iyi) 45%, transparent); }
+  .net-ust { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .net-durum { font-weight: 600; }
+  .net-durum.iyi { color: var(--iyi); }
+  .net-durum.bekle { color: var(--vurgu); }
+  .net-durum.kotu { color: var(--kotu); }
+  .serit { position: relative; height: 10px; border-radius: 5px; background: var(--cizgi); overflow: hidden; margin: 12px 0 5px; }
+  .serit i { position: absolute; top: 0; bottom: 0; }
+  .serit-alt { display: flex; justify-content: space-between; font-size: 11px; }
+  .olaylar { list-style: none; margin: 10px 0 0; padding: 0; font-size: 14px; }
+  .olaylar li { display: grid; grid-template-columns: 74px 1fr; gap: 8px; padding: 3px 0; border: 0; }
+  .olaylar time { font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--soluk); }
+  .olaylar small { color: var(--soluk); }
+
+  .hata {
+    background: var(--hata-zemin); color: var(--kotu); border-radius: 12px; padding: 12px 14px;
+    margin-bottom: 14px; font-size: 15px;
+  }
+
+  .baslik { display: flex; justify-content: space-between; align-items: center; margin: 22px 2px 8px; }
+  .baslik h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--soluk); margin: 0; font-weight: 600; }
+  .bag { background: none; border: 0; color: var(--vurgu); font: inherit; font-size: 14px; padding: 4px; cursor: pointer; }
+
+  ul { list-style: none; margin: 0; padding: 0; background: var(--kart); border: 1px solid var(--cizgi); border-radius: 14px; overflow: hidden; }
+  li + li { border-top: 1px solid var(--cizgi); }
+  .satir {
+    width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+    background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .satir:disabled { cursor: default; opacity: .5; }
+  .ad { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .not { font-size: 12px; color: var(--soluk); border: 1px solid var(--cizgi); border-radius: 6px; padding: 1px 6px; }
+  .cubuk { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
+  .cubuk i { width: 3px; background: var(--cizgi); border-radius: 1px; }
+  .cubuk i.dolu { background: var(--yazi); }
+  .kilit { width: 12px; height: 14px; color: var(--soluk); }
+
+  form.ac { padding: 0 16px 16px; display: grid; gap: 10px; }
+  input {
+    width: 100%; font: inherit; color: var(--yazi); background: var(--zemin);
+    border: 1px solid var(--cizgi); border-radius: 10px; padding: 12px 14px;
+  }
+  input:focus { outline: 2px solid var(--vurgu); outline-offset: -1px; }
+  .goster { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--soluk); }
+  .goster input { width: auto; }
+  .dugme {
+    font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1; border: 0; border-radius: 10px; padding: 14px;
+    background: var(--vurgu); color: var(--vurgu-yazi); cursor: pointer;
+  }
+  .dugme.ikincil { background: transparent; color: var(--yazi); border: 1px solid var(--cizgi); width: 100%; }
+  .dugme:disabled { opacity: .5; }
+  .ikili { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .dugme.tehlike { color: var(--kotu); }
+  .tam .sayi { font: 600 44px/1 ui-monospace, Menlo, Consolas, monospace; color: var(--vurgu); margin: 18px 0; }
+  .tam.bitti h1 { color: var(--iyi); }
+  .aciklama { color: var(--soluk); font-size: 14px; margin: 10px 2px 0; }
+  .kutu { background: var(--kart); border: 1px solid var(--cizgi); border-radius: 14px; }
+  .kutu-yazi { margin: 0; padding: 14px 16px 12px; font-size: 15px; color: var(--soluk); }
+  .giris-formu { padding: 0 16px 16px; display: grid; gap: 10px; }
+  .kayitli { display: flex; justify-content: space-between; align-items: center; padding: 0 16px 12px; font-size: 14px; }
+
+  .tam { text-align: center; padding-top: 18vh; }
+  .tam h1 { margin-bottom: 12px; }
+  .tam p { color: var(--soluk); max-width: 340px; margin: 0 auto 10px; }
+  .gizli { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="marka">ROBOT<b>/</b>PANEL</span>
+    <span class="etiket" id="kurulumAgi"></span>
+  </header>
+
+  <section id="ana">
+    <h1 id="baslik">Robotu bir ağa bağla</h1>
+    <p class="alt" id="altyazi">Robotun gündelik kullanacağı Wi-Fi ağını seç. Bir sonraki açılışta kendiliğinden bağlanır.</p>
+
+    <div class="durum">
+      <span class="nokta" id="nokta"></span>
+      <strong id="durumYazi">Durum alınıyor…</strong>
+      <small id="durumAyrinti"></small>
+    </div>
+
+    <div class="kutu internet gizli" id="internet">
+      <div class="net-ust">
+        <span class="net-durum" id="netDurum"></span>
+        <span class="etiket" id="netSure"></span>
+      </div>
+      <div class="serit" id="serit" aria-label="Son 10 dakika"></div>
+      <div class="serit-alt etiket"><span>10 dk önce</span><span>şimdi</span></div>
+      <ol class="olaylar" id="olaylar"></ol>
+    </div>
+
+    <div class="hata gizli" id="hata"></div>
+
+    <div id="girisBolumu" class="gizli">
+      <div class="baslik"><h2>Ağ girişi</h2></div>
+      <div class="kutu">
+        <p class="kutu-yazi" id="girisYazi"></p>
+        <form id="girisFormu" class="giris-formu" autocomplete="off">
+          <input name="kullanici" placeholder="Kullanıcı adı" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+          <input name="sifre" type="password" placeholder="Şifre" required>
+          <button class="dugme" type="submit">Giriş yap</button>
+        </form>
+        <div id="girisKayitli" class="kayitli gizli">
+          <span id="girisKullanici"></span>
+          <button class="bag" id="girisSil" type="button">Unut</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="agBolumu">
+      <div class="baslik">
+        <h2>Yakındaki ağlar</h2>
+        <button class="bag" id="tara" type="button">Yenile</button>
+      </div>
+      <ul id="liste"></ul>
+      <button class="dugme ikincil" id="elle" type="button" style="margin-top:10px">Ağ listede yok, adını yazacağım</button>
+    </div>
+
+    <div id="degistirBolumu" class="gizli">
+      <div class="baslik"><h2>Başka ağa geç</h2></div>
+      <button class="dugme ikincil" id="kurulumaGec" type="button">Robotu kurulum moduna al</button>
+      <p class="aciklama" id="kurulumAciklama"></p>
+    </div>
+
+    <div class="baslik"><h2>Güç</h2></div>
+    <div class="ikili">
+      <button class="dugme ikincil" id="yenidenBaslat" type="button">Yeniden başlat</button>
+      <button class="dugme ikincil tehlike" id="kapat" type="button">Kapat</button>
+    </div>
+    <p class="aciklama">Pilin şalterini kapatmadan önce robotu buradan kapat. Güç aniden kesilirse SD kart bozulabilir.</p>
+  </section>
+
+  <section id="gecis" class="tam gizli">
+    <h1 id="gecisBaslik"></h1>
+    <p id="gecisYazi"></p>
+    <p id="gecisYazi2"></p>
+    <div class="sayi gizli" id="sayac"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let durum = null;
+let acikSsid = null;
+let gecisModu = false;
+let hedefSsid = null;
+
+function cubuklar(sinyal) {
+  const dolu = sinyal >= 75 ? 4 : sinyal >= 50 ? 3 : sinyal >= 25 ? 2 : 1;
+  return '<span class="cubuk" aria-label="sinyal ' + sinyal + '">' +
+    [5, 8, 11, 14].map((h, i) => '<i style="height:' + h + 'px" class="' + (i < dolu ? 'dolu' : '') + '"></i>').join('') +
+    '</span>';
+}
+const KILIT = '<svg class="kilit" viewBox="0 0 12 14" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1.5" y="6" width="9" height="7" rx="1.5"/><path d="M3.5 6V4a2.5 2.5 0 0 1 5 0v2"/></svg>';
+
+function kacis(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function sifreFormu(ssid, sifreli, elle) {
+  return '<form class="ac" data-ssid="' + kacis(ssid) + '">' +
+    (elle ? '<input name="ssid" placeholder="Ağ adı" autocomplete="off" autocapitalize="off" required>' : '') +
+    (sifreli || elle ? '<input name="sifre" type="password" placeholder="Wi-Fi şifresi" autocomplete="off" minlength="8" maxlength="63"' + (elle ? '' : ' required') + '>' +
+      '<label class="goster"><input type="checkbox" name="goster"> Şifreyi göster</label>' : '') +
+    '<button class="dugme" type="submit">Bağlan</button></form>';
+}
+
+function listeyiCiz() {
+  const ul = $('liste');
+  const aglar = (durum && durum.aglar) || [];
+  if (!aglar.length) {
+    ul.innerHTML = '<li><div class="satir" style="cursor:default;color:var(--soluk)">Ağ bulunamadı.</div></li>';
+    return;
+  }
+  ul.innerHTML = aglar.map((a) => {
+    const sifreli = a.guvenlik && a.guvenlik !== '--';
+    const acik = acikSsid === a.ssid;
+    return '<li><button class="satir" type="button" data-ssid="' + kacis(a.ssid) + '"' + (a.kurumsal ? ' disabled' : '') + '>' +
+      cubuklar(a.sinyal) +
+      '<span class="ad">' + kacis(a.ssid) + '</span>' +
+      (a.kurumsal ? '<span class="not">desteklenmiyor</span>' : a.kayitli ? '<span class="not">kayıtlı</span>' : '') +
+      (sifreli ? KILIT : '') +
+      '</button>' + (acik ? sifreFormu(a.ssid, sifreli && !a.kayitli, false) : '') + '</li>';
+  }).join('');
+}
+
+let girisGonderildi = false;
+
+function girisiCiz() {
+  const bolum = $('girisBolumu');
+  const portal = durum.mod === 'istemci' && durum.internet === 'portal';
+  const kayitli = !!durum.giris_kullanici;
+  bolum.classList.toggle('gizli', !(portal || kayitli));
+  let yazi;
+  if (durum.internet === 'portal' && durum.portal_turu === 'bilinmiyor') {
+    yazi = 'Bu ağ internete çıkmak için giriş istiyor ama giriş sayfası tanınmıyor. Jetson ekranından tarayıcıyla giriş yapabilirsin.';
+  } else if (durum.giris_hata) {
+    yazi = durum.giris_hata;
+  } else if (durum.internet === 'portal' && (kayitli || girisGonderildi)) {
+    yazi = 'Giriş yapılıyor…';
+  } else if (durum.internet === 'portal') {
+    yazi = '“' + durum.ag + '” internete çıkmak için giriş istiyor (okul ağlarındaki gibi). Bilgilerini bir kez yaz; robot saklar ve oturum düşerse kendisi yeniden girer.';
+  } else {
+    yazi = 'Robot bu ağa kayıtlı bilgilerle kendisi giriş yapıyor.';
+    girisGonderildi = false;
+  }
+  $('girisYazi').textContent = yazi;
+  $('girisYazi').style.color = durum.giris_hata ? 'var(--kotu)' : '';
+  const formuGoster = durum.internet === 'portal' && durum.portal_turu !== 'bilinmiyor' &&
+    (!kayitli || !!durum.giris_hata) && !(girisGonderildi && !durum.giris_hata);
+  $('girisFormu').classList.toggle('gizli', !formuGoster);
+  $('girisKayitli').classList.toggle('gizli', !kayitli);
+  $('girisKullanici').textContent = kayitli ? 'Kayıtlı: ' + durum.giris_kullanici : '';
+}
+
+$('girisFormu').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const r = await fetch('/api/ag-girisi', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kullanici: f.kullanici.value.trim(), sifre: f.sifre.value }),
+  }).catch(() => null);
+  if (!r || !r.ok) { alert('Robota ulaşılamadı.'); return; }
+  f.sifre.value = '';
+  girisGonderildi = true;
+  durum.giris_hata = '';
+  durum.giris_kullanici = f.kullanici.value.trim();
+  girisiCiz();
+});
+
+$('girisSil').addEventListener('click', async () => {
+  if (!confirm('Bu ağın kayıtlı giriş bilgileri silinsin mi?')) return;
+  await fetch('/api/ag-girisi-sil', { method: 'POST' }).catch(() => {});
+  yenile();
+});
+
+// ---- internet: anlık durum, son 10 dakikanın şeridi, geldi/gitti listesi
+const NET = {
+  var: { ad: 'İnternet var', sinif: 'iyi', renk: 'var(--iyi)', olay: 'İnternet geldi' },
+  portal: { ad: 'Giriş bekleniyor', sinif: 'bekle', renk: 'var(--vurgu)', olay: 'Giriş sayfasına düştü' },
+  yok: { ad: 'İnternet yok', sinif: 'kotu', renk: 'var(--kotu)', olay: 'İnternet gitti' },
+};
+const PENCERE = 600;      // sn
+let saatFarki = 0;        // tarayıcı saati - robot saati
+let sonNet = null;
+
+function sure(sn) {
+  sn = Math.max(0, Math.round(sn));
+  if (sn < 60) return sn + ' sn';
+  const dk = Math.floor(sn / 60);
+  if (dk < 60) return dk + ' dk ' + (sn % 60) + ' sn';
+  return Math.floor(dk / 60) + ' sa ' + (dk % 60) + ' dk';
+}
+const saat = (t) => new Date(t * 1000).toLocaleTimeString('tr-TR');
+
+function internetiCiz() {
+  const bolum = $('internet');
+  const goster = durum && !gecisModu && durum.mod === 'istemci' && !!durum.ag;
+  bolum.classList.toggle('gizli', !goster);
+  if (!goster) return;
+  const simdi = Date.now() / 1000 - saatFarki;
+  const n = NET[durum.internet];
+  $('netDurum').textContent = n ? n.ad : 'Kontrol ediliyor…';
+  $('netDurum').className = 'net-durum ' + (n ? n.sinif : '');
+  const ek = [];
+  if (n && durum.internet_beri) ek.push(sure(simdi - durum.internet_beri));
+  if (durum.internet === 'var' && durum.internet_gecikme != null) ek.push(durum.internet_gecikme + ' ms');
+  $('netSure').textContent = ek.join(' · ');
+
+  if (sonNet && sonNet !== 'var' && durum.internet === 'var') {
+    bolum.classList.add('flas');
+    setTimeout(() => bolum.classList.remove('flas'), 1500);
+  }
+  sonNet = durum.internet;
+
+  const gecmis = durum.internet_gecmis || [];
+  const bas = simdi - PENCERE;
+  $('serit').innerHTML = gecmis.map((o, i) => {
+    const bit = i + 1 < gecmis.length ? gecmis[i + 1].t : simdi;
+    const s = Math.max(o.t, bas), e = Math.min(bit, simdi);
+    if (e <= s || !NET[o.durum]) return '';
+    return '<i style="left:' + ((s - bas) / PENCERE * 100) + '%;width:' + ((e - s) / PENCERE * 100) +
+      '%;background:' + NET[o.durum].renk + '"></i>';
+  }).join('');
+
+  const satirlar = [];
+  for (let i = gecmis.length - 1; i >= 0 && satirlar.length < 5; i--) {
+    const o = gecmis[i], onceki = gecmis[i - 1];
+    let yazi = NET[o.durum] ? NET[o.durum].olay : 'Ağdan çıktı';
+    if (o.not) yazi += ' (' + o.not + ')';
+    let alt = '';
+    if (o.durum === 'var' && onceki && onceki.durum !== 'var') alt = sure(o.t - onceki.t) + ' kesik kaldı';
+    else if (o.ag && (!onceki || onceki.ag !== o.ag)) alt = o.ag;
+    satirlar.push('<li><time>' + saat(o.t) + '</time><span>' + kacis(yazi) +
+      (alt ? ' <small>· ' + kacis(alt) + '</small>' : '') + '</span></li>');
+  }
+  $('olaylar').innerHTML = satirlar.join('');
+}
+setInterval(internetiCiz, 1000);
+
+function durumuCiz() {
+  if (!durum || gecisModu) return;
+  $('kurulumAgi').textContent = durum.kurulum_agi || '';
+  const nokta = $('nokta');
+  nokta.className = 'nokta';
+  if (durum.mod === 'istemci' && durum.ag) {
+    nokta.classList.add('iyi');
+    $('durumYazi').textContent = durum.ag + ' ağına bağlı';
+    $('durumAyrinti').textContent = 'IP ' + durum.ip;
+    $('baslik').textContent = 'Robot çevrimiçi';
+    $('altyazi').textContent = 'Robot şu an bir ağa bağlı. İstersen başka bir ağa geçirebilirsin.';
+    $('degistirBolumu').classList.remove('gizli');
+    $('kurulumAciklama').textContent = 'Robot bu ağdan çıkar ve kendi ağını açar: ' + durum.kurulum_agi +
+      '. Telefonunla o ağa bağlanınca bu sayfa yeniden açılır.';
+  } else if (durum.mod === 'kurulum') {
+    nokta.classList.add('bekle');
+    $('durumYazi').textContent = 'Kurulum modu';
+    $('durumAyrinti').textContent = 'Robot kendi ağını yayınlıyor';
+    $('baslik').textContent = 'Robotu bir ağa bağla';
+    $('degistirBolumu').classList.add('gizli');
+  } else {
+    nokta.classList.add('bekle');
+    $('durumYazi').textContent = 'Bağlanıyor…';
+    $('durumAyrinti').textContent = durum.son_deneme || '';
+  }
+  girisiCiz();
+  internetiCiz();
+  const hata = $('hata');
+  hata.textContent = durum.son_hata || '';
+  hata.classList.toggle('gizli', !durum.son_hata);
+  if (!document.querySelector('form.ac input:focus')) listeyiCiz();
+}
+
+async function yenile() {
+  try {
+    const r = await fetch('/api/durum', { cache: 'no-store' });
+    durum = await r.json();
+    if (durum.simdi) saatFarki = Date.now() / 1000 - durum.simdi;
+    // Robota yeni ağdan ulaşıldı (bu istek geçişi onayladı)
+    if (gecisModu && hedefSsid && durum.mod === 'istemci' && durum.ag === hedefSsid) {
+      location.reload();
+      return;
+    }
+    // Bağlantı başarısız olup robot kurulum ağını yeniden açtıysa hatayı göster
+    if (gecisModu && durum.mod === 'kurulum' && durum.son_hata) {
+      gecisModu = false;
+      $('gecis').classList.add('gizli');
+      $('ana').classList.remove('gizli');
+    }
+    durumuCiz();
+  } catch (e) { /* robot ağ değiştirirken bağlantı kopar */ }
+}
+
+function gecisGoster(baslik, yazi, yazi2) {
+  gecisModu = true;
+  $('ana').classList.add('gizli');
+  $('gecis').classList.remove('gizli');
+  $('gecisBaslik').textContent = baslik;
+  $('gecisYazi').textContent = yazi;
+  $('gecisYazi2').textContent = yazi2 || '';
+}
+
+async function gonder(ssid, sifre) {
+  const r = await fetch('/api/baglan', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ssid, sifre }),
+  });
+  const veri = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(veri.hata || 'Bir sorun oluştu.'); return; }
+  hedefSsid = ssid;
+  gecisGoster('Robot “' + ssid + '” ağına geçiyor',
+    'Bu cihazı da “' + ssid + '” ağına bağla ve bu sayfayı açık tut; robota ulaşınca kendiliğinden yenilenir.',
+    'Robot önceden bir ağdaysa ve 5 dakika içinde kimse ona yeni ağdan ulaşamazsa eski ağına geri döner. Şifre yanlışsa bir dakika içinde ' +
+      (durum ? durum.kurulum_agi : 'kurulum') + ' ağını açar.');
+}
+
+$('liste').addEventListener('click', (e) => {
+  const satir = e.target.closest('button.satir');
+  if (!satir || satir.disabled) return;
+  const ssid = satir.dataset.ssid;
+  acikSsid = acikSsid === ssid ? null : ssid;
+  listeyiCiz();
+  const ilk = document.querySelector('form.ac input');
+  if (ilk) ilk.focus();
+});
+
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('form.ac');
+  if (!form) return;
+  e.preventDefault();
+  const ssid = form.ssid ? form.ssid.value.trim() : form.dataset.ssid;
+  const sifre = form.sifre ? form.sifre.value : '';
+  form.querySelector('button').disabled = true;
+  gonder(ssid, sifre).finally(() => { const b = form.querySelector('button'); if (b) b.disabled = false; });
+});
+
+document.addEventListener('change', (e) => {
+  if (e.target.name !== 'goster') return;
+  const s = e.target.closest('form').sifre;
+  if (s) s.type = e.target.checked ? 'text' : 'password';
+});
+
+$('elle').addEventListener('click', () => {
+  const li = document.createElement('li');
+  li.innerHTML = sifreFormu('', true, true);
+  li.firstChild.style.paddingTop = '16px';
+  $('liste').appendChild(li);
+  li.querySelector('input').focus();
+  $('elle').classList.add('gizli');
+});
+
+$('tara').addEventListener('click', async () => {
+  if (durum && durum.mod === 'istemci') {
+    $('tara').textContent = 'Taranıyor…';
+    await fetch('/api/tara', { method: 'POST' }).catch(() => {});
+    $('tara').textContent = 'Yenile';
+  }
+  yenile();
+});
+
+$('kurulumaGec').addEventListener('click', async () => {
+  if (!confirm('Robot bu ağdan çıkıp kendi ağını açacak. Devam edilsin mi?')) return;
+  await fetch('/api/kurulum-modu', { method: 'POST' }).catch(() => {});
+  gecisGoster('Robot kurulum moduna geçiyor',
+    'Telefonunun Wi-Fi ayarlarından “' + durum.kurulum_agi + '” ağına bağlan.',
+    'Bağlanınca bu sayfa kendiliğinden açılır. Açılmazsa tarayıcıda 10.42.0.1 adresine git.');
+});
+
+const bekle = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function robotCevapVeriyor() {
+  const iptal = new AbortController();
+  const zaman = setTimeout(() => iptal.abort(), 1500);
+  try {
+    const r = await fetch('/api/durum', { cache: 'no-store', signal: iptal.signal });
+    return r.ok;
+  } catch (e) {
+    return false;
+  } finally {
+    clearTimeout(zaman);
+  }
+}
+
+async function guc(islem) {
+  const r = await fetch('/api/guc', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ islem }),
+  }).catch(() => null);
+  if (!r || !r.ok) { alert('Robota ulaşılamadı.'); return false; }
+  return true;
+}
+
+$('kapat').addEventListener('click', async () => {
+  if (!confirm('Robot kapatılsın mı?')) return;
+  if (!(await guc('kapat'))) return;
+  gecisGoster('Robot kapanıyor', 'Kapanması yarım dakika kadar sürer. Pili kapatmak için bu sayfanın haber vermesini bekle.');
+  // Önce robot cevap vermeyi bıraksın (3 kez üst üste), sonra disk kapanana kadar pay bırak
+  let kopuk = 0;
+  while (kopuk < 3) {
+    await bekle(2000);
+    kopuk = (await robotCevapVeriyor()) ? 0 : kopuk + 1;
+  }
+  const sayac = $('sayac');
+  sayac.classList.remove('gizli');
+  for (let s = 15; s > 0; s--) { sayac.textContent = s; await bekle(1000); }
+  sayac.classList.add('gizli');
+  $('gecis').classList.add('bitti');
+  $('gecisBaslik').textContent = 'Robot kapandı';
+  $('gecisYazi').textContent = 'Artık pilin şalterini kapatabilirsin.';
+});
+
+$('yenidenBaslat').addEventListener('click', async () => {
+  if (!confirm('Robot yeniden başlatılsın mı?')) return;
+  if (!(await guc('yeniden'))) return;
+  gecisGoster('Robot yeniden başlıyor', 'Bir iki dakika içinde aynı ağa geri bağlanır. Hazır olunca bu sayfa kendiliğinden yenilenir.');
+  await bekle(15000);
+  while (!(await robotCevapVeriyor())) await bekle(3000);
+  location.reload();
+});
+
+yenile();
+setInterval(yenile, 2000);
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Kullanıcı servisi (sudo gerekmez): ~/.config/systemd/user/ altına kopyalanır.
+# bs otomatik giriş yaptığı için açılışta kendiliğinden başlar.
+[Unit]
+Description=Surus koprusu (kamera + Arduino, port 8080)
+
+[Service]
+ExecStart=/usr/bin/python3 %h/robot/surus_koprusu/surus_koprusu.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
