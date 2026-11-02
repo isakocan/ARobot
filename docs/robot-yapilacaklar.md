@@ -113,6 +113,15 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
   - **Ses seviyesi komutla ayarlanır** (0-30).
 - **Şimdiki piezo için basit ses kısma:** buzzer'a seri 100 Ω-1 kΩ direnç ya da trimpot. Yazılımla gerçek ses ayarı yok.
 
+### B7. Renkli LED (RGB) → parti modu, durum ışığı
+- **Parça:** WS2812B ("NeoPixel") şerit ya da halka. Tek veri kablosuyla her LED'in rengi ayrı ayarlanır, 5 V.
+- **Bağlantı:** veri pini boş bir dijital pine (ör. 13), 330 Ω seri direnç. Çok LED varsa beslemeyi Arduino'dan değil 5 V regülatörden al.
+- **Kullanım:**
+  - Parti modu: renkler ve yanıp sönme müziğin temasına göre (Doom kırmızı ve hızlı, Zelda yeşil ve yavaş).
+  - Durum: pil azalınca turuncu, bağlantı kopunca kırmızı yanıp sönme.
+  - Oyunda bulgu yakalanınca efekt.
+- Röle gibi yıpranmaz; istediğin kadar hızlı yakıp söndürebilirsin.
+
 ## C. Görüntü
 
 ### C1. Theta S HDMI çıkışı

@@ -138,9 +138,22 @@ const uint16_t M_ROBOT[] PROGMEM = {         // kendi ezgimiz: "bip bop" robot k
   1200, 70, 0, 40, 900, 70, 0, 40, 1500, 50, 0, 30, 1500, 50, 0, 120,
   700, 90, 0, 40, 1100, 60, 0, 30, 1800, 140, 0, 0 };
 
-// Sıra sürüş sayfasındaki listeyle aynı olmalı
-const uint16_t *const MELODILER[] = { M_ACILIS, M_TETRIS, M_MARIO, M_IMPARATORLUK, M_GOT, M_NOKIA, M_ELISE,
-                                      M_CUCARACHA, M_NESE, M_HUCUM, M_SIREN, M_DAVUL, M_ROBOT };
+// Oyun ve film müzikleri: tools/melodi_cevir.py ile hazır nota dökümlerinden üretildi
+#include "sarkilar.h"
+
+// Sıra sürüş sayfasındaki MELODILER listesiyle aynı olmalı
+const uint16_t *const MELODILER[] = {
+  M_ACILIS,
+  // oyun
+  M_MEGALOVANIA, M_DOOM, M_KANLI_GOZYASI, M_YESIL_TEPE, M_MARIO, M_TETRIS, M_PACMAN, M_ZELDA,
+  // film / dizi
+  M_IMPARATORLUK, M_GOT, M_HEDWIG, M_PEMBE_PANTER,
+  // pop / yol
+  M_TAKEONME, M_RICK, M_CUCARACHA,
+  // sakin
+  M_NINNI, M_FIRTINA, M_ELISE, M_NESE, M_NOKIA,
+  // efekt
+  M_HUCUM, M_SIREN, M_DAVUL, M_ROBOT };
 const uint8_t MELODI_SAYISI = sizeof(MELODILER) / sizeof(MELODILER[0]);
 
 uint8_t melodi = 0;               // çalan melodi (1..), 0 = yok

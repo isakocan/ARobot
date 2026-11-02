@@ -95,6 +95,7 @@
     border-radius: 8px; padding: 7px 9px; cursor: pointer; }
   .muzik button:hover { background: rgba(255,255,255,.07); }
   .muzik kbd { font: 11px/1 var(--mono); color: var(--soluk); }
+  .muzik-grup { padding: 9px 9px 3px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--soluk); }
   .muzik button.secili, .muzik button.secili kbd { color: var(--vurgu); }
 
   /* Yan aynalar */
@@ -402,6 +403,9 @@ function surusTik() {
   if (zayif()) sol = sag = 0;     // ulaşamıyorsak hareket isteme
   const anahtar = sol + ',' + sag;
   const hareket = sol !== 0 || sag !== 0;
+  // Önceki komut hâlâ tarayıcının gönderme kuyruğundaysa (ağ takıldı) yenisini üstüne yığma:
+  // komutlar birikip sinyal dönünce hep birden gitmesin. Durma komutu her zaman gider.
+  if (hareket && ws && ws.bufferedAmount > 0) return;
   // Hareket varken ~60 ms'de bir gönder (Arduino 300 ms komut alamazsa durur); durunca bir kez sıfır
   if (hareket || anahtar !== sonGonderilen) {
     if (anahtar !== sonGonderilen || simdi - sonGonderimZamani > 55) {
@@ -496,15 +500,27 @@ $('korna').addEventListener('pointerdown', (e) => { $('korna').setPointerCapture
 $('korna').addEventListener('pointerup', kornaBirak);
 $('korna').addEventListener('pointercancel', kornaBirak);
 
-// Melodiler Arduino'da kayıtlı; sıra robot_kontrol.ino'daki MELODILER ile aynı
-const MELODILER = ['Açılış', 'Tetris', 'Süper Mario', 'İmparatorluk Marşı', 'Game of Thrones', 'Nokia', 'Für Elise',
-  'La Cucaracha', 'Neşeye Övgü', 'Hücum borazanı', 'Siren', 'Davul ritmi', 'Robot konuşması'];
+// Melodiler Arduino'da kayıtlı; sıra robot_kontrol.ino'daki MELODILER ile aynı (1'den başlar)
+const MELODI_GRUPLARI = [
+  ['', ['Açılış']],
+  ['Oyun', ['Megalovania (Undertale)', 'Doom E1M1', 'Bloody Tears (Castlevania)', 'Green Hill (Sonic)', 'Süper Mario', 'Tetris', 'Pac-Man', 'Zelda teması']],
+  ['Film / dizi', ['İmparatorluk Marşı', 'Game of Thrones', 'Hedwig (Harry Potter)', 'Pembe Panter']],
+  ['Pop / yol', ['Take On Me', 'Never Gonna Give You Up', 'La Cucaracha']],
+  ['Sakin', ["Zelda's Lullaby", 'Song of Storms', 'Für Elise', 'Neşeye Övgü', 'Nokia']],
+  ['Efekt', ['Hücum borazanı', 'Siren', 'Davul ritmi', 'Robot konuşması']],
+];
 let calanMelodi = 0;
 function melodiCal(no) { gonder({ t: 'melodi', no }); calanMelodi = no; muzikCiz(); }
 function muzikCiz() {
-  $('muzik').innerHTML = MELODILER.map((ad, i) =>
-    '<button type="button" role="menuitem" data-no="' + (i + 1) + '" class="' + (calanMelodi === i + 1 ? 'secili' : '') + '"><kbd>' + (i < 9 ? i + 1 : '') + '</kbd>' + ad + '</button>'
-  ).join('') + '<button type="button" role="menuitem" data-no="0"><kbd>0</kbd>Sustur</button>';
+  let no = 0, html = '';
+  for (const [grup, adlar] of MELODI_GRUPLARI) {
+    if (grup) html += '<div class="muzik-grup">' + grup + '</div>';
+    for (const ad of adlar) {
+      no++;
+      html += '<button type="button" role="menuitem" data-no="' + no + '" class="' + (calanMelodi === no ? 'secili' : '') + '"><kbd>' + (no <= 9 ? no : '') + '</kbd>' + ad + '</button>';
+    }
+  }
+  $('muzik').innerHTML = html + '<button type="button" role="menuitem" data-no="0"><kbd>0</kbd>Sustur</button>';
   $('muzikDugme').classList.toggle('secili', calanMelodi > 0);
 }
 function muzikMenusu(ac) { $('muzik').classList.toggle('gizli', !ac); $('muzikDugme').setAttribute('aria-expanded', ac); }
