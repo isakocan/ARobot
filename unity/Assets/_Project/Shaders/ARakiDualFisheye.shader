@@ -14,6 +14,7 @@ Shader "ARaki/DualFisheye"
         _FrameSize ("Kare boyutu (px)", Vector) = (1280, 720, 0, 0)
         _RMax ("Kullanılan en büyük yarıçap (px)", Float) = 306
         _Band ("Karışım bandı (derece)", Float) = 6
+        _Sharpen ("Keskinleştirme", Range(0, 1)) = 0.35
     }
     SubShader
     {
@@ -38,6 +39,8 @@ Shader "ARaki/DualFisheye"
             float4 _FrameSize;
             float _RMax;
             float _Band;
+            float _Sharpen;
+            float4 _MainTex_TexelSize;
             CBUFFER_END
 
             // C# tarafından verilir: robot → kamera (takılış açısı) ve 2. lensin dönmesi
@@ -55,13 +58,44 @@ Shader "ARaki/DualFisheye"
                 return o;
             }
 
+            // Catmull-Rom bicubic, 9 çift doğrusal (bilinear) örnekle. Kaynak kare 3-4 kat büyütüldüğü için düz
+            // çift doğrusal örnekleme bulanık görünür; bu, kenarları korur. _Sharpen ek bir hafif keskinleştirme.
+            float3 Bicubic(float2 uv)
+            {
+                float2 size = _MainTex_TexelSize.zw;
+                float2 p = uv * size;
+                float2 t1 = floor(p - 0.5) + 0.5;
+                float2 f = p - t1;
+                float2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+                float2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+                float2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+                float2 w3 = f * f * (-0.5 + 0.5 * f);
+                float2 w12 = w1 + w2;
+                float2 o12 = w2 / w12;
+                float2 t0 = (t1 - 1.0) / size, t3 = (t1 + 2.0) / size, t12 = (t1 + o12) / size;
+                float3 c = 0;
+                c += SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, float2(t0.x, t0.y)).rgb * w0.x * w0.y;
+                c += SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, float2(t12.x, t0.y)).rgb * w12.x * w0.y;
+                c += SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, float2(t3.x, t0.y)).rgb * w3.x * w0.y;
+                c += SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, float2(t0.x, t12.y)).rgb * w0.x * w12.y;
+                float3 mid = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, float2(t12.x, t12.y)).rgb;
+                c += mid * w12.x * w12.y;
+                c += SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, float2(t3.x, t12.y)).rgb * w3.x * w12.y;
+                c += SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, float2(t0.x, t3.y)).rgb * w0.x * w3.y;
+                c += SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, float2(t12.x, t3.y)).rgb * w12.x * w3.y;
+                c += SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, float2(t3.x, t3.y)).rgb * w3.x * w3.y;
+                // hafif keskinleştirme: bicubic sonucu ile çift doğrusalın farkını biraz büyüt
+                float3 lin = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, uv).rgb;
+                return max(0, c + (c - lin) * _Sharpen * 2.0);
+            }
+
             float3 Sample(float3 c, float3 lens)
             {
                 float theta = acos(clamp(c.z, -1.0, 1.0));
                 float2 side = c.xy / max(length(c.xy), 1e-6);
                 float2 px = lens.xy + float2(side.x, -side.y) * theta * lens.z;
                 // Görüntü pikselleri yukarıdan aşağı sayılır, Unity dokusu aşağıdan yukarı
-                return SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, float2(px.x / _FrameSize.x, 1.0 - px.y / _FrameSize.y)).rgb;
+                return Bicubic(float2(px.x / _FrameSize.x, 1.0 - px.y / _FrameSize.y));
             }
 
             half4 frag(Varyings i) : SV_Target

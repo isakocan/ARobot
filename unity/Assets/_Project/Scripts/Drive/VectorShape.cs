@@ -7,6 +7,8 @@ namespace ARaki.Drive
     /// <summary>
     /// Koddan çizilen düz şekiller (kokpit, göstergeler, direksiyon). Doku kullanmaz; her çözünürlükte keskin kalır.
     /// Koordinatlar bu RectTransform'un yerel pikselleri (pivot noktası 0,0).
+    /// Kenar yumuşatma: Unity arayüzü üçgen kenarlarını yumuşatmaz (tırtıklı görünür). Her şeklin dış kenarına
+    /// Feather genişliğinde, rengi saydama doğru biten ince bir şerit eklenir; kenarlar pürüzsüz görünür.
     /// </summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public class VectorShape : MaskableGraphic
@@ -14,6 +16,11 @@ namespace ARaki.Drive
         struct Tri { public Vector2 a, b, c; public Color32 ca, cb, cc; }
 
         readonly List<Tri> tris = new List<Tri>();
+
+        /// <summary>Kenar yumuşatma şeridinin genişliği (arayüz birimi; ~1 ekran pikseli yeterli).</summary>
+        public float Feather = 1f;
+
+        static Color Transparent(Color c) => new Color(c.r, c.g, c.b, 0f);
 
         public VectorShape Clear() { tris.Clear(); SetVerticesDirty(); return this; }
 
@@ -30,6 +37,19 @@ namespace ARaki.Drive
         public VectorShape Polygon(IList<Vector2> p, Color c)
         {
             for (int i = 1; i < p.Count - 1; i++) Add(p[0], p[i], p[i + 1], c, c, c);
+            if (Feather > 0f && p.Count >= 3)
+            {
+                Vector2 mid = Vector2.zero;
+                foreach (var q in p) mid += q;
+                mid /= p.Count;
+                Color t = Transparent(c);
+                for (int i = 0; i < p.Count; i++)
+                {
+                    Vector2 a = p[i], b = p[(i + 1) % p.Count];
+                    Vector2 oa = (a - mid).normalized * Feather, ob = (b - mid).normalized * Feather;
+                    Quad(a, a + oa, b + ob, b, c, t, t, c);
+                }
+            }
             SetVerticesDirty();
             return this;
         }
@@ -56,6 +76,13 @@ namespace ARaki.Drive
                 float a1 = Mathf.Lerp(from, to, (i + 1) / (float)n) * Mathf.Deg2Rad;
                 Vector2 d0 = new Vector2(Mathf.Sin(a0), Mathf.Cos(a0)), d1 = new Vector2(Mathf.Sin(a1), Mathf.Cos(a1));
                 Quad(center + d0 * rIn, center + d0 * rOut, center + d1 * rOut, center + d1 * rIn, c, c, c, c);
+                if (Feather > 0f)
+                {
+                    Color t = Transparent(c);
+                    Quad(center + d0 * rOut, center + d0 * (rOut + Feather), center + d1 * (rOut + Feather), center + d1 * rOut, c, t, t, c);
+                    if (rIn > Feather)
+                        Quad(center + d0 * (rIn - Feather), center + d0 * rIn, center + d1 * rIn, center + d1 * (rIn - Feather), t, c, c, t);
+                }
             }
             SetVerticesDirty();
             return this;
@@ -69,8 +96,13 @@ namespace ARaki.Drive
             for (int i = 0; i < segments; i++)
             {
                 float a0 = i * Mathf.PI * 2f / segments, a1 = (i + 1) * Mathf.PI * 2f / segments;
-                Add(center, center + new Vector2(Mathf.Sin(a0), Mathf.Cos(a0)) * r, center + new Vector2(Mathf.Sin(a1), Mathf.Cos(a1)) * r,
-                    inner, outer, outer);
+                Vector2 d0 = new Vector2(Mathf.Sin(a0), Mathf.Cos(a0)), d1 = new Vector2(Mathf.Sin(a1), Mathf.Cos(a1));
+                Add(center, center + d0 * r, center + d1 * r, inner, outer, outer);
+                if (Feather > 0f)
+                {
+                    Color t = Transparent(outer);
+                    Quad(center + d0 * r, center + d0 * (r + Feather), center + d1 * (r + Feather), center + d1 * r, outer, t, t, outer);
+                }
             }
             SetVerticesDirty();
             return this;
@@ -78,9 +110,17 @@ namespace ARaki.Drive
 
         public VectorShape Line(Vector2 a, Vector2 b, float width, Color c)
         {
-            Vector2 n = (b - a).normalized;
-            n = new Vector2(-n.y, n.x) * (width * 0.5f);
+            Vector2 dir = (b - a).normalized;
+            Vector2 side = new Vector2(-dir.y, dir.x);
+            Vector2 n = side * (width * 0.5f);
             Quad(a - n, a + n, b + n, b - n, c, c, c, c);
+            if (Feather > 0f)
+            {
+                Color t = Transparent(c);
+                Vector2 f = side * Feather, e = dir * (Feather * 0.5f);
+                Quad(a + n, a + n + f - e, b + n + f + e, b + n, c, t, t, c);
+                Quad(a - n, a - n - f - e, b - n - f + e, b - n, c, t, t, c);
+            }
             SetVerticesDirty();
             return this;
         }

@@ -146,6 +146,8 @@ B ile arkaya bakınca W yine robotun önüne gider. İstenirse "kameraya göre s
 ## D. Uygulama (Unity) tarafı
 - [x] Sürüş Unity'de (3 Kasım): `Scenes/RealRobot.unity`, `Scripts/Drive`. UDP sürüş kanalı (köprü :8081), robotu otomatik bulma, kokpit (direksiyon sol/orta/sağ, iç ve yan aynalar, devir ve hız saatleri), vites, kamera hareketi, şarkı menüsü, foto/video, robotsuz demo (kayıtlı görüntü + buzzer kopyası). Tarayıcı sürüş sayfası artık yalnızca yedek.
 - [ ] **Unity'de H.264:** şu an görüntü JPEG akışından (20-50 Mbit/s). Telefonda Android'in donanım çözücüsü (MediaCodec) için küçük bir eklenti, PC'de FFmpeg. Wi-Fi menzili için en büyük kazanç bu.
+- [ ] **Titreşim:** telefonda titreşimle his: korna ve düğmelerde kısa tık, vites geçişinde hafif vuruş, çarpma / sert frende güçlü titreşim, sinyal zayıflayınca uyarı titreşimi.
+- [ ] **Düğmelerin soluklaşması:** 5 sn dokunulmayınca düğmeler ve bilgiler soluklaşsın, ekran görüntüye kalsın; dokununca ya da tuşa basınca geri gelsin.
 - [ ] **Telefona kurmak:** Unity Hub → 6000.3.26f1 → "Android Build Support" modülü (OpenJDK + SDK/NDK ile). Sonra telefonu kabloyla bağlayıp Build And Run.
 - **Görüntü:** H.264 Android'in donanım çözücüsü (MediaCodec) ile çözülür, 360° düzeltme aynı gölgelendirici mantığıyla Unity'de.
 - **Son kullanıcı arayüzü:** teşhis bilgileri (ms, dBm, Mbit/s, akım) gizli bir geliştirici ekranına taşınır; kullanıcı yalnızca basit durum görür.

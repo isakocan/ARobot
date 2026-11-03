@@ -12,7 +12,7 @@ namespace ARaki.Drive
     /// görüntüye uygular. Arayüz (DriveCockpit) yalnızca bunu gösterir ve dokunmatik düğmeleri buraya bağlar.
     ///
     /// Tuşlar: W A S D / oklar sür · boşluk korna · L ışık · F selektör · H dörtlü · E motor sesi · N müzik
-    /// R öne bak · B arkaya bak · M aynalar · K kokpit · G vites · P fotoğraf · V video · + / - güç · O ayarlar
+    /// R öne bak · B arkaya bak · M aynalar · K kokpit · G vites · P fotoğraf · V video · + / - güç · O ayarlar · F11 tam ekran
     /// Sağ tık + sürükle (telefonda parmakla sürükle): etrafa bak.
     /// </summary>
     public class DriveController : MonoBehaviour
@@ -94,6 +94,17 @@ namespace ARaki.Drive
             Settings.Save();
         }
         public void Photo() => recorder.TakePhoto();
+
+        /// <summary>F11: tam ekran aç/kapa (PC uygulamasında; editörde Game penceresinin "Play Maximized"ı kullanılır).</summary>
+        public void ToggleFullscreen()
+        {
+            if (Screen.fullScreen) Screen.fullScreenMode = FullScreenMode.Windowed;
+            else
+            {
+                var r = Screen.currentResolution;
+                Screen.SetResolution(r.width, r.height, FullScreenMode.FullScreenWindow);
+            }
+        }
         public void Video()
         {
             recorder.ToggleVideo();
@@ -143,6 +154,7 @@ namespace ARaki.Drive
                 if (kb.kKey.wasPressedThisFrame) { Settings.Cockpit = !Settings.Cockpit; Settings.Save(); }
                 if (kb.gKey.wasPressedThisFrame) { Settings.Gears = !Settings.Gears; Settings.Save(); ShowToast(Settings.Gears ? "Vites açık" : "Vites kapalı"); }
                 if (kb.pKey.wasPressedThisFrame) Photo();
+                if (kb.f11Key.wasPressedThisFrame) ToggleFullscreen();
                 if (kb.vKey.wasPressedThisFrame) Video();
                 if (kb.equalsKey.wasPressedThisFrame || kb.numpadPlusKey.wasPressedThisFrame) ChangePower(0.1f);
                 if (kb.minusKey.wasPressedThisFrame || kb.numpadMinusKey.wasPressedThisFrame) ChangePower(-0.1f);
