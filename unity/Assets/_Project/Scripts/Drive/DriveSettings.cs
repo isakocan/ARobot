@@ -4,17 +4,21 @@ namespace ARaki.Drive
 {
     public enum WheelSide { Left, Center, Right }
     public enum SpeedUnit { KilometersPerHour, MetersPerSecond }
+    /// <summary>Otomatik: vites kendisi büyür · Manuel: sıralı, sürücü atar (E / Q, kulakçıklar) · Sabit: vites yok.</summary>
+    public enum GearMode { Automatic, Manual, Fixed }
+    /// <summary>Dokunmatik sürüş: kapalı · yön tuşu (tek basamaklı yön tuşu, direksiyonun karşı yanında; çapraz basınca
+    /// gaz + dönüş) · pedal (oklar bir yanda, gaz ve fren pedalı öbür yanda).</summary>
+    public enum TouchMode { Off, Pad, Pedals }
 
     /// <summary>Sürüş ayarları; cihazda (PlayerPrefs) saklanır.</summary>
     public class DriveSettings
     {
-        public bool Gears = true;
+        public GearMode Gearbox = GearMode.Automatic;
         public bool ReverseBeep = true;
         public bool CameraMotion = true;
-        public bool SideMirrors = true;
         public bool RearMirror = true;
         public bool Cockpit = true;
-        public bool TouchControls = Application.isMobilePlatform;
+        public TouchMode Touch = Application.isMobilePlatform ? TouchMode.Pad : TouchMode.Off;
         public WheelSide Wheel = WheelSide.Left;
         public SpeedUnit Unit = SpeedUnit.KilometersPerHour;
         public int HornStyle;               // 0 düz, 1 kalın, 2 tiz, 3 titrek iki ton
@@ -32,13 +36,12 @@ namespace ARaki.Drive
         public static DriveSettings Load()
         {
             var s = new DriveSettings();
-            s.Gears = Get(Names[0], s.Gears);
+            s.Gearbox = (GearMode)PlayerPrefs.GetInt("gearbox", Get(Names[0], true) ? 0 : 2);   // eski "gears" ayarından
             s.ReverseBeep = Get(Names[1], s.ReverseBeep);
             s.CameraMotion = Get(Names[2], s.CameraMotion);
-            s.SideMirrors = Get(Names[3], s.SideMirrors);
             s.RearMirror = Get("rearMirror", s.RearMirror);
             s.Cockpit = Get(Names[4], s.Cockpit);
-            s.TouchControls = Get(Names[5], s.TouchControls);
+            s.Touch = (TouchMode)PlayerPrefs.GetInt("touchMode", PlayerPrefs.HasKey(Names[5]) ? (Get(Names[5], false) ? 1 : 0) : (int)s.Touch);
             s.Wheel = (WheelSide)PlayerPrefs.GetInt("wheel", (int)s.Wheel);
             s.Unit = (SpeedUnit)PlayerPrefs.GetInt("unit", (int)s.Unit);
             s.HornStyle = PlayerPrefs.GetInt("hornStyle", s.HornStyle);
@@ -50,8 +53,8 @@ namespace ARaki.Drive
 
         public void Save()
         {
-            Set(Names[0], Gears); Set(Names[1], ReverseBeep); Set(Names[2], CameraMotion);
-            Set(Names[3], SideMirrors); Set("rearMirror", RearMirror); Set(Names[4], Cockpit); Set(Names[5], TouchControls);
+            PlayerPrefs.SetInt("gearbox", (int)Gearbox); Set(Names[1], ReverseBeep); Set(Names[2], CameraMotion);
+            Set("rearMirror", RearMirror); Set(Names[4], Cockpit); PlayerPrefs.SetInt("touchMode", (int)Touch);
             PlayerPrefs.SetInt("wheel", (int)Wheel);
             PlayerPrefs.SetInt("unit", (int)Unit);
             PlayerPrefs.SetInt("hornStyle", HornStyle);
@@ -66,6 +69,9 @@ namespace ARaki.Drive
 
         /// <summary>Motor gücü (-1..1, Arduino'nun bildirdiği) → m/s.</summary>
         public float SpeedMs(float power) => Mathf.Abs(power) * FullRpm / 60f * Mathf.PI * WheelDiameterCm / 100f;
+
+        /// <summary>Seçili birimde, en yüksek güçte varılan hız (hız göstergesinin sonu buna göre).</summary>
+        public float TopSpeedShown => SpeedMs(PowerLimit) * (Unit == SpeedUnit.KilometersPerHour ? 3.6f : 1f);
 
         public string FormatSpeed(float ms, out string unit)
         {

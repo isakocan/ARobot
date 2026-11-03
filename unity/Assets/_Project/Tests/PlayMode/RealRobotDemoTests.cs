@@ -47,7 +47,7 @@ namespace ARaki.Tests
         public IEnumerator DrivesThroughGearsAndRamps()
         {
             Assert.IsTrue(link.Demo && link.IsConnected);
-            drive.Settings.Gears = true;
+            drive.Settings.Gearbox = GearMode.Automatic;
             drive.TouchForward = 1;
             yield return new WaitForSecondsRealtime(0.9f);
             Assert.AreEqual(1, drive.Model.Gear, "vites hemen büyümemeli: o viteste basılı tutmak gerekir");
@@ -63,6 +63,27 @@ namespace ARaki.Tests
         }
 
         [UnityTest]
+        public IEnumerator ManualGearboxShiftsOnRequest()
+        {
+            drive.Settings.Gearbox = GearMode.Manual;
+            drive.TouchForward = 1;
+            yield return new WaitForSecondsRealtime(2.5f);
+            Assert.AreEqual(1, drive.Model.Gear, "manuelde vites kendiliğinden büyümez");
+            Assert.LessOrEqual(drive.Model.Speed, DriveModel.GearTop[1] + 0.001f, "1. vitesin sınırında kalır");
+            Assert.IsTrue(drive.Model.ShiftHint, "sınırda vites atma işareti yanar");
+            drive.ShiftUp();
+            yield return new WaitForSecondsRealtime(1.2f);
+            Assert.AreEqual(2, drive.Model.Gear);
+            Assert.Greater(drive.Model.Speed, DriveModel.GearTop[1] + 0.05f, "vites atınca hızlanır");
+            drive.ShiftDown();
+            yield return new WaitForSecondsRealtime(0.3f);
+            Assert.AreEqual(1, drive.Model.Gear);
+            drive.TouchForward = 0;
+            drive.Settings.Gearbox = GearMode.Automatic;
+            yield return new WaitForSecondsRealtime(1.5f);
+        }
+
+        [UnityTest]
         public IEnumerator HornAndMelodyPlayOnBuzzer()
         {
             drive.PlayMelody(2);
@@ -71,7 +92,7 @@ namespace ARaki.Tests
             drive.StopMelody();
             yield return new WaitForSecondsRealtime(0.2f);
             Assert.AreEqual(0, buzzer.Melody);
-            Assert.AreEqual(32, drive.Firmware.Songs.Count);
+            Assert.AreEqual(13, drive.Firmware.Songs.Count);
         }
 
         [UnityTest]
@@ -108,7 +129,7 @@ namespace ARaki.Tests
             foreach (var side in new[] { WheelSide.Left, WheelSide.Right })
             {
                 drive.Settings.Wheel = side;
-                drive.Settings.SideMirrors = drive.Settings.RearMirror = true;
+                drive.Settings.RearMirror = true;
                 drive.Settings.Cockpit = true;
                 drive.TouchForward = 1;
                 drive.TouchTurn = side == WheelSide.Left ? 1 : 0;
@@ -116,6 +137,20 @@ namespace ARaki.Tests
                 yield return Shot(Path.Combine(dir, "kokpit_" + side.ToString().ToLowerInvariant() + ".png"));
                 drive.TouchForward = drive.TouchTurn = 0;
             }
+            // dokunmatik: yön tuşu (direksiyonun karşısında), sonra pedal + manuel vites kulakçıkları
+            drive.Settings.Wheel = WheelSide.Left;
+            drive.Settings.Touch = TouchMode.Pad;
+            drive.TouchForward = 1;
+            drive.TouchTurn = 1;
+            yield return new WaitForSecondsRealtime(0.6f);
+            yield return Shot(Path.Combine(dir, "dokunmatik_yon.png"));
+            drive.Settings.Touch = TouchMode.Pedals;
+            drive.Settings.Gearbox = GearMode.Manual;
+            yield return new WaitForSecondsRealtime(0.6f);
+            yield return Shot(Path.Combine(dir, "dokunmatik_pedal.png"));
+            drive.TouchForward = drive.TouchTurn = 0;
+            drive.Settings.Touch = TouchMode.Off;
+            drive.Settings.Gearbox = GearMode.Automatic;
             var cockpit = Object.FindFirstObjectByType<DriveCockpit>();
             cockpit.MenuOpen = true;
             yield return new WaitForSecondsRealtime(0.3f);

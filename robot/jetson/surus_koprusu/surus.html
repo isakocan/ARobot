@@ -522,11 +522,10 @@ $('korna').addEventListener('pointercancel', kornaBirak);
 // Melodiler Arduino'da kayıtlı; sıra robot_kontrol.ino'daki MELODILER ile aynı (1'den başlar)
 const MELODI_GRUPLARI = [
   ['', ['Açılış']],
-  ['Oyun', ['Megalovania (Undertale)', 'Doom E1M1', 'Bloody Tears (Castlevania)', 'Green Hill (Sonic)', 'Süper Mario', 'Tetris', 'Pac-Man', 'Zelda teması']],
-  ['Film / dizi', ['İmparatorluk Marşı', 'Game of Thrones', 'Hedwig (Harry Potter)', 'Pembe Panter']],
-  ['Pop / yol', ['Take On Me', 'Never Gonna Give You Up', 'La Cucaracha']],
-  ['Sakin', ["Zelda's Lullaby", 'Song of Storms', 'Für Elise', 'Neşeye Övgü', 'Nokia']],
-  ['Efekt', ['Hücum borazanı', 'Siren', 'Davul ritmi', 'Robot konuşması']],
+  ['Oyun', ['Megalovania (Undertale)', 'Süper Mario', 'Tetris']],
+  ['Film / dizi', ['İmparatorluk Marşı', 'Game of Thrones', 'Hedwig (Harry Potter)', 'Pembe Panter', "He's a Pirate (Karayip Korsanları)"]],
+  ['Pop', ['Take On Me', 'Never Gonna Give You Up', 'Nokia']],
+  ['Efekt', ['Siren']],
 ];
 let calanMelodi = 0;
 function melodiCal(no) { gonder({ t: 'melodi', no }); calanMelodi = no; muzikCiz(); }

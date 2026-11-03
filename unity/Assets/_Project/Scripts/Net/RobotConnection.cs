@@ -42,6 +42,7 @@ namespace ARaki.Net
         {
             public int sol, sag, sol_ma, sag_ma, melodi;
             public bool ariza, led, dortlu, motor_sesi, geri_bip;
+            public int sikisma;   // akım koruması devrede: 1 sol, 2 sağ, 3 ikisi
         }
 
         public string t;
@@ -51,6 +52,7 @@ namespace ARaki.Net
         public Motor motor;
         public string kamera;     // kapali | yok | baslatiliyor | aktif
         public float fps;
+        public float sicaklik;   // Jetson'un en sıcak noktası, °C (0 = bilinmiyor)
         public bool h264;
         public int sinyal;        // dBm (0 = bilinmiyor)
         public int veri_kbps;

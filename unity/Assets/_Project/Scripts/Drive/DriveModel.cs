@@ -10,6 +10,10 @@ namespace ARaki.Drive
     /// GearHold kadar gaza basılı tutulunca büyür (devir kırmızıya yaklaşır); geçerken 0,22 sn güç düşer
     /// (kavrama), sonra yeni vitesin sınırına yine çabuk çıkar. Böylece her vites atışı belirgin bir hızlanmadır;
     /// 4. vitese ~5,5 sn'de, tam güce ~6 sn'de varılır. Gerçek tekerin hızı ayrıca Arduino'daki rampayla yumuşar.
+    ///
+    /// Manuel (sıralı): vitesi sürücü atar (ShiftUp / ShiftDown). Gaz, o vitesin sınırına kadar çıkar; sınırda devir
+    /// kırmızıda kalır. Büyük viteste düşük hızdan kalkış güçsüzdür, küçük vitese inince araç motorla yavaşlar.
+    /// Duruştan gaza basınca 1. vites, fren basılı tutunca geri vites kendiliğinden takılır.
     /// </summary>
     public class DriveModel
     {
@@ -33,14 +37,22 @@ namespace ARaki.Drive
         public float Steer { get; private set; }       // -1, 0, 1
 
         float clutchUntil, time, inGear;   // inGear: bu viteste gaza basılı geçen süre
+        int shiftRequest;                  // manuel: +1 büyüt, -1 küçült (bir sonraki adımda uygulanır)
+
+        public void ShiftUp() => shiftRequest = 1;
+        public void ShiftDown() => shiftRequest = -1;
+        /// <summary>Manuel viteste devir kırmızıya vardı: vites büyütülebilir.</summary>
+        public bool ShiftHint { get; private set; }
 
         /// <summary>forward: +1 ileri, -1 geri, 0 bırakıldı; turn: +1 sağ, -1 sol.</summary>
-        public (float left, float right) Step(float dt, int forward, int turn, bool gears)
+        public (float left, float right) Step(float dt, int forward, int turn, GearMode mode)
         {
             time += dt;
             Steer = turn;
             float before = Output;
-            if (!gears)
+            bool gears = mode != GearMode.Fixed;
+            if (mode == GearMode.Manual) StepManual(dt, forward);
+            else if (!gears)
             {
                 Speed = forward;
                 Gear = forward;
@@ -64,7 +76,7 @@ namespace ARaki.Drive
             }
             else Speed = Speed > 0 ? Mathf.Max(0f, Speed - Coast * dt) : Mathf.Min(0f, Speed + Coast * dt);
 
-            if (gears)
+            if (mode == GearMode.Automatic)
             {
                 if (Speed > 0) while (Gear > 1 && Speed < GearTop[Gear - 1] * 0.8f) { Gear--; inGear = GearHold[Gear]; }   // yavaşlayınca vites küçülür
                 if (Speed == 0 && forward == 0) Gear = 0;
@@ -72,6 +84,39 @@ namespace ARaki.Drive
             Output = Speed * (gears && time < clutchUntil ? ClutchDip : 1f);
             Acceleration += ((Output - before) / Mathf.Max(dt, 0.004f) - Acceleration) * Mathf.Min(1f, dt * 4f);
             return Mix(Output, turn);
+        }
+
+        void StepManual(float dt, int forward)
+        {
+            int req = shiftRequest;
+            shiftRequest = 0;
+            if (req > 0 && Gear >= 1 && Gear < 4) { Gear++; clutchUntil = time + ClutchTime; }
+            else if (req > 0 && Gear == 0) Gear = 1;
+            else if (req < 0 && Gear > 1) { Gear--; clutchUntil = time + ClutchTime; }
+            else if (req < 0 && Gear == 1 && Speed == 0f) Gear = 0;
+
+            if (forward > 0)
+            {
+                if (Speed < 0) Speed = Mathf.Min(0f, Speed + Brake * dt);
+                else
+                {
+                    if (Gear < 1) Gear = 1;
+                    float top = GearTop[Gear];
+                    // büyük viteste alttan kalkış güçsüz (motor bayılır gibi)
+                    float lug = Gear > 1 && Speed < GearTop[Gear - 1] * 0.6f ? 0.35f : 1f;
+                    if (Speed < top) Speed = Mathf.Min(top, Speed + GearRate[Gear] * lug * dt);
+                }
+            }
+            else if (forward < 0)
+            {
+                if (Speed > 0) Speed = Mathf.Max(0f, Speed - Brake * dt);
+                else { Gear = -1; Speed = Mathf.Max(-ReverseTop, Speed - ReverseRate * dt); }
+            }
+            else Speed = Speed > 0 ? Mathf.Max(0f, Speed - Coast * dt) : Mathf.Min(0f, Speed + Coast * dt);
+
+            if (Gear >= 1 && Speed > GearTop[Gear]) Speed = Mathf.Max(GearTop[Gear], Speed - Coast * dt);   // motor freni
+            if (Gear < 0 && Speed == 0f && forward == 0) Gear = 0;
+            ShiftHint = Gear >= 1 && Gear < 4 && Speed >= GearTop[Gear] - 0.01f;
         }
 
         public static (float, float) Mix(float f, float t)
@@ -87,11 +132,14 @@ namespace ARaki.Drive
         }
 
         /// <summary>Gösterge için motor devri: vitesin alt sınırında rölanti, üstünde kırmızıya yakın.</summary>
-        public float Rpm(bool gears)
+        public float Rpm(GearMode mode)
         {
             float a = Mathf.Abs(Speed);
-            if (!gears) return IdleRpm + a * (TopRpm - IdleRpm);
+            if (mode == GearMode.Fixed) return IdleRpm + a * (TopRpm - IdleRpm);
             if (Gear == 0) return IdleRpm;
+            if (mode == GearMode.Manual)   // devir tekerle orantılı: büyük viteste düşük hızda düşük devir
+                return (IdleRpm + (TopRpm - IdleRpm) * Mathf.Clamp01(a / (Gear < 0 ? ReverseTop : GearTop[Gear]))) *
+                       (time < clutchUntil ? 0.85f : 1f);
             float top = Gear < 0 ? ReverseTop : GearTop[Gear];
             float bottom = Gear <= 1 ? 0f : GearTop[Gear - 1] * 0.8f;
             // Devir hem hızla hem viteste geçen süreyle artar: vites atmaya yaklaştıkça kırmızıya varır

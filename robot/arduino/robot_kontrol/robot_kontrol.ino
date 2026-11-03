@@ -16,9 +16,14 @@
 //   N               nabız: köprü, bağlı bir sürücü (uygulama / sayfa) varken 250 ms'de bir gönderir
 //
 // Saniyede 10 kez durum satırı gönderir:
-//   D <sol> <sag> <solmA> <sagmA> <ariza> <led> <melodi> <dortlu> <motorSesi> <geriBip>
+//   D <sol> <sag> <solmA> <sagmA> <ariza> <led> <melodi> <dortlu> <motorSesi> <geriBip> <sikisma>
 //   sol/sag: o anki motor değeri, mA: motor akımı, ariza: 1 = sürücü arıza bildiriyor,
-//   melodi: çalan melodinin numarası (0 = yok), diğerleri 0/1
+//   melodi: çalan melodinin numarası (0 = yok), sikisma: akım koruması devrede (1 sol, 2 sağ, 3 ikisi),
+//   diğerleri 0/1
+//
+// Korumalar: komut 300 ms gelmezse motorlar durur; bağlantı (nabız) 1,5 sn gelmezse sesler susar,
+// sürerken koptuysa dörtlüler yanar (bağlantı gelince ya da 1 dk sonra söner); bir motorun akımı
+// AKIM_SINIR_MA'yı 800 ms aşarsa (teker sıkıştı) iki motor 1,5 sn durdurulur.
 //
 // Hiçbir yerde delay() yok: loop() her turda saate bakıp sırası gelen işi yapar,
 // böylece motor, LED, buzzer ve seri port birbirini bekletmez.
@@ -37,8 +42,14 @@ const bool ROLE_ACIK = LOW;
 
 const unsigned long KOMUT_ZAMAN_ASIMI = 300;  // ms
 // Bu kadar hiç satır (nabız dahil) gelmezse bağlantı kopmuş sayılır ve sesler susar: motor sesi, melodi,
-// korna. Işık ve dörtlüler olduğu gibi kalır (duran araçta dörtlü yanması iyi bir şey).
+// korna. Işık olduğu gibi kalır; robot son birkaç saniyede gidiyorduysa dörtlüler kendiliğinden yanar.
 const unsigned long BAGLANTI_ZAMAN_ASIMI = 1500;  // ms
+const unsigned long OTO_DORTLU_SURE = 60000;      // ms; kendiliğinden yanan dörtlü en çok bu kadar yanar
+// Akım koruması. Sıkışma (stall) akımı henüz ölçülmedi; tahmini değer, ölçünce güncellenecek.
+const long AKIM_SINIR_MA = 2500;
+const unsigned long AKIM_SURE = 800;              // ms; kalkıştaki kısa tepe sayılmasın
+const unsigned long AKIM_BEKLEME = 1500;          // ms; koruma devreye girince motorlar bu kadar durur
+const unsigned long AKIM_ARALIGI = 20;            // ms; akım bu sıklıkla okunur
 const unsigned long RAMPA_ADIMI_MS = 5;
 const int HIZLANMA_ADIMI = 4;                  // 0 → 255 yaklaşık 320 ms (dişliler ve pil için yumuşak kalkış)
 const int YAVASLAMA_ADIMI = 9;                 // 255 → 0 yaklaşık 140 ms (durmak hızlı olsun)
@@ -69,6 +80,11 @@ uint8_t selektorKalan = 0;        // kalan yak/söndür adımı
 bool dortlu = false, dortluYanik = false;
 bool motorSesi = false, geriBip = true;
 unsigned long sonSatir = 0;      // herhangi bir komutun (nabız dahil) geldiği son an
+unsigned long sonHareket = 0;    // sıfırdan farklı motor komutunun geldiği son an
+bool otoDortlu = false;          // dörtlüyü bağlantı kopunca biz yaktık
+unsigned long otoDortluBaslangic = 0;
+unsigned long sonAkim = 0, akimSolBaslangic = 0, akimSagBaslangic = 0, korumaBitis = 0;
+uint8_t sikisma = 0;             // 1 sol, 2 sağ
 unsigned long sonKomut = 0, sonRampa = 0, sonDurum = 0, selektorZamani = 0, dortluZamani = 0;
 unsigned long bipBitis = 0, kornaBitis = 0, geriBaslangic = 0;
 uint16_t bipHz = 0;
@@ -118,36 +134,8 @@ const uint16_t M_NOKIA[] PROGMEM = {         // Gran Vals (Tárrega), Nokia zil 
   N_E6, 120, N_D6, 120, N_FS5, 240, N_GS5, 240, N_CS6, 120, N_B5, 120, N_D5, 240, N_E5, 240,
   N_B5, 120, N_A5, 120, N_CS5, 240, N_E5, 240, N_A5, 600, 0, 0 };
 
-const uint16_t M_ELISE[] PROGMEM = {         // Für Elise (Beethoven), başı, bir oktav yukarı
-  N_E6, 170, N_DS6, 170, N_E6, 170, N_DS6, 170, N_E6, 170, N_B5, 170, N_D6, 170, N_C6, 170, N_A5, 510, 0, 170,
-  N_C5, 170, N_E5, 170, N_A5, 170, N_B5, 510, 0, 170, N_E5, 170, N_GS5, 170, N_B5, 170, N_C6, 510, 0, 170,
-  N_E5, 170, N_E6, 170, N_DS6, 170, N_E6, 170, N_DS6, 170, N_E6, 170, N_B5, 170, N_D6, 170, N_C6, 170, N_A5, 510, 0, 170,
-  N_C5, 170, N_E5, 170, N_A5, 170, N_B5, 510, 0, 170, N_E5, 170, N_C6, 170, N_B5, 170, N_A5, 900, 0, 0 };
-
-const uint16_t M_CUCARACHA[] PROGMEM = {     // La Cucaracha (Meksika halk ezgisi)
-  N_G4, 120, N_G4, 120, N_G4, 120, N_C5, 360, N_E5, 240, 0, 120,
-  N_G4, 120, N_G4, 120, N_G4, 120, N_C5, 360, N_E5, 240, 0, 240,
-  N_C5, 120, N_C5, 120, N_B4, 120, N_B4, 120, N_A4, 120, N_A4, 120, N_G4, 420, 0, 0 };
-
-const uint16_t M_NESE[] PROGMEM = {          // Neşeye Övgü (Beethoven, 9. senfoni)
-  N_E5, 250, N_E5, 250, N_F5, 250, N_G5, 250, N_G5, 250, N_F5, 250, N_E5, 250, N_D5, 250,
-  N_C5, 250, N_C5, 250, N_D5, 250, N_E5, 250, N_E5, 375, N_D5, 125, N_D5, 500, 0, 0 };
-
-const uint16_t M_HUCUM[] PROGMEM = {         // Hücum borazanı
-  N_G4, 150, N_C5, 150, N_E5, 150, N_G5, 300, N_E5, 150, N_G5, 600, 0, 0 };
-
 const uint16_t M_SIREN[] PROGMEM = {
   650, 300, 950, 300, 650, 300, 950, 300, 650, 300, 950, 300, 650, 300, 950, 300, 0, 0 };
-
-const uint16_t M_DAVUL[] PROGMEM = {         // kendi ritmimiz: bas · zil · trampet (8'lik, ~120 bpm)
-  90, 70, 0, 180, 4000, 15, 0, 235, 1800, 40, 0, 210, 4000, 15, 0, 235,
-  90, 70, 0, 55, 90, 70, 0, 55, 4000, 15, 0, 235, 1800, 40, 0, 210, 4000, 15, 0, 110, 4000, 15, 0, 110,
-  90, 70, 0, 180, 4000, 15, 0, 235, 1800, 40, 0, 210, 4000, 15, 0, 235,
-  90, 70, 0, 55, 90, 70, 0, 55, 1800, 40, 0, 85, 1800, 40, 0, 85, 1800, 40, 0, 85, 2400, 60, 0, 0 };
-
-const uint16_t M_ROBOT[] PROGMEM = {         // kendi ezgimiz: "bip bop" robot konuşması
-  1200, 70, 0, 40, 900, 70, 0, 40, 1500, 50, 0, 30, 1500, 50, 0, 120,
-  700, 90, 0, 40, 1100, 60, 0, 30, 1800, 140, 0, 0 };
 
 // Oyun ve film müzikleri: tools/melodi_cevir.py ile hazır nota dökümlerinden üretildi
 #include "sarkilar.h"
@@ -156,38 +144,19 @@ const uint16_t M_ROBOT[] PROGMEM = {         // kendi ezgimiz: "bip bop" robot k
 // Numara = listedeki sıra (1'den). Satır sonundaki "// grup|ad" yorumlarını Unity uygulaması ve robotsuz
 // deneme okuyup şarkı menüsünü kurar; şarkı eklerken yorumunu da yaz.
 const uint16_t *const MELODILER[] = {
-  M_ACILIS,          // |Açılış
-  M_MEGALOVANIA,     // Oyun|Megalovania (Undertale)
-  M_DOOM,            // Oyun|Doom E1M1
-  M_KANLI_GOZYASI,   // Oyun|Bloody Tears (Castlevania)
-  M_YESIL_TEPE,      // Oyun|Green Hill (Sonic)
-  M_MARIO,           // Oyun|Süper Mario
-  M_TETRIS,          // Oyun|Tetris
-  M_PACMAN,          // Oyun|Pac-Man
-  M_ZELDA,           // Oyun|Zelda teması
-  M_WITCHER_SILVER,  // Oyun|Silver for Monsters (Witcher 3)
-  M_WITCHER_STEEL,   // Oyun|Steel for Humans (Witcher 3)
-  M_WITCHER_ANA,     // Oyun|Ana tema (Witcher 3)
-  M_GIORNO,          // Anime|Il Vento d'Oro (JoJo)
-  M_SBR,             // Anime|Steel Ball Run (JoJo)
-  M_NARUTO,          // Anime|Sadness and Sorrow (Naruto)
-  M_IMPARATORLUK,    // Film / dizi|İmparatorluk Marşı
-  M_GOT,             // Film / dizi|Game of Thrones
-  M_HEDWIG,          // Film / dizi|Hedwig (Harry Potter)
-  M_PEMBE_PANTER,    // Film / dizi|Pembe Panter
-  M_KORSAN,          // Film / dizi|He's a Pirate (Karayip Korsanları)
-  M_TAKEONME,        // Pop / yol|Take On Me
-  M_RICK,            // Pop / yol|Never Gonna Give You Up
-  M_CUCARACHA,       // Pop / yol|La Cucaracha
-  M_NINNI,           // Sakin|Zelda's Lullaby
-  M_FIRTINA,         // Sakin|Song of Storms
-  M_ELISE,           // Sakin|Für Elise
-  M_NESE,            // Sakin|Neşeye Övgü
-  M_NOKIA,           // Sakin|Nokia
-  M_HUCUM,           // Efekt|Hücum borazanı
-  M_SIREN,           // Efekt|Siren
-  M_DAVUL,           // Efekt|Davul ritmi
-  M_ROBOT,           // Efekt|Robot konuşması
+  M_ACILIS,        // |Açılış
+  M_MEGALOVANIA,   // Oyun|Megalovania (Undertale)
+  M_MARIO,         // Oyun|Süper Mario
+  M_TETRIS,        // Oyun|Tetris
+  M_IMPARATORLUK,  // Film / dizi|İmparatorluk Marşı
+  M_GOT,           // Film / dizi|Game of Thrones
+  M_HEDWIG,        // Film / dizi|Hedwig (Harry Potter)
+  M_PEMBE_PANTER,  // Film / dizi|Pembe Panter
+  M_KORSAN,        // Film / dizi|He's a Pirate (Karayip Korsanları)
+  M_TAKEONME,      // Pop|Take On Me
+  M_RICK,          // Pop|Never Gonna Give You Up
+  M_NOKIA,         // Pop|Nokia
+  M_SIREN,         // Efekt|Siren
 };
 const uint8_t MELODI_SAYISI = sizeof(MELODILER) / sizeof(MELODILER[0]);
 
@@ -341,7 +310,28 @@ void durumGonder() {
   Serial.print(melodi); Serial.print(' ');
   Serial.print(dortlu ? 1 : 0); Serial.print(' ');
   Serial.print(motorSesi ? 1 : 0); Serial.print(' ');
-  Serial.println(geriBip ? 1 : 0);
+  Serial.print(geriBip ? 1 : 0); Serial.print(' ');
+  Serial.println(sikisma);
+}
+
+// Teker sıkışınca motor çok akım çeker ve ısınır: akım AKIM_SURE boyunca sınırın üstündeyse iki motoru
+// AKIM_BEKLEME kadar durdur. Bu sürede gelen hareket komutları sıfır sayılır.
+void akimKoru(unsigned long simdi) {
+  if (korumaBitis && (long)(simdi - korumaBitis) >= 0) { korumaBitis = 0; sikisma = 0; }
+  if (simdi - sonAkim < AKIM_ARALIGI) return;
+  sonAkim = simdi;
+  bool solYuksek = simdiSol && akimMa(SOL_AKIM) > AKIM_SINIR_MA;
+  bool sagYuksek = simdiSag && akimMa(SAG_AKIM) > AKIM_SINIR_MA;
+  if (!solYuksek) akimSolBaslangic = 0; else if (!akimSolBaslangic) akimSolBaslangic = simdi;
+  if (!sagYuksek) akimSagBaslangic = 0; else if (!akimSagBaslangic) akimSagBaslangic = simdi;
+  uint8_t s = (akimSolBaslangic && simdi - akimSolBaslangic > AKIM_SURE ? 1 : 0) |
+              (akimSagBaslangic && simdi - akimSagBaslangic > AKIM_SURE ? 2 : 0);
+  if (s) {
+    sikisma = s;
+    korumaBitis = simdi + AKIM_BEKLEME;
+    akimSolBaslangic = akimSagBaslangic = 0;
+    hedefSol = hedefSag = 0;
+  }
 }
 
 void komutuIsle(char *k) {
@@ -354,6 +344,8 @@ void komutuIsle(char *k) {
       if (n == 2) {
         hedefSol = constrain(a, -255, 255);
         hedefSag = constrain(b, -255, 255);
+        if (korumaBitis) hedefSol = hedefSag = 0;   // akım koruması sürüyor
+        if (a || b) sonHareket = simdi;
         sonKomut = simdi;
       }
       break;
@@ -361,13 +353,13 @@ void komutuIsle(char *k) {
       motorlariDurdur();
       break;
     case 'L':
-      if (n >= 1) { ledAcik = a; dortluAyarla(false); }
+      if (n >= 1) { ledAcik = a; dortluAyarla(false); otoDortlu = false; }
       break;
     case 'F':
       if (!selektorKalan && !dortlu) { selektorKalan = 4; selektorZamani = simdi - SELEKTOR_ADIMI; }
       break;
     case 'H':
-      if (n >= 1) dortluAyarla(a);
+      if (n >= 1) { dortluAyarla(a); otoDortlu = false; }
       break;
     case 'R':
       if (n >= 1) digitalWrite(YEDEK_ROLE, a ? ROLE_ACIK : !ROLE_ACIK);
@@ -443,12 +435,24 @@ void loop() {
     hedefSol = hedefSag = 0;
   }
   // Güvenlik: bağlantı (nabız) kesilirse sesler sussun
-  if (simdi - sonSatir > BAGLANTI_ZAMAN_ASIMI && (motorSesi || melodi || kornaBitis || bipBitis)) {
+  bool kopuk = simdi - sonSatir > BAGLANTI_ZAMAN_ASIMI;
+  if (kopuk && (motorSesi || melodi || kornaBitis || bipBitis)) {
     motorSesi = false;
     melodi = 0;
     melodiHz = 0;
     kornaBitis = bipBitis = 0;
   }
+  // Sürerken bağlantı koparsa dörtlüler yanar; bağlantı gelince (ya da 1 dk sonra) söner
+  if (kopuk && !otoDortlu && !dortlu && sonHareket && simdi - sonHareket < BAGLANTI_ZAMAN_ASIMI + 2000) {
+    dortluAyarla(true);
+    otoDortlu = true;
+    otoDortluBaslangic = simdi;
+  }
+  if (otoDortlu && (!kopuk || simdi - otoDortluBaslangic > OTO_DORTLU_SURE)) {
+    otoDortlu = false;
+    dortluAyarla(false);
+  }
+  akimKoru(simdi);
 
   if (simdi - sonRampa >= RAMPA_ADIMI_MS) {
     sonRampa = simdi;

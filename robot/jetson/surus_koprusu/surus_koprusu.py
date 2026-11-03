@@ -25,6 +25,7 @@ Python 3.6 uyumlu, standart kütüphane + pyserial.
 """
 
 import collections
+import glob
 import json
 import os
 import socket
@@ -69,7 +70,7 @@ def ms():
 # ---------------------------------------------------------------- Arduino
 
 class Arduino:
-    ALANLAR = ("sol", "sag", "sol_ma", "sag_ma", "ariza", "led", "melodi", "dortlu", "motor_sesi", "geri_bip")
+    ALANLAR = ("sol", "sag", "sol_ma", "sag_ma", "ariza", "led", "melodi", "dortlu", "motor_sesi", "geri_bip", "sikisma")
 
     def __init__(self):
         self.kilit = threading.Lock()
@@ -353,6 +354,23 @@ def wifi_sinyali():
     return None
 
 
+def sicaklik():
+    """Jetson'un en sıcak noktası (CPU/GPU, °C) ya da None. 80 üstünde Nano yavaşlamaya başlar."""
+    en = None
+    for ad in ("CPU-therm", "GPU-therm"):
+        for yol in glob.glob("/sys/devices/virtual/thermal/thermal_zone*"):
+            try:
+                with open(yol + "/type") as f:
+                    if f.read().strip() != ad:
+                        continue
+                with open(yol + "/temp") as f:
+                    t = int(f.read()) / 1000.0
+                en = t if en is None else max(en, t)
+            except (OSError, ValueError):
+                pass
+    return None if en is None else round(en, 1)
+
+
 ARDUINO = Arduino()
 KAM = Kamera()
 SURUCU = Surucu()
@@ -393,6 +411,7 @@ def durum():
         "fps": round(KAM.fps, 1),
         "h264": KAM.h264_destek,
         "sinyal": wifi_sinyali(),
+        "sicaklik": sicaklik(),
         "veri_kbps": KAM.veri_kbps,
     }
     _durum_onbellek[0], _durum_onbellek[1] = simdi, d

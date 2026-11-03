@@ -11,8 +11,9 @@ namespace ARaki.Drive
     /// yürütür, istenen durumu (motorlar, ışık, korna, melodi...) RealRobotLink'e yazar, kamera hareketini
     /// görüntüye uygular. Arayüz (DriveCockpit) yalnızca bunu gösterir ve dokunmatik düğmeleri buraya bağlar.
     ///
-    /// Tuşlar: W A S D / oklar sür · boşluk korna · L ışık · F selektör · H dörtlü · E motor sesi · N müzik
-    /// R öne bak · B arkaya bak · M aynalar · K kokpit · G vites · P fotoğraf · V video · + / - güç · O ayarlar · F11 tam ekran
+    /// Tuşlar: W A S D / oklar sür · boşluk korna · L ışık · F selektör · H dörtlü · E / Q vites büyüt / küçült (manuel)
+    /// N müzik · R öne bak · B arkaya bak · M dikiz aynası · K kokpit · G vites türü · P fotoğraf · V video
+    /// + / - güç · O ayarlar · F11 tam ekran
     /// Sağ tık + sürükle (telefonda parmakla sürükle): etrafa bak.
     /// </summary>
     public class DriveController : MonoBehaviour
@@ -33,6 +34,9 @@ namespace ARaki.Drive
         /// <summary>Dokunmatik düğmelerden gelen giriş (DriveCockpit yazar).</summary>
         public int TouchForward, TouchTurn;
         public bool TouchHorn;
+        /// <summary>Bu karede tüm girişlerden çıkan istek (pedal ve okların basılı görünmesi için).</summary>
+        public int InputForward { get; private set; }
+        public int InputTurn { get; private set; }
 
         public bool MusicMenuOpen, SettingsOpen;
         public string Toast { get; private set; } = "";
@@ -69,16 +73,22 @@ namespace ARaki.Drive
         public void ToggleLight() { Changed(); link.State.Led = !CurrentLed; link.State.Hazard = false; }
         public void Flash() => link.State.FlashCount++;
         public void ToggleRearMirror() { Settings.RearMirror = !Settings.RearMirror; Settings.Save(); ShowToast(Settings.RearMirror ? "Dikiz aynası açık" : "Dikiz aynası kapalı"); }
-        public void ToggleSideMirrors() { Settings.SideMirrors = !Settings.SideMirrors; Settings.Save(); ShowToast(Settings.SideMirrors ? "Yan aynalar açık" : "Yan aynalar kapalı"); }
         public void ToggleHazard() { Changed(); link.State.Hazard = !CurrentHazard; }
         public void PlayMelody(int n)
         {
             link.State.Melody = n;
             link.State.MelodyCount++;
-            MusicMenuOpen = false;
             if (n > 0 && n <= Firmware.Songs.Count) ShowToast("Çalıyor: " + Firmware.Songs[n - 1].Title);
         }
         public void StopMelody() => PlayMelody(0);
+        public void ShiftUp() { if (Settings.Gearbox == GearMode.Manual) Model.ShiftUp(); }
+        public void ShiftDown() { if (Settings.Gearbox == GearMode.Manual) Model.ShiftDown(); }
+        public void CycleGearbox()
+        {
+            Settings.Gearbox = (GearMode)(((int)Settings.Gearbox + 1) % 3);
+            Settings.Save();
+            ShowToast(Settings.Gearbox == GearMode.Automatic ? "Otomatik vites" : Settings.Gearbox == GearMode.Manual ? "Manuel vites (E / Q)" : "Vitessiz");
+        }
         public void ChangePower(float d)
         {
             Settings.PowerLimit = Mathf.Clamp(Mathf.Round((Settings.PowerLimit + d) * 20f) / 20f, 0.2f, 1f);
@@ -150,9 +160,10 @@ namespace ARaki.Drive
                 if (kb.rKey.wasPressedThisFrame) viewer.LookFront();
                 if (kb.bKey.wasPressedThisFrame) viewer.LookBack();
                 if (kb.mKey.wasPressedThisFrame) ToggleRearMirror();
-                if (kb.jKey.wasPressedThisFrame) ToggleSideMirrors();
                 if (kb.kKey.wasPressedThisFrame) { Settings.Cockpit = !Settings.Cockpit; Settings.Save(); }
-                if (kb.gKey.wasPressedThisFrame) { Settings.Gears = !Settings.Gears; Settings.Save(); ShowToast(Settings.Gears ? "Vites açık" : "Vites kapalı"); }
+                if (kb.gKey.wasPressedThisFrame) CycleGearbox();
+                if (kb.eKey.wasPressedThisFrame) ShiftUp();
+                if (kb.qKey.wasPressedThisFrame) ShiftDown();
                 if (kb.pKey.wasPressedThisFrame) Photo();
                 if (kb.f11Key.wasPressedThisFrame) ToggleFullscreen();
                 if (kb.vKey.wasPressedThisFrame) Video();
@@ -173,19 +184,23 @@ namespace ARaki.Drive
                 if (pad.buttonWest.wasPressedThisFrame) ToggleLight();
                 if (pad.buttonEast.wasPressedThisFrame) ToggleHazard();
                 if (pad.buttonNorth.wasPressedThisFrame) viewer.LookBack();
+                if (pad.rightShoulder.wasPressedThisFrame) ShiftUp();
+                if (pad.leftShoulder.wasPressedThisFrame) ShiftDown();
             }
             // Robota ulaşamıyorken robot zaten duruyor: model de hız biriktirmesin, korna da kalmasın.
             // Bağlantı gelince araç kaldığı yerden değil, durduğu yerden kalkar.
             if (!link.Demo && (!link.IsConnected || link.IsWeak)) { forward = turn = 0; horn = false; }
             forward = Mathf.Clamp(forward, -1, 1);
             turn = Mathf.Clamp(turn, -1, 1);
+            InputForward = forward;
+            InputTurn = turn;
             link.State.Horn = horn;
 
             accumulator += Mathf.Min(Time.unscaledDeltaTime, 0.25f);
             while (accumulator >= Tick)
             {
                 accumulator -= Tick;
-                var (l, r) = Model.Step(Tick, forward, turn, Settings.Gears);
+                var (l, r) = Model.Step(Tick, forward, turn, Settings.Gearbox);
                 link.SendDrive(new DriveCommand(l, r));
             }
 
@@ -198,10 +213,10 @@ namespace ARaki.Drive
                 link.State.Hazard = m.dortlu;
             }
             link.State.EngineSound = false;   // motor sesi kaldırıldı (Arduino'da komutu duruyor)
-            MotorPower =m != null ? (m.sol + m.sag) / 2f / 255f : 0f;   // yerinde dönerken sıfır
+            MotorPower = m != null ? (m.sol + m.sag) / 2f / 255f : 0f;   // yerinde dönerken sıfır
             float k = Mathf.Min(1f, Time.unscaledDeltaTime * 8f);
             SpeedMs += (Settings.SpeedMs(MotorPower) - SpeedMs) * k;
-            Rpm += (Model.Rpm(Settings.Gears) + Mathf.Sin(Time.unscaledTime * 11f) * 12f - Rpm) * k;
+            Rpm += (Model.Rpm(Settings.Gearbox) + Mathf.Sin(Time.unscaledTime * 11f) * 12f - Rpm) * k;
 
             var (pitch, roll) = sway.Step(Mathf.Min(Time.unscaledDeltaTime, 0.05f), Model, Settings.CameraMotion);
             viewer.SwayPitch = pitch;
