@@ -21,6 +21,7 @@ namespace ARaki.Robot
         IRobotConnection connection;
         CancellationTokenSource search;
         float pwmLimit = 0.6f;
+        float retryAt = -1f;
 
         public bool Demo { get; private set; }
         /// <summary>Bağlantı yokken ne yapıldığı: "robot aranıyor", "bulunamadı" ...</summary>
@@ -53,7 +54,7 @@ namespace ARaki.Robot
             string env = Environment.GetEnvironmentVariable("ARAKI_ROBOT");
             if (env == "demo") UseDemo();
             else if (!string.IsNullOrEmpty(env)) UseRobot(env);
-            else if (PlayerPrefs.GetInt(DemoKey, 1) == 1) UseDemo();
+            else if (PlayerPrefs.GetInt(DemoKey, 0) == 1) UseDemo();   // varsayılan: gerçek robot
             else FindRobot();
         }
 
@@ -87,7 +88,13 @@ namespace ARaki.Robot
             catch (Exception e) { Debug.LogWarning("[Robot] arama: " + e.Message); }
             if (cts != search) return;   // bu arada başka bir şey seçildi
             search = null;
-            if (found == null) { SearchText = "robot bulunamadı: aynı Wi-Fi'da mı, açık mı?"; ConnectionChanged?.Invoke(); return; }
+            if (found == null)
+            {
+                SearchText = "robot bulunamadı: aynı Wi-Fi'da mı, açık mı? tekrar aranacak";
+                retryAt = Time.unscaledTime + 8f;   // robot açılıyor olabilir: kendiliğinden tekrar ara
+                ConnectionChanged?.Invoke();
+                return;
+            }
             UseRobot(found);
         }
 
@@ -115,7 +122,11 @@ namespace ARaki.Robot
 
         void Update()
         {
-            if (connection == null) return;
+            if (connection == null)
+            {
+                if (!Demo && search == null && retryAt > 0f && Time.unscaledTime > retryAt) { retryAt = -1f; FindRobot(); }
+                return;
+            }
             if (connection is DemoRobotConnection demo) demo.Tick();
             var s = State;
             if (IsWeak) s.Left = s.Right = 0;   // ulaşamıyorsak hareket isteme

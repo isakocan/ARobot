@@ -358,9 +358,35 @@ KAM = Kamera()
 SURUCU = Surucu()
 
 
+# Nabız: bir sürücü (sayfa ya da uygulama) son NABIZ_SURESI içinde bize bir şey yolladıysa Arduino'ya
+# 250 ms'de bir "N" gider. Sürücü kopunca (sinyal gitti, uygulama kapandı, köprü çöktü) nabız durur ve
+# Arduino 1,5 sn sonra sesleri kendisi susturur; motorlar zaten 300 ms'de durur.
+NABIZ_ARALIGI = 0.25
+NABIZ_SURESI = 1.2
+SON_SURUCU_SESI = [0.0]
+
+
+def surucu_duyuldu():
+    SON_SURUCU_SESI[0] = time.time()
+
+
+def nabiz_dongusu():
+    while True:
+        time.sleep(NABIZ_ARALIGI)
+        if time.time() - SON_SURUCU_SESI[0] < NABIZ_SURESI:
+            ARDUINO.gonder("N")
+
+
+_durum_onbellek = [0.0, None]
+
+
 def durum():
-    taze = time.time() - ARDUINO.son_durum_zamani < 1
-    return {
+    # UDP her pakete (saniyede 20) cevap verir; /proc okumasını ve sözlüğü 100 ms'de bir yenile
+    simdi = time.time()
+    if _durum_onbellek[1] is not None and simdi - _durum_onbellek[0] < 0.1:
+        return dict(_durum_onbellek[1])
+    taze = simdi - ARDUINO.son_durum_zamani < 1
+    d = {
         "arduino": ARDUINO.bagli and taze,
         "motor": ARDUINO.durum if taze else None,
         "kamera": KAM.durum,
@@ -369,6 +395,8 @@ def durum():
         "sinyal": wifi_sinyali(),
         "veri_kbps": KAM.veri_kbps,
     }
+    _durum_onbellek[0], _durum_onbellek[1] = simdi, d
+    return dict(d)
 
 
 # ---------------------------------------------------------------- web sunucusu
@@ -477,6 +505,7 @@ class Istek(BaseHTTPRequestHandler):
             SURUCU.ayrildi(baglanti)
 
     def _mesaj(self, ws, baglanti, m, fark_min, atilan):
+        surucu_duyuldu()
         t = m.get("t")
         if t == "ping":
             ws.metin(json.dumps({"t": "pong", "z": m.get("z")}))
@@ -635,6 +664,7 @@ class UdpKanal:
                     continue
 
     def _durum_paketi(self, adres, m):
+        surucu_duyuldu()
         simdi = time.time()
         ist = self.istemciler.get(adres)
         n = int(m.get("n", 0))
@@ -697,6 +727,7 @@ class UdpKanal:
 
 
 def main():
+    threading.Thread(target=nabiz_dongusu, daemon=True).start()
     UdpKanal()
     log("Sürüş köprüsü hazır, port", PORT, "UDP", UDP_PORT)
     Sunucu(("0.0.0.0", PORT), Istek).serve_forever()

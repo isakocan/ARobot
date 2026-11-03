@@ -19,11 +19,14 @@ namespace ARaki.Tests
         RealRobotLink link;
         BuzzerSynth buzzer;
 
+        int savedDemo;
+
         [UnitySetUp]
         public IEnumerator LoadScene()
         {
+            // Testler kullanıcının ayarını (demo mu gerçek robot mu) bozmasın
+            savedDemo = PlayerPrefs.GetInt(RealRobotLink.DemoKey, 0);
             PlayerPrefs.SetInt(RealRobotLink.DemoKey, 1);
-            PlayerPrefs.DeleteKey("wheel");
             yield return SceneManager.LoadSceneAsync("RealRobot");
             yield return null;
             drive = Object.FindFirstObjectByType<DriveController>();
@@ -31,6 +34,13 @@ namespace ARaki.Tests
             buzzer = Object.FindFirstObjectByType<BuzzerSynth>();
             link.UseDemo();
             yield return new WaitForSecondsRealtime(0.5f);
+        }
+
+        [TearDown]
+        public void RestorePrefs()
+        {
+            PlayerPrefs.SetInt(RealRobotLink.DemoKey, savedDemo);
+            PlayerPrefs.Save();
         }
 
         [UnityTest]

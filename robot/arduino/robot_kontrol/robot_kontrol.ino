@@ -13,6 +13,7 @@
 //   E <0|1>         motor sesi (hıza göre perdesi değişen uğultu)
 //   V <0|1>         geri vites bipi (iki motor da geri giderken)
 //   ?               durum satırını hemen gönder
+//   N               nabız: köprü, bağlı bir sürücü (uygulama / sayfa) varken 250 ms'de bir gönderir
 //
 // Saniyede 10 kez durum satırı gönderir:
 //   D <sol> <sag> <solmA> <sagmA> <ariza> <led> <melodi> <dortlu> <motorSesi> <geriBip>
@@ -35,6 +36,9 @@ const bool SOL_TERS = true, SAG_TERS = true;
 const bool ROLE_ACIK = LOW;
 
 const unsigned long KOMUT_ZAMAN_ASIMI = 300;  // ms
+// Bu kadar hiç satır (nabız dahil) gelmezse bağlantı kopmuş sayılır ve sesler susar: motor sesi, melodi,
+// korna. Işık ve dörtlüler olduğu gibi kalır (duran araçta dörtlü yanması iyi bir şey).
+const unsigned long BAGLANTI_ZAMAN_ASIMI = 1500;  // ms
 const unsigned long RAMPA_ADIMI_MS = 5;
 const int HIZLANMA_ADIMI = 4;                  // 0 → 255 yaklaşık 320 ms (dişliler ve pil için yumuşak kalkış)
 const int YAVASLAMA_ADIMI = 9;                 // 255 → 0 yaklaşık 140 ms (durmak hızlı olsun)
@@ -62,6 +66,7 @@ bool ledAcik = false;
 uint8_t selektorKalan = 0;        // kalan yak/söndür adımı
 bool dortlu = false, dortluYanik = false;
 bool motorSesi = false, geriBip = true;
+unsigned long sonSatir = 0;      // herhangi bir komutun (nabız dahil) geldiği son an
 unsigned long sonKomut = 0, sonRampa = 0, sonDurum = 0, selektorZamani = 0, dortluZamani = 0;
 unsigned long bipBitis = 0, kornaBitis = 0, geriBaslangic = 0;
 uint16_t bipHz = 0;
@@ -338,6 +343,7 @@ void komutuIsle(char *k) {
   long a = 0, b = 0;
   int n = sscanf(k + 1, "%ld %ld", &a, &b);
   unsigned long simdi = millis();
+  sonSatir = simdi;
   switch (k[0]) {
     case 'M':
       if (n == 2) {
@@ -385,6 +391,8 @@ void komutuIsle(char *k) {
     case '?':
       durumGonder();
       break;
+    case 'N':
+      break;   // yalnızca sonSatir güncellenir
   }
 }
 
@@ -428,6 +436,13 @@ void loop() {
   // Güvenlik: komut kesilirse dur
   if ((hedefSol || hedefSag) && simdi - sonKomut > KOMUT_ZAMAN_ASIMI) {
     hedefSol = hedefSag = 0;
+  }
+  // Güvenlik: bağlantı (nabız) kesilirse sesler sussun
+  if (simdi - sonSatir > BAGLANTI_ZAMAN_ASIMI && (motorSesi || melodi || kornaBitis || bipBitis)) {
+    motorSesi = false;
+    melodi = 0;
+    melodiHz = 0;
+    kornaBitis = bipBitis = 0;
   }
 
   if (simdi - sonRampa >= RAMPA_ADIMI_MS) {
