@@ -31,7 +31,7 @@ namespace ARaki.Drive
         static readonly Color ButtonOff = new Color(0.03f, 0.035f, 0.04f, 0.72f);
         static readonly Color ButtonOn = new Color(Accent.r * 0.42f, Accent.g * 0.42f, Accent.b * 0.42f, 0.86f);
 
-        enum ButtonStyle { Normal, Switch, Pedal, Paddle, Invisible }
+        enum ButtonStyle { Normal, Switch, Pedal, Paddle, Shifter, Invisible }
 
         class Btn
         {
@@ -68,14 +68,14 @@ namespace ARaki.Drive
         string layoutKey = "";
         DPad dpad;
 
-        RectTransform wheelRt, hubRt, tachNeedle, speedNeedle, menuRoot, settingsRoot, musicRoot;
-        VectorShape hubPress, hubIcon;
+        RectTransform dash, rearRoot, wheelRt, hubRt, tachNeedle, speedNeedle, menuRoot, settingsRoot, musicRoot;
+        VectorShape hubSeam, hubIcon;
         float speedMax;
         bool menuOpen;
         public bool MenuOpen { get => menuOpen; set => menuOpen = value; }
         Text gearText, gearModeText, speedText, statusText, infoText, toastText, centerText, songText, recText, warnText;
         Text settingsInfo;
-        VectorShape lampLight, lampHazard, lampLink;
+        VectorShape lampLight, lampHazard, lampFault;
         float wheelAngle;
 
         Camera rearCam;
@@ -110,61 +110,97 @@ namespace ARaki.Drive
             content = Stretch("İçerik", root);
             content.pivot = Vector2.zero;
             var s = drive.Settings;
+            bool wheelRight = s.Cockpit && s.Wheel == WheelSide.Right;
 
-            // Düzen (kullanıcının seçimi): altta göbeği görünen direksiyon, yanında arabalardaki gibi siperlikli
-            // gösterge kutusu, onun yanında panel anahtarları; üstte dikiz aynası ve iki yanında bilgi satırları,
-            // dikey yan aynalar kenarlarda orta yükseklikte; diğer düğmeler sağ üstte MENÜ'nün arkasında.
-            float wheelX = s.Wheel == WheelSide.Left ? W / 2f - 380f : s.Wheel == WheelSide.Right ? W / 2f + 380f : W / 2f - 150f;
-            float clusterX = !s.Cockpit ? W / 2f : s.Wheel == WheelSide.Right ? wheelX - 360f : wheelX + 360f;
-            bool switchesLeft = s.Cockpit && s.Wheel == WheelSide.Right;   // anahtarlar kutunun direksiyona uzak yanında
-            const float wheelY = 64f, clusterY = 68f, dialR = 50f, dialDx = 84f;
+            // Yerleşim dinamik: önce ekranın alt köşelerine dokunmatik sürüş düğmeleri konur, aradaki genişliğe ön panel
+            // grubu (direksiyon + gösterge kutusu + düğme yuvası) sığdırılır, sığmazsa küçültülür. Üstte dikiz aynası,
+            // iki yanında bilgi satırları (genişliğe göre yazı küçülür), köşelerde ÖNE BAK ve MENÜ.
 
-            // panel düğmeleri gösterge kutusunun direksiyona uzak yanında; ön panel direksiyondan düğmelerin sonuna uzanır
-            const float sw = 58f, sh = 66f, sg = 8f;
+            // 1) dokunmatik sürüş: direksiyonun karşı yanında yön tuşu; direksiyon ortadaysa (ya da pedal seçiliyse)
+            //    bir köşede oklar, öbür köşede gaz ve fren pedalı
+            float reserveL = 0f, reserveR = 0f;
+            if (s.Touch != TouchMode.Off)
+            {
+                if (s.Touch == TouchMode.Pad && !(s.Cockpit && s.Wheel == WheelSide.Center))
+                {
+                    const float r = 108f;
+                    BuildPad(V(wheelRight ? 24f + r + 6f : W - 24f - r - 6f, 20f + r + 6f), r);
+                    if (wheelRight) reserveL = 2f * r + 36f; else reserveR = 2f * r + 36f;
+                }
+                else
+                {
+                    bool pedalsRight = !wheelRight;
+                    var gas = pedalsRight ? new Rect(W - 24f - 76f, 16f, 76f, 150f) : new Rect(24f, 16f, 76f, 150f);
+                    var brake = pedalsRight ? new Rect(gas.x - 14f - 100f, 16f, 100f, 112f) : new Rect(gas.xMax + 14f, 16f, 100f, 112f);
+                    var g = Button("GAZ", gas, null, h => drive.TouchForward = h ? 1 : (drive.TouchForward == 1 ? 0 : drive.TouchForward), null, 11,
+                                   style: ButtonStyle.Pedal);
+                    g.Held = () => drive.InputForward > 0;
+                    var br = Button("FREN", brake, null, h => drive.TouchForward = h ? -1 : (drive.TouchForward == -1 ? 0 : drive.TouchForward), null, 11,
+                                    style: ButtonStyle.Pedal);
+                    br.Held = () => drive.InputForward < 0;
+                    float ax = pedalsRight ? 24f : W - 24f - 2 * 84f - 10f;
+                    var l = Button("", new Rect(ax, 20f, 84f, 84f), null, h => drive.TouchTurn = h ? -1 : (drive.TouchTurn == -1 ? 0 : drive.TouchTurn), null,
+                                   icon: "sol");
+                    l.Held = () => drive.InputTurn < 0;
+                    var rr = Button("", new Rect(ax + 94f, 20f, 84f, 84f), null, h => drive.TouchTurn = h ? 1 : (drive.TouchTurn == 1 ? 0 : drive.TouchTurn), null,
+                                    icon: "sag");
+                    rr.Held = () => drive.InputTurn > 0;
+                    const float pedalW = 76f + 14f + 100f + 12f, arrowW = 2 * 84f + 10f + 12f;
+                    reserveR = pedalsRight ? pedalW : arrowW;
+                    reserveL = pedalsRight ? arrowW : pedalW;
+                }
+            }
+
+            // 2) ön panel grubu kendi koordinatlarında kurulur: soldan sağa [direksiyon] [gösterge kutusu] [düğme yuvası]
+            //    (direksiyon sağdaysa aynası)
+            dash = Rt("Ön panel grubu", content, Vector2.zero, Vector2.zero);
+            const float wheelR = 157f, wheelY = 64f, clusterY = 68f, dialR = 50f, dialDx = 84f, half = 172f;
+            const float sw = 58f, sh = 66f, sg = 8f, shiftW = 62f;
             int swCount = s.Cockpit ? 3 : 4;   // kokpitte korna direksiyonun göbeğinde
-            float swWidth = swCount * sw + (swCount - 1) * sg;
-            float sx = switchesLeft ? clusterX - 172f - 16f - swWidth : clusterX + 172f + 16f;
-            float wheelSide = s.Cockpit ? (s.Wheel == WheelSide.Right ? wheelX + 172f : wheelX - 172f) : (switchesLeft ? clusterX + 230f : clusterX - 230f);
-            float dashFrom = switchesLeft ? sx - 22f : wheelSide, dashTo = switchesLeft ? wheelSide : sx + swWidth + 22f;
-            var body = Shape("Ön panel", content);
-            Dashboard(body, clusterX, dashFrom, dashTo, switchesLeft, sx - 10f, sx + swWidth + 10f);
+            bool manual = s.Gearbox == GearMode.Manual;
+            float switchesW = swCount * sw + (swCount - 1) * sg;
+            float trayW = switchesW + (manual ? 14f + shiftW : 0f);
+            float wc = wheelR + 12f;
+            float cxL = s.Cockpit ? wc + 360f : half + 16f;
+            float trayL = cxL + half + 18f;
+            float groupW = trayL + trayW + 14f + 34f;   // 34: panel kenarının yumuşakça alçaldığı pay
+            float wheelX = wheelRight ? groupW - wc : wc, clusterX = wheelRight ? groupW - cxL : cxL;
+            float sx = wheelRight ? groupW - trayL - trayW : trayL;   // yuvanın sol kenarı
+            float switchX = wheelRight && manual ? sx + shiftW + 14f : sx;
+            float shiftX = wheelRight ? sx : sx + switchesW + 14f;
+
+            var body = Shape("Ön panel", dash);
+            Dashboard(body, clusterX, s.Cockpit ? 0f : (wheelRight ? sx - 48f : clusterX - half - 20f),
+                      s.Cockpit ? groupW : (wheelRight ? clusterX + half + 20f : groupW), wheelRight, sx - 10f, sx + trayW + 10f);
 
             if (s.Cockpit)
             {
-                var wheel = Shape("Direksiyon", content);
+                var wheel = Shape("Direksiyon", dash);
                 wheelRt = (RectTransform)wheel.transform;
                 wheelRt.anchorMin = wheelRt.anchorMax = Vector2.zero;
                 wheelRt.anchoredPosition = V(wheelX, wheelY);
                 wheelRt.sizeDelta = Vector2.zero;
                 SteeringWheel(wheel);
+                // korna: hava yastığı kapağına basılır (gerçek araçtaki gibi); kapağın dikişi ve simgesi basınca yanar
                 var hub = Shape("Göbek", wheelRt);
                 hubRt = (RectTransform)hub.transform;
                 HubCover(hub);
-                hubPress = Shape("Göbek basılı", hubRt);
-                hubPress.RoundRect(new Rect(-45f, -34f, 90f, 64f), 22f, Color.white);
-                hubPress.color = new Color(1f, 1f, 1f, 0f);
+                hubSeam = Shape("Göbek dikişi", hubRt);
+                hubSeam.RoundRect(new Rect(-34f, -25f, 68f, 46f), 16f, Color.white);
+                hubSeam.color = new Color(1f, 1f, 1f, 0.1f);
+                var fill = Shape("Göbek yüzü", hubRt);
+                fill.RoundRect(new Rect(-32.5f, -23.5f, 65f, 43f), 14.5f, Hex("#1B1E22"));
+                fill.RoundRect(new Rect(-31f, -1f, 62f, 19f), 10f, new Color(1f, 1f, 1f, 0.035f));
                 hubIcon = Shape("Korna simgesi", hubRt);
-                Icon(hubIcon, "korna", V(-2f, -2f), 13f);
-                hubIcon.color = new Color(1f, 1f, 1f, 0.5f);
-                // korna: gerçek araçtaki gibi göbeğe basılır
-                Button("", new Rect(wheelX - 52f, wheelY - 40f, 104f, 80f), null, held => drive.TouchHorn = held, null,
-                       style: ButtonStyle.Invisible);
-                if (s.Gearbox == GearMode.Manual)
-                {
-                    Button("−", new Rect(wheelX - 154f - 32f, wheelY - 40f, 26f, 84f), drive.ShiftDown, null, null, 22, style: ButtonStyle.Paddle);
-                    Button("+", new Rect(wheelX + 154f + 6f, wheelY - 40f, 26f, 84f), drive.ShiftUp, null, null, 22, style: ButtonStyle.Paddle);
-                }
+                Icon(hubIcon, "korna", V(-1f, -2f), 9f);
+                hubIcon.color = new Color(1f, 1f, 1f, 0.38f);
+                Button("", new Rect(wheelX - 50f, wheelY - 38f, 100f, 74f), null, held => drive.TouchHorn = held, null,
+                       parent: dash, style: ButtonStyle.Invisible);
             }
             else
             {
                 wheelRt = hubRt = null;
-                hubPress = hubIcon = null;
-                if (s.Gearbox == GearMode.Manual)
-                {
-                    float px = switchesLeft ? clusterX + 172f + 12f : clusterX - 172f - 44f;
-                    Button("+", new Rect(px, 70f, 32f, 50f), drive.ShiftUp, null, null, 22, style: ButtonStyle.Paddle);
-                    Button("−", new Rect(px, 14f, 32f, 50f), drive.ShiftDown, null, null, 22, style: ButtonStyle.Paddle);
-                }
+                hubSeam = hubIcon = null;
             }
 
             // ibreli saatler, ortada vites; hız göstergesinin sonu en yüksek güçteki hız
@@ -175,46 +211,65 @@ namespace ARaki.Drive
             Dial(body, V(clusterX + dialDx, clusterY), dialR, speedMax, step, -1f, out speedNeedle);
             body.RoundRect(new Rect(clusterX - 23f, clusterY - 30f, 46f, 62f), 7f, new Color(1f, 1f, 1f, 0.1f));
             body.RoundRect(new Rect(clusterX - 22f, clusterY - 29f, 44f, 60f), 6f, Hex("#0B100F"));
-            gearText = Label(content, "N", mono, 32, Text, TextAnchor.MiddleCenter, V(clusterX, clusterY + 4f), V(44, 40));
-            gearModeText = Label(content, "", font, 9, Dim, TextAnchor.MiddleCenter, V(clusterX, clusterY - 21f), V(44, 10));
+            gearText = Label(dash, "N", mono, 32, Text, TextAnchor.MiddleCenter, V(clusterX, clusterY + 4f), V(44, 40));
+            gearModeText = Label(dash, "", font, 9, Dim, TextAnchor.MiddleCenter, V(clusterX, clusterY - 21f), V(44, 10));
             // dijital hız ibre göbeğinin üstünde, birim altında: kadranın alt uçlarındaki rakamlarla çakışmaz
-            speedText = Label(content, "0,0", mono, 14, Text, TextAnchor.MiddleCenter, V(clusterX + dialDx, clusterY + 15f), V(48, 16));
-            Label(content, s.Unit == SpeedUnit.KilometersPerHour ? "km/sa" : "m/sn", font, 9, Dim, TextAnchor.MiddleCenter,
+            speedText = Label(dash, "0,0", mono, 14, Text, TextAnchor.MiddleCenter, V(clusterX + dialDx, clusterY + 15f), V(48, 16));
+            Label(dash, s.Unit == SpeedUnit.KilometersPerHour ? "km/sa" : "m/sn", font, 9, Dim, TextAnchor.MiddleCenter,
                   V(clusterX + dialDx, clusterY - 15f), V(30, 10));
-            Label(content, "x1000", font, 9, Dim, TextAnchor.MiddleCenter, V(clusterX - dialDx, clusterY - 15f), V(30, 10));
-            // uyarı lambaları siperliğin altında, saatlerin arasında: ışık, dörtlü, bağlantı
+            Label(dash, "x1000", font, 9, Dim, TextAnchor.MiddleCenter, V(clusterX - dialDx, clusterY - 15f), V(30, 10));
+            // uyarı lambaları siperliğin altında, saatlerin arasında: ışık, dörtlü, arıza (bağlantı, sürücü, sıkışma, ısı)
             lampLight = Lamp("isik", V(clusterX - 24f, clusterY + 64f));
             lampHazard = Lamp("dortlu", V(clusterX, clusterY + 64f));
-            lampLink = Lamp("ag", V(clusterX + 24f, clusterY + 64f));
+            lampFault = Lamp("ariza", V(clusterX + 24f, clusterY + 64f));
 
-            // panel düğmeleri (dörtlü, arabalardaki gibi kırmızı üçgen; korna basılı tutulur)
+            // panel düğmeleri (dörtlü, arabalardaki gibi kırmızı üçgen); manuelde yanında sıralı vites kolu
             {
-                float y0 = 20f;
-                Button("IŞIK", new Rect(sx, y0, sw, sh), drive.ToggleLight, null, () => drive.CurrentLed, 10, icon: "isik", style: ButtonStyle.Switch);
-                Button("SELEKTÖR", new Rect(sx + sw + sg, y0, sw, sh), drive.Flash, null, null, 10, icon: "selektor", style: ButtonStyle.Switch);
-                var hz = Button("DÖRTLÜ", new Rect(sx + 2 * (sw + sg), y0, sw, sh), drive.ToggleHazard, null, () => drive.CurrentHazard, 10,
-                                icon: "dortlu", style: ButtonStyle.Switch);
+                const float y0 = 20f;
+                Button("IŞIK", new Rect(switchX, y0, sw, sh), drive.ToggleLight, null, () => drive.CurrentLed, 10, parent: dash, icon: "isik", style: ButtonStyle.Switch);
+                Button("SELEKTÖR", new Rect(switchX + sw + sg, y0, sw, sh), drive.Flash, null, null, 10, parent: dash, icon: "selektor", style: ButtonStyle.Switch);
+                var hz = Button("DÖRTLÜ", new Rect(switchX + 2 * (sw + sg), y0, sw, sh), drive.ToggleHazard, null, () => drive.CurrentHazard, 10,
+                                parent: dash, icon: "dortlu", style: ButtonStyle.Switch);
                 hz.IconTint = Red;
                 hz.LedColor = Red;
                 if (!s.Cockpit)   // direksiyon yoksa korna panelde
                 {
-                    var horn = Button("KORNA", new Rect(sx + 3 * (sw + sg), y0, sw, sh), null, held => drive.TouchHorn = held, null, 10,
-                                      icon: "korna", style: ButtonStyle.Switch);
+                    var horn = Button("KORNA", new Rect(switchX + 3 * (sw + sg), y0, sw, sh), null, held => drive.TouchHorn = held, null, 10,
+                                      parent: dash, icon: "korna", style: ButtonStyle.Switch);
                     horn.Held = () => drive.Link.State.Horn;
                     horn.LedColor = Amber;
                     horn.Lit = () => drive.Link.State.Horn;
                 }
+                if (manual)
+                {
+                    // sıralı vites kolu: üst yarı büyüt, alt yarı küçült; kırmızıda üst yarı yanar
+                    var up = Button("+", new Rect(shiftX, y0 + sh / 2f + 2f, shiftW, sh / 2f - 2f), drive.ShiftUp, null,
+                                    () => drive.Model.ShiftHint, 14, parent: dash, icon: "yukari", style: ButtonStyle.Shifter);
+                    up.Held = () => drive.ShiftFlash(+1);
+                    var dn = Button("−", new Rect(shiftX, y0, shiftW, sh / 2f - 2f), drive.ShiftDown, null, null, 14,
+                                    parent: dash, icon: "asagi", style: ButtonStyle.Shifter);
+                    dn.Held = () => drive.ShiftFlash(-1);
+                }
             }
 
-            // MENÜ sağ üstte; açılınca altında 3 + 2 simgeli düğme
+            // grubu dokunmatik düğmelerin arasına sığdır (gerekirse küçült), ortala
+            {
+                float l = 16f + reserveL, r = W - 16f - reserveR;
+                float scale = Mathf.Clamp(Mathf.Min(1f, (r - l) / groupW), 0.45f, 1f);
+                dash.localScale = new Vector3(scale, scale, 1f);
+                dash.anchoredPosition = V(l + Mathf.Max(0f, r - l - groupW * scale) / 2f, 0f);
+            }
+
+            // 3) üst sıra: sol köşede ÖNE BAK, sağ köşede MENÜ; ortada dikiz aynası
             const float bw = 100f, bh = 78f, gap = 8f, mb = 64f;
-            float mw = 3 * bw + 4 * gap, mh = 2 * bh + 3 * gap;
             float mbX = W - 24f - mb, mbY = H - 24f - mb;
+            Button("ÖNE", new Rect(24f, mbY, mb, mb), drive.LookFront, null,
+                   () => Mathf.Abs(Mathf.DeltaAngle(drive.Viewer.Yaw, 0f)) > 12f || Mathf.Abs(drive.Viewer.Pitch - drive.Viewer.DefaultPitch) > 12f,
+                   11, icon: "merkez");
             Button("MENÜ", new Rect(mbX, mbY, mb, mb), () => { menuOpen = !menuOpen; drive.MusicMenuOpen = drive.SettingsOpen = false; },
                    null, () => menuOpen, 11, icon: "menu");
+            float mw = 3 * bw + 4 * gap, mh = 2 * bh + 3 * gap;
             float menuX = W - 24f - mw, menuY = mbY - gap - mh;
-            songText = Label(content, "", font, 14, Text, TextAnchor.MiddleRight, V(mbX - 12f - 170f, mbY + mb / 2f - 22f), V(340, 18));
-            UiShadow(songText);
             menuRoot = Rt("Menü", content, V(menuX, menuY), V(mw, mh));
             var menuBg = Shape("Zemin", menuRoot);
             menuBg.RoundRect(new Rect(0, 0, mw, mh), 16f, new Color(0.03f, 0.035f, 0.04f, 0.82f));
@@ -233,57 +288,24 @@ namespace ARaki.Drive
             }
             menuRoot.gameObject.SetActive(false);
 
-            // dikiz aynası üstte, tavana sapla bağlı
             const float rearW = 344f, rearH = 81f, rearTop = 30f;
+            rearRoot = null;
             rearImg = s.Cockpit && s.RearMirror ? RearMirror(new Rect(W / 2f - rearW / 2f, H - rearTop - rearH, rearW, rearH)) : null;
 
-            // durum ve bildirimler
-            // üst bilgi: dikiz aynasının solunda bağlantı, sağında görüntü / anlık güç / sıcaklık / saat, altında kayıt
-            float side = rearW / 2f + 14f;
-            statusText = Label(content, "", mono, 14, Text, TextAnchor.MiddleRight, V(W / 2f - side - 170f, H - 44f), V(340, 18));
-            UiShadow(statusText);
-            infoText = Label(content, "", mono, 14, Text, TextAnchor.MiddleLeft, V(W / 2f + side + 170f, H - 44f), V(340, 18));
-            UiShadow(infoText);
-            recText = Label(content, "", font, 16, Red, TextAnchor.MiddleLeft, V(W / 2f + side + 170f, H - 66f), V(340, 18));
-            UiShadow(recText);
-            toastText = Label(content, "", font, 20, Text, TextAnchor.MiddleCenter, V(W / 2f, H - 140f), V(700, 30));
+            // bilgi satırları: aynanın solunda bağlantı, sağında görüntü / anlık güç / sıcaklık / saat; köşe
+            // düğmelerine kadar olan genişliğe sığar (sığmazsa yazı küçülür, hiçbir şeyin üstüne binmez)
+            float side = (s.Cockpit && s.RearMirror ? rearW / 2f : 60f) + 12f;
+            float leftFrom = 24f + mb + 12f, leftTo = W / 2f - side, rightFrom = W / 2f + side, rightTo = mbX - 12f;
+            statusText = Fit(Label(content, "", mono, 14, Text, TextAnchor.MiddleRight, V((leftFrom + leftTo) / 2f, H - 44f), V(Mathf.Max(60f, leftTo - leftFrom), 18)));
+            infoText = Fit(Label(content, "", mono, 14, Text, TextAnchor.MiddleLeft, V((rightFrom + rightTo) / 2f, H - 44f), V(Mathf.Max(60f, rightTo - rightFrom), 18)));
+            recText = Fit(Label(content, "", font, 16, Red, TextAnchor.MiddleLeft, V((rightFrom + rightTo) / 2f, H - 66f), V(Mathf.Max(60f, rightTo - rightFrom), 18)));
+            songText = Fit(Label(content, "", font, 14, Text, TextAnchor.MiddleRight, V((rightFrom + rightTo) / 2f, H - 88f), V(Mathf.Max(60f, rightTo - rightFrom), 18)));
+            toastText = Label(content, "", font, 20, Text, TextAnchor.MiddleCenter, V(W / 2f, H - 150f), V(Mathf.Min(700f, W - 40f), 30));
             UiShadow(toastText);
-            warnText = Label(content, "", font, 22, Red, TextAnchor.MiddleCenter, V(W / 2f, H / 2f + 120f), V(800, 30));
+            warnText = Label(content, "", font, 22, Red, TextAnchor.MiddleCenter, V(W / 2f, H / 2f + 120f), V(Mathf.Min(800f, W - 40f), 30));
             UiShadow(warnText);
-            centerText = Label(content, "", font, 24, Text, TextAnchor.MiddleCenter, V(W / 2f, H / 2f + 40f), V(900, 34));
+            centerText = Label(content, "", font, 24, Text, TextAnchor.MiddleCenter, V(W / 2f, H / 2f + 40f), V(Mathf.Min(900f, W - 40f), 34));
             UiShadow(centerText);
-
-            // dokunmatik sürüş: direksiyonun karşı yanında yön tuşu; direksiyon ortadaysa (ya da pedal seçiliyse)
-            // bir yanda oklar, öbür yanda gaz ve fren pedalı
-            if (s.Touch != TouchMode.Off)
-            {
-                bool wheelOnRight = s.Cockpit && s.Wheel == WheelSide.Right;
-                if (s.Touch == TouchMode.Pad && !(s.Cockpit && s.Wheel == WheelSide.Center))
-                {
-                    const float r = 108f;
-                    BuildPad(V(wheelOnRight ? 24f + r + 6f : W - 24f - r - 6f, 20f + r + 6f), r);
-                }
-                else
-                {
-                    bool pedalsRight = !wheelOnRight;
-                    var gas = pedalsRight ? new Rect(W - 24f - 76f, 16f, 76f, 150f) : new Rect(24f, 16f, 76f, 150f);
-                    var brake = pedalsRight ? new Rect(gas.x - 14f - 100f, 16f, 100f, 112f) : new Rect(gas.xMax + 14f, 16f, 100f, 112f);
-                    var g = Button("GAZ", gas, null, h => drive.TouchForward = h ? 1 : (drive.TouchForward == 1 ? 0 : drive.TouchForward), null, 11,
-                                   style: ButtonStyle.Pedal);
-                    g.Held = () => drive.InputForward > 0;
-                    var b = Button("FREN", brake, null, h => drive.TouchForward = h ? -1 : (drive.TouchForward == -1 ? 0 : drive.TouchForward), null, 11,
-                                   style: ButtonStyle.Pedal);
-                    b.Held = () => drive.InputForward < 0;
-                    float ax = pedalsRight ? 24f : W - 24f - 2 * 84f - 10f;
-                    float ay = s.Cockpit && s.Wheel != WheelSide.Center ? 196f : 24f;   // direksiyon o yandaysa onun üstünde
-                    var l = Button("", new Rect(ax, ay, 84f, 84f), null, h => drive.TouchTurn = h ? -1 : (drive.TouchTurn == -1 ? 0 : drive.TouchTurn), null,
-                                   icon: "sol");
-                    l.Held = () => drive.InputTurn < 0;
-                    var rr = Button("", new Rect(ax + 94f, ay, 84f, 84f), null, h => drive.TouchTurn = h ? 1 : (drive.TouchTurn == 1 ? 0 : drive.TouchTurn), null,
-                                    icon: "sag");
-                    rr.Held = () => drive.InputTurn > 0;
-                }
-            }
 
             menuRoot.SetAsLastSibling();   // menü açılınca aynaların ve düğmelerin üstünde kalsın
             BuildMusicMenu();
@@ -323,11 +345,11 @@ namespace ARaki.Drive
                 float len = major ? 8f : half ? 5f : 3f;
                 body.Line(c + d * (r - 1.5f - len), c + d * (r - 1.5f), major ? 2f : 1f, major ? Text : Dim);
                 if (major)
-                    Label(content, v.ToString(format).Replace('.', ','), mono, format == "0.00" ? 9 : 11, Text,
+                    Label(dash, v.ToString(format).Replace('.', ','), mono, format == "0.00" ? 9 : 11, Text,
                           TextAnchor.MiddleCenter, c + d * (r - 17f), V(28, 14));
             }
             body.Arc(c, r - 3f, r - 1.5f, -55f, 55f, new Color(1f, 1f, 1f, 0.07f));
-            var n = Shape("İbre", content);
+            var n = Shape("İbre", dash);
             needle = (RectTransform)n.transform;
             needle.anchorMin = needle.anchorMax = Vector2.zero;
             needle.anchoredPosition = c;
@@ -346,7 +368,7 @@ namespace ARaki.Drive
         /// </summary>
         void Dashboard(VectorShape b, float cx, float x0, float x1, bool switchesLeft, float swFrom, float swTo)
         {
-            const float half = 172f, edge = 112f, crown = 156f, shelf = 100f, low = 92f, fade = 34f;   // low: direksiyonun arkası
+            const float half = 172f, edge = 112f, crown = 156f, shelf = 100f, low = 120f, fade = 34f;   // low: direksiyonun arkası
             float Hood(float x)
             {
                 float u = (x - cx) / half;
@@ -433,7 +455,7 @@ namespace ARaki.Drive
 
         VectorShape Lamp(string icon, Vector2 c)
         {
-            var l = Shape("Lamba " + icon, content);
+            var l = Shape("Lamba " + icon, dash);
             Icon(l, icon, c, 8f);
             return l;
         }
@@ -498,7 +520,8 @@ namespace ARaki.Drive
         /// </summary>
         RawImage RearMirror(Rect r)
         {
-            var frame = Shape("Dikiz aynası", content);
+            rearRoot = Stretch("Dikiz", content);   // ayarlar açılınca gizlenir (panel aynanın altına girmesin)
+            var frame = Shape("Dikiz aynası", rearRoot);
             frame.RoundRect(new Rect(W / 2f - 10f, r.yMax - 6f, 20f, H - r.yMax + 12f), 6f, Hex("#121417"));
             frame.RoundRect(new Rect(W / 2f - 16f, r.yMax + 2f, 32f, 14f), 5f, Hex("#1A1D21"));
             frame.RoundRect(new Rect(r.x - 8f, r.y - 8f, r.width + 16f, r.height + 16f), 28f, new Color(0f, 0f, 0f, 0.55f));
@@ -506,7 +529,7 @@ namespace ARaki.Drive
             frame.RoundRect(new Rect(r.x - 5f, r.y + r.height * 0.5f, r.width + 10f, r.height * 0.5f + 5f), 25f, new Color(1f, 1f, 1f, 0.04f));
             frame.RoundRect(new Rect(r.x - 1.5f, r.y - 1.5f, r.width + 3f, r.height + 3f), 21.5f, new Color(0f, 0f, 0f, 0.95f));
 
-            var glass = Shape("Ayna camı", content);
+            var glass = Shape("Ayna camı", rearRoot);
             glass.Feather = 0f;
             glass.RoundRect(r, 20f, Color.white);
             glass.gameObject.AddComponent<Mask>().showMaskGraphic = false;
@@ -567,7 +590,7 @@ namespace ARaki.Drive
         void BuildSettings()
         {
             var s = drive.Settings;
-            var r = new Rect(W / 2f - 290f, H / 2f - 320f, 580f, 640f);
+            var r = new Rect(W / 2f - 290f, 12f, 580f, Mathf.Min(640f, H - 12f - 80f));   // üstteki bilgi satırlarının altında
             settingsRoot = Panel("Ayarlar", r);
             float y = r.yMax - 46f;
             Label(settingsRoot, "AYARLAR", font, 18, Text, TextAnchor.MiddleLeft, V(r.x + 20f + 150f - r.x, y + 14f - r.y), V(300, 24));
@@ -582,12 +605,12 @@ namespace ARaki.Drive
             void Choice(string label, string[] options, Func<int> get, Action<int> set)
             {
                 Label(settingsRoot, label, font, 16, Text, TextAnchor.MiddleLeft, V(170f + 20f, y - r.y + 14f), V(340, 22));
-                float w = 78f, x = r.xMax - 20f - options.Length * w;
+                float w = Mathf.Min(78f, (r.width - 230f) / options.Length), x = r.xMax - 20f - options.Length * w;   // etiketle çakışmasın
                 for (int i = 0; i < options.Length; i++)
                 {
                     int k = i;
                     Button(options[i], new Rect(x + i * w, y, w - 4f, 28f), () => { set(k); drive.ApplySettings(); dirty = true; }, null,
-                           () => get() == k, 14, TextAnchor.MiddleCenter, settingsRoot);
+                           () => get() == k, w < 70f ? 12 : 14, TextAnchor.MiddleCenter, settingsRoot);
                 }
                 y -= 34f;
             }
@@ -609,7 +632,7 @@ namespace ARaki.Drive
             Choice("Direksiyon", new[] { "Solda", "Ortada", "Sağda" }, () => (int)s.Wheel, v => s.Wheel = (WheelSide)v);
             Choice("Hız birimi", new[] { "km/sa", "m/sn" }, () => (int)s.Unit, v => s.Unit = (SpeedUnit)v);
             Choice("Görüntü", new[] { "Otomatik", "H.264", "JPEG" }, () => s.Video, v => s.Video = v);
-            Choice("Korna sesi", new[] { "Düz", "Kalın", "Tiz", "Titrek" }, () => s.HornStyle, v => { s.HornStyle = v; drive.ApplySettings(); drive.TestHorn(); });
+            Choice("Korna sesi", new[] { "Düz", "Kalın", "Tiz", "Titrek", "Dü-düt", "Kukaraça" }, () => s.HornStyle, v => { s.HornStyle = v; drive.ApplySettings(); drive.TestHorn(); });
             Stepper("Tekerlek çapı", () => s.WheelDiameterCm.ToString("0.0").Replace('.', ',') + " cm",
                     () => s.WheelDiameterCm = Mathf.Max(2f, s.WheelDiameterCm - 0.5f), () => s.WheelDiameterCm = Mathf.Min(20f, s.WheelDiameterCm + 0.5f));
             Stepper("En yüksek güç", () => "%" + Mathf.RoundToInt(s.PowerLimit * 100f), () => drive.ChangePower(-0.05f), () => drive.ChangePower(0.05f));
@@ -644,6 +667,7 @@ namespace ARaki.Drive
             if (root == null) return;
             if (dirty || Mathf.Abs(root.rect.width - W) > 0.5f || Key() != layoutKey) Rebuild();
             HandlePointers();
+            ARaki.Net.PhoneWifi.Poll();
 
             var s = drive.Settings;
             var link = drive.Link;
@@ -653,13 +677,13 @@ namespace ARaki.Drive
             video.Mode = (VideoMode)s.Video;
             if (wheelRt != null)
             {
-                wheelAngle = Mathf.Lerp(wheelAngle, model.Steer * 100f, Mathf.Min(1f, dt * 8f));
+                wheelAngle = Mathf.Lerp(wheelAngle, model.Steer * 120f, Mathf.Min(1f, dt * 12f));
                 wheelRt.localRotation = Quaternion.Euler(0f, 0f, -wheelAngle);
                 bool horn = link.State.Horn;
                 float hk = Mathf.Min(1f, dt * 20f);
-                hubRt.localScale = Vector3.one * Mathf.Lerp(hubRt.localScale.x, horn ? 0.93f : 1f, hk);
-                hubPress.color = new Color(1f, 1f, 1f, Mathf.Lerp(hubPress.color.a, horn ? 0.16f : 0f, hk));
-                hubIcon.color = Color.Lerp(hubIcon.color, horn ? Accent : new Color(1f, 1f, 1f, 0.5f), hk);
+                hubRt.localScale = Vector3.one * Mathf.Lerp(hubRt.localScale.x, horn ? 0.92f : 1f, hk);
+                hubSeam.color = Color.Lerp(hubSeam.color, horn ? new Color(Accent.r, Accent.g, Accent.b, 0.95f) : new Color(1f, 1f, 1f, 0.1f), hk);
+                hubIcon.color = Color.Lerp(hubIcon.color, horn ? Accent : new Color(1f, 1f, 1f, 0.38f), hk);
             }
             tachNeedle.localRotation = Quaternion.Euler(0f, 0f, -Angle(drive.Rpm / 1000f, 4f));
             float shown = s.Unit == SpeedUnit.KilometersPerHour ? drive.SpeedMs * 3.6f : drive.SpeedMs;
@@ -676,7 +700,10 @@ namespace ARaki.Drive
             var off = new Color(1f, 1f, 1f, 0.14f);
             lampLight.color = drive.CurrentLed ? Green : off;
             lampHazard.color = hazardBlink ? Red : off;
-            lampLink.color = !link.Demo && (link.IsWeak || !link.IsConnected) ? Amber : off;
+            var mm = link.Status?.motor;
+            bool fault = !link.Demo && (link.IsWeak || !link.IsConnected) || mm != null && (mm.ariza || mm.sikisma != 0) ||
+                         link.Status != null && link.Status.sicaklik >= 80f;
+            lampFault.color = fault ? Amber : off;
 
             int playing = drive.PlayingMelody;
             songText.text = playing > 0 && playing <= drive.Firmware.Songs.Count ? "Çalıyor:  " + drive.Firmware.Songs[playing - 1].Title : "";
@@ -685,8 +712,14 @@ namespace ARaki.Drive
             var m = st?.motor;
             if (link.Demo) statusText.text = "DEMO  ·  robotsuz";
             else if (!link.IsConnected) statusText.text = link.Searching ? "robot aranıyor…" : "bağlantı yok";
-            else statusText.text = $"ROBOT  ·  {link.RoundTripMs:0} ms" + (st != null && st.sinyal != 0 ? $"  ·  {st.sinyal} dBm {Bars(st.sinyal)}" : "") +
-                                   (link.Loss > 0.05f ? $"  ·  kayıp %{link.Loss * 100f:0}" : "");
+            else
+            {
+                int? phone = ARaki.Net.PhoneWifi.Rssi;
+                statusText.text = $"ROBOT  ·  {link.RoundTripMs:0} ms" +
+                                  (st != null && st.sinyal != 0 ? $"  ·  robot {st.sinyal} dBm {Bars(st.sinyal)}" : "") +
+                                  (phone.HasValue ? $"  ·  tel {phone} dBm {Bars(phone.Value)}" : "") +
+                                  (link.Loss > 0.05f ? $"  ·  kayıp %{link.Loss * 100f:0}" : "");
+            }
             // güç: motora o an giden pay (Arduino'nun bildirdiği, rampa dahil); vites atınca artışı görünür
             infoText.text = $"{Mathf.RoundToInt(video.Fps)} fps" + (st != null && st.veri_kbps > 0 ? $"  ·  {st.veri_kbps / 1000f:0.0} Mbit/s" : "") +
                             $"  ·  güç %{Mathf.RoundToInt(Mathf.Abs(drive.MotorPower) * 100f)}" +
@@ -706,6 +739,7 @@ namespace ARaki.Drive
 
             musicRoot.gameObject.SetActive(drive.MusicMenuOpen);
             settingsRoot.gameObject.SetActive(drive.SettingsOpen);
+            if (rearRoot != null) rearRoot.gameObject.SetActive(!drive.SettingsOpen);
             if (drive.SettingsOpen)
                 settingsInfo.text = link.Demo ? "Robotsuz demo: kayıtlı 360° görüntü, sesler bu cihazdan çalar." :
                     $"adres {link.Host ?? "-"}   gidip gelme {link.RoundTripMs:0} ms   kayıp %{link.Loss * 100f:0}\n" +
@@ -880,7 +914,7 @@ namespace ARaki.Drive
                    ButtonStyle style = ButtonStyle.Normal)
         {
             parent = parent != null ? parent : content;
-            Vector2 origin = parent == content ? Vector2.zero : parent.anchoredPosition;
+            Vector2 origin = parent == content || parent == dash ? Vector2.zero : parent.anchoredPosition;
             var rt = Rt("Düğme " + text, parent, r.position - origin, r.size);
             // basınca küçülme ortaya doğru (pedal: alta doğru)
             var pivot = style == ButtonStyle.Pedal ? new Vector2(0.5f, 0f) : new Vector2(0.5f, 0.5f);
@@ -927,6 +961,23 @@ namespace ARaki.Drive
                     sheen.RoundRect(new Rect(2f, r.height * 0.5f, r.width - 4f, r.height * 0.5f - 2f), radius - 2f, new Color(1f, 1f, 1f, 0.08f));
                     sheen.Line(V(r.width * 0.5f, 8f), V(r.width * 0.5f, 18f), 1f, new Color(1f, 1f, 1f, 0.15f));
                     b.Label = Label(rt, text, font, size, Text, TextAnchor.MiddleCenter, r.size / 2f + V(0, 4f), r.size);
+                    break;
+                }
+                case ButtonStyle.Shifter:
+                {
+                    // vites kolu yarısı: metal çerçeve, koyu yüz, ortada ok ve işaret
+                    var border = Shape("Çerçeve", rt);
+                    border.RoundRect(new Rect(0, 0, r.width, r.height), radius, new Color(1f, 1f, 1f, 0.22f));
+                    var back = Shape("Zemin", rt);
+                    back.RoundRect(new Rect(1.5f, 1.5f, r.width - 3f, r.height - 3f), radius - 1.5f, Color.white);
+                    b.Back = back;
+                    b.OffColor = Hex("#202429");
+                    b.OnColor = Hex("#6B3F22");
+                    var sheen = Shape("Parlaklık", rt);
+                    sheen.RoundRect(new Rect(3f, r.height * 0.5f, r.width - 6f, r.height * 0.5f - 3f), Mathf.Max(0f, radius - 3f), new Color(1f, 1f, 1f, 0.06f));
+                    b.Icon = Shape("Simge", rt);
+                    Icon(b.Icon, icon, V(r.width * 0.36f, r.height / 2f), r.height * 0.26f);
+                    b.Label = Label(rt, text, font, size, Text, TextAnchor.MiddleCenter, V(r.width * 0.72f, r.height / 2f), V(24, r.height));
                     break;
                 }
                 case ButtonStyle.Switch:
@@ -994,6 +1045,26 @@ namespace ARaki.Drive
                 case "dortlu":
                     var a = c + V(0, r * 0.85f); var b = c + V(r * 0.95f, -r * 0.7f); var d = c + V(-r * 0.95f, -r * 0.7f);
                     s.Line(a, b, t, w); s.Line(b, d, t, w); s.Line(d, a, t, w);
+                    break;
+                case "ariza":   // genel arıza: daire içinde ünlem
+                    s.Arc(c, r * 0.95f - t, r * 0.95f, 0f, 360f, w, 32);
+                    s.Line(c + V(0, r * 0.5f), c + V(0, -r * 0.12f), t * 1.1f, w);
+                    s.Circle(c + V(0, -r * 0.45f), t * 0.7f, w, 12);
+                    break;
+                case "merkez":   // öne bak: nişangah
+                    s.Arc(c, r * 0.62f - t, r * 0.62f, 0f, 360f, w, 40);
+                    s.Circle(c, t * 1.1f, w, 12);
+                    for (int i = 0; i < 4; i++)
+                    {
+                        var dd = V(Mathf.Sin(i * Mathf.PI / 2f), Mathf.Cos(i * Mathf.PI / 2f));
+                        s.Line(c + dd * r * 0.78f, c + dd * r * 1.05f, t, w);
+                    }
+                    break;
+                case "yukari":
+                case "asagi":
+                    float sy = kind == "yukari" ? 1f : -1f;
+                    s.Line(c + V(-r * 0.8f, -sy * r * 0.35f), c + V(0, sy * r * 0.45f), t * 1.2f, w);
+                    s.Line(c + V(0, sy * r * 0.45f), c + V(r * 0.8f, -sy * r * 0.35f), t * 1.2f, w);
                     break;
                 case "ag":   // Wi-Fi
                     for (int i = 1; i <= 3; i++) s.Arc(c + V(0, -r * 0.7f), r * 0.55f * i - t, r * 0.55f * i, -45f, 45f, w, 24);
@@ -1091,6 +1162,18 @@ namespace ARaki.Drive
             t.verticalOverflow = VerticalWrapMode.Overflow;
             t.raycastTarget = false;
             t.text = text;
+            return t;
+        }
+
+        /// <summary>Tek satır, kutuya sığmazsa küçülen yazı (gölgeli).</summary>
+        static Text Fit(Text t)
+        {
+            t.horizontalOverflow = HorizontalWrapMode.Wrap;
+            t.verticalOverflow = VerticalWrapMode.Truncate;
+            t.resizeTextForBestFit = true;
+            t.resizeTextMinSize = 8;
+            t.resizeTextMaxSize = t.fontSize;
+            UiShadow(t);
             return t;
         }
 

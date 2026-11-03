@@ -206,7 +206,7 @@ namespace ARaki.EditorTools
             foreach (Match m in Regex.Matches(code, @"\b([A-Z][A-Z0-9_]+)\s*=\s*(\d+)\b"))
                 constants[m.Groups[1].Value] = int.Parse(m.Groups[2].Value);
             var arrays = new Dictionary<string, List<int>>();
-            foreach (Match m in Regex.Matches(code, @"const uint16_t (M_\w+)\[\] PROGMEM = \{(.*?)\};", RegexOptions.Singleline))
+            foreach (Match m in Regex.Matches(code, @"const uint16_t ([ME]_\w+)\[\] PROGMEM = \{(.*?)\};", RegexOptions.Singleline))
             {
                 var values = new List<int>();
                 foreach (var tok in m.Groups[2].Value.Split(','))
@@ -224,6 +224,14 @@ namespace ARaki.EditorTools
             {
                 if (!arrays.TryGetValue(name, out var notes)) { Debug.LogWarning("[RobotSceneBuilder] melodi yok: " + name); continue; }
                 o.Append("MELODI ").Append(string.IsNullOrEmpty(label) ? "|" + name : label).Append('\n');
+                o.Append("NOTA ").Append(string.Join(" ", notes)).Append('\n');
+            }
+            // EFEKTLER: kısa ses efektleri, sırası "X n" numarası (EF_ sabitleri)
+            var effects = Regex.Match(code, @"EFEKTLER\[\]\s*=\s*\{(.*?)\};", RegexOptions.Singleline).Groups[1].Value;
+            foreach (Match m in Regex.Matches(effects, @"E_\w+"))
+            {
+                if (!arrays.TryGetValue(m.Value, out var notes)) { Debug.LogWarning("[RobotSceneBuilder] efekt yok: " + m.Value); continue; }
+                o.Append("EFEKT ").Append(m.Value).Append('\n');
                 o.Append("NOTA ").Append(string.Join(" ", notes)).Append('\n');
             }
             Directory.CreateDirectory(Path.GetDirectoryName(FirmwareOut)!);

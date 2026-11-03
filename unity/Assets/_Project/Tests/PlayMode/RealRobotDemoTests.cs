@@ -55,11 +55,17 @@ namespace ARaki.Tests
             Assert.GreaterOrEqual(drive.Model.Gear, 2, "2 sn'de 2. vitese geçmeli");
             Assert.Less(drive.Model.Speed, 0.7f, "tam güce bu kadar çabuk varmamalı");
             Assert.Greater(link.Status.motor.sol, 0, "demo Arduino motoru döndürmeli");
-            yield return new WaitForSecondsRealtime(4.5f);
-            Assert.AreEqual(4, drive.Model.Gear, "~5,5 sn'de 4. vites");
+            yield return new WaitForSecondsRealtime(5.4f);
+            Assert.AreEqual(5, drive.Model.Gear, "~6,6 sn'de 5. vites");
             drive.TouchForward = 0;
             yield return new WaitForSecondsRealtime(1.5f);
             Assert.AreEqual(0, link.Status.motor.sol, "bırakınca durmalı");
+            drive.TouchForward = -1;   // geri vites (devir göstergesi geri viteste de hesaplanmalı)
+            yield return new WaitForSecondsRealtime(1f);
+            Assert.AreEqual(-1, drive.Model.Gear);
+            Assert.Less(link.Status.motor.sol, 0, "geri gitmeli");
+            drive.TouchForward = 0;
+            yield return new WaitForSecondsRealtime(1f);
         }
 
         [UnityTest]

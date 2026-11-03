@@ -50,6 +50,9 @@ namespace ARaki.Drive
         float accumulator;
         float lastLocalChange = -10f;
         float hornUntil;
+        int lastShiftCount;
+        int shiftDir;
+        float shiftAt = -10f;
 
         void Awake()
         {
@@ -81,8 +84,11 @@ namespace ARaki.Drive
             if (n > 0 && n <= Firmware.Songs.Count) ShowToast("Çalıyor: " + Firmware.Songs[n - 1].Title);
         }
         public void StopMelody() => PlayMelody(0);
-        public void ShiftUp() { if (Settings.Gearbox == GearMode.Manual) Model.ShiftUp(); }
-        public void ShiftDown() { if (Settings.Gearbox == GearMode.Manual) Model.ShiftDown(); }
+        public void ShiftUp() { if (Settings.Gearbox == GearMode.Manual) { Model.ShiftUp(); shiftDir = 1; shiftAt = Time.unscaledTime; } }
+        public void ShiftDown() { if (Settings.Gearbox == GearMode.Manual) { Model.ShiftDown(); shiftDir = -1; shiftAt = Time.unscaledTime; } }
+        /// <summary>Vites az önce bu yöne atıldı mı (klavyeyle atınca da kol basılmış görünsün).</summary>
+        public bool ShiftFlash(int dir) => shiftDir == dir && Time.unscaledTime - shiftAt < 0.15f;
+        public void LookFront() => viewer.LookFront();
         public void CycleGearbox()
         {
             Settings.Gearbox = (GearMode)(((int)Settings.Gearbox + 1) % 3);
@@ -104,7 +110,20 @@ namespace ARaki.Drive
             link.State.HornStyle = Settings.HornStyle;
             Settings.Save();
         }
-        public void Photo() => recorder.TakePhoto();
+        public void Photo()
+        {
+            recorder.TakePhoto();
+            PlayEffect("EF_FOTO");
+        }
+
+        /// <summary>Robotun buzzer'ında kısa efekt (Arduino'daki EF_ sabitinin adıyla).</summary>
+        public void PlayEffect(string name)
+        {
+            int n = Firmware[name];
+            if (n <= 0) return;
+            link.State.Effect = n;
+            link.State.EffectCount++;
+        }
 
         /// <summary>F11: tam ekran aç/kapa (PC uygulamasında; editörde Game penceresinin "Play Maximized"ı kullanılır).</summary>
         public void ToggleFullscreen()
@@ -119,7 +138,9 @@ namespace ARaki.Drive
         public void Video()
         {
             recorder.ToggleVideo();
-            ShowToast(recorder.Recording ? "Video kaydı başladı" : "Video kaydediliyor…");
+            PlayEffect(recorder.Recording ? "EF_KAYIT_BASLA" : "EF_KAYIT_BITTI");
+            ShowToast(recorder.Recording ? (recorder.HasAudio ? "Video kaydı başladı (sesli)" : "Video kaydı başladı (ses yok: mikrofon izni)")
+                                         : "Video kaydediliyor…");
         }
 
         public bool CurrentLed => Synced(link.State.Led, s => s.led);
@@ -202,6 +223,12 @@ namespace ARaki.Drive
                 accumulator -= Tick;
                 var (l, r) = Model.Step(Tick, forward, turn, Settings.Gearbox);
                 link.SendDrive(new DriveCommand(l, r));
+            }
+
+            if (Model.ShiftCount != lastShiftCount)   // vites değişti: kısa "tık"
+            {
+                lastShiftCount = Model.ShiftCount;
+                if (Settings.Gearbox != GearMode.Fixed && Model.Gear != 0) PlayEffect("EF_VITES");
             }
 
             var m = link.Status?.motor;

@@ -36,7 +36,8 @@ namespace ARaki.Video
         public int FramesDecoded { get; private set; }
         public float Fps { get; private set; }
         public string LastError { get; private set; } = "";
-        public bool HasFrame { get; private set; }
+        /// <summary>Son 3 sn içinde kare geldi mi (kamera kapanınca ya da akış durunca false olur).</summary>
+        public bool HasFrame => lastFrame >= 0f && Time.unscaledTime - lastFrame < 3f;
 
         Texture2D jpegTexture;
         Texture2D texY, texU, texV;
@@ -51,7 +52,8 @@ namespace ARaki.Video
         int yuvW, yuvH, yuvStrideY, yuvStrideUV;
         bool yuvReady;
         string streamKey;
-        bool jpegFallback;
+        bool jpegFallback, h264Broken;   // h264Broken: kütüphane yok, bir daha deneme
+        float lastFrame = -1f, fallbackAt;
         float pathStarted;
         int frameCounter;
         float fpsTimer;
@@ -83,12 +85,12 @@ namespace ARaki.Video
         {
             bool demo = robot != null && robot.Demo;
             string host = robot != null && !demo ? robot.Host : null;
-            bool useH264 = !jpegFallback && Mode != VideoMode.Jpeg && yuvMaterial != null;
+            bool useH264 = !jpegFallback && !h264Broken && Mode != VideoMode.Jpeg && yuvMaterial != null;
             string key = host == null ? null : host + (useH264 ? "/h264" : "/jpeg");
             if (key != streamKey)
             {
                 StopReader();
-                HasFrame = false;
+                lastFrame = -1f;
                 streamKey = key;
                 pathStarted = Time.unscaledTime;
                 if (host != null)
@@ -102,12 +104,15 @@ namespace ARaki.Video
             }
             if (host == null) jpegFallback = false;
 
-            // Otomatik modda H.264 hiç kare vermezse JPEG'e geç
-            if (Mode == VideoMode.Auto && ActivePath == "H.264" && !HasFrame && Time.unscaledTime - pathStarted > 6f)
+            // Otomatik modda H.264 6 sn kare vermezse (hiç gelmedi ya da kesildi) JPEG'e geç; 45 sn sonra H.264'ü yeniden dene
+            if (Mode == VideoMode.Auto && ActivePath == "H.264" && Time.unscaledTime - Mathf.Max(pathStarted, lastFrame) > 6f)
             {
-                Debug.LogWarning("[Görüntü] H.264'ten kare gelmedi, JPEG'e geçiliyor. " + LastError);
+                Debug.LogWarning("[Görüntü] H.264'ten kare gelmiyor, JPEG'e geçiliyor. " + LastError);
                 jpegFallback = true;
+                fallbackAt = Time.unscaledTime;
             }
+            else if (jpegFallback && !h264Broken && Mode == VideoMode.Auto && Time.unscaledTime - fallbackAt > 45f)
+                jpegFallback = false;
 
             if (demo) DemoFrame();
             else if (ActivePath == "JPEG") JpegFrame();
@@ -119,7 +124,7 @@ namespace ARaki.Video
 
         void Counted()
         {
-            HasFrame = true;
+            lastFrame = Time.unscaledTime;
             FramesDecoded++;
             frameCounter++;
         }
@@ -234,7 +239,7 @@ namespace ARaki.Video
                 catch (Exception e)
                 {
                     LastError = e.InnerException?.Message ?? e.Message;
-                    if (e is DllNotFoundException || e is EntryPointNotFoundException) { jpegFallback = true; return; }
+                    if (e is DllNotFoundException || e is EntryPointNotFoundException) { jpegFallback = h264Broken = true; return; }
                 }
                 if (gen == generation) Thread.Sleep(1000);
             }

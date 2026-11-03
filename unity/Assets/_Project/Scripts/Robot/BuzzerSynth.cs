@@ -6,7 +6,7 @@ namespace ARaki.Robot
     /// Robotsuz demoda robotun buzzer'ı: Arduino'daki ses mantığının (robot_kontrol.ino, sesGuncelle ve melodi
     /// çalar) birebir kopyası, kare dalgayla. Mantık ses iş parçacığında her 1 ms'lik örnek zamanında yürür;
     /// böylece notalar ve kornanın 4 ms'lik ton değişimi Arduino'daki gibi tam zamanında olur.
-    /// Öncelik: korna > melodi > geri vites bipi > motor sesi.
+    /// Öncelik: korna > efekt > melodi > geri vites bipi > motor sesi.
     /// Not: gerçek piezo kalın seslerde (motor sesi 38-140 Hz) kulaklıktan çok daha cılız ve tıkırtılı duyulur.
     /// </summary>
     [RequireComponent(typeof(AudioSource))]
@@ -21,8 +21,11 @@ namespace ARaki.Robot
         double phase;
 
         // Arduino'nun değişkenleri (gate kilidiyle)
-        double hornEnd;
+        double hornEnd, hornStart;
         int hornStyle;
+        int[] effect;              // çalan kısa efekt (hz, ms çiftleri), null = yok
+        int effectIndex, effectHz;
+        double effectEnd;
         int melody, noteIndex;
         double noteEnd, soundEnd;
         int melodyHz;
@@ -47,7 +50,21 @@ namespace ARaki.Robot
 
         // ---------------------------------------------------------------- komutlar (ana iş parçacığı)
 
-        public void Horn(int ms, int style) { lock (gate) { hornEnd = clockMs + Mathf.Clamp(ms, 1, 2000); hornStyle = Mathf.Clamp(style, 0, 3); } }
+        public void Horn(int ms, int style)
+        {
+            lock (gate)
+            {
+                bool fresh = clockMs >= hornEnd;   // basılı tutarken gelen yenileme değil
+                hornEnd = clockMs + Mathf.Clamp(ms, 1, 2000);
+                hornStyle = Mathf.Clamp(style, 0, 5);
+                if (fresh)
+                {
+                    hornStart = clockMs;
+                    if (hornStyle == 5) StartEffect(fw["EF_CUCARACHA"]);
+                }
+            }
+        }
+        public void PlayEffect(int n) { lock (gate) StartEffect(n); }
         public void PlayMelody(int n) { lock (gate) StartMelody(n); }
         public void SetEngineSound(bool on) { lock (gate) engineSound = on; }
         public void SetReverseBeep(bool on) { lock (gate) reverseBeep = on; }
@@ -72,6 +89,22 @@ namespace ARaki.Robot
             StartNote(clockMs);
         }
 
+        void StartEffect(int n)
+        {
+            effect = n >= 1 && n <= fw.Effects.Count ? fw.Effects[n - 1] : null;
+            effectIndex = 0;
+            effectHz = 0;
+            if (effect != null) EffectStep(clockMs);
+        }
+
+        void EffectStep(double now)
+        {
+            if (effectIndex * 2 + 1 >= effect.Length || effect[effectIndex * 2 + 1] == 0) { effect = null; effectHz = 0; return; }
+            effectHz = effect[effectIndex * 2];
+            effectEnd = now + effect[effectIndex * 2 + 1];
+            effectIndex++;
+        }
+
         void StartNote(double now)
         {
             var notes = fw.Songs[melody - 1].Notes;
@@ -90,16 +123,23 @@ namespace ARaki.Robot
                 if (soundEnd > 0 && now >= soundEnd) { melodyHz = 0; soundEnd = 0; }
                 if (now >= noteEnd) StartNote(now);
             }
+            if (effect != null && now >= effectEnd) EffectStep(now);
             if (!reversing) reverseStart = 0;
             else if (reverseStart == 0) reverseStart = now;
 
             int hz = 0;
             playingWobble = false;
-            if (now < hornEnd)
+            if (now < hornEnd && hornStyle != 5)
             {
-                if (hornStyle < 3) hz = hornStyle == 1 ? 330 : hornStyle == 2 ? 660 : 440;
+                if (hornStyle == 4)
+                {
+                    double t = (now - hornStart) % 520;
+                    hz = t < 170 || (t >= 230 && t < 400) ? fw["DUDUT_HZ"] : 0;
+                }
+                else if (hornStyle < 3) hz = hornStyle == 1 ? 330 : hornStyle == 2 ? 660 : 440;
                 else hz = ((long)(now / fw["KORNA_ADIMI"]) % 2) != 0 ? fw["KORNA_HZ_1"] : fw["KORNA_HZ_2"];
             }
+            else if (effect != null) hz = effectHz;
             else if (melody != 0) hz = melodyHz;
             else if (reverseBeep && reversing)
             {

@@ -50,6 +50,8 @@ KAMERA_BOSTA_KAPAT = 10     # sn: izleyen kalmayınca kamerayı kapat
 VARSAYILAN_FPS = 15
 AKIS_TAMPONU = 128 * 1024   # bayt; ağ yavaşsa kareler kuyrukta birikmesin (~1 kare)
 H264_BIT_HIZI = 4000000     # bit/sn
+H264_BEKCI = 5              # sn: JPEG gelirken H.264 bu kadar kare vermezse kamera hattı yeniden başlatılır
+ISI_ALARMI = 80             # °C: Jetson bunu geçince bir kez alarm sesi (75'in altına inince yeniden kurulur)
 ANAHTAR_ARALIGI = 15        # kare; 15 fps'te saniyede bir tam kare (yeni izleyen en geç 1 sn bekler)
 ESKI_KOMUT_MS = 250         # bundan geç gelen hareket komutu uygulanmaz
 SURUCU_KILIDI = 0.6         # sn
@@ -185,6 +187,8 @@ class Kamera:
         self.durum = "kapali"      # kapali | yok | baslatiliyor | aktif
         self.fps = 0.0
         self.h264_destek = True    # kodlayıcı açılamazsa yalnızca JPEG
+        self.son_h264 = 0.0        # kodlayıcıdan son kare (kolu durursa hat yeniden başlatılır)
+        self.h264_takilma = 0      # art arda kaç kez durdu
         self.aboneler = set()
         self.gonderilen = 0        # izleyicilere giden bayt (veri hızı için)
         self.veri_kbps = 0
@@ -251,10 +255,19 @@ class Kamera:
         akis = p.stdout
         sayac_bas, zaman_bas = 0, time.time()
         kare_geldi = False
+        baslangic = self.son_h264 = time.time()
         try:
             while True:
                 # izleyen kalmadıysa bir süre sonra kapat
                 if self.izleyen == 0 and time.time() - self.son_izleyen > KAMERA_BOSTA_KAPAT:
+                    break
+                # JPEG gelirken H.264 kolu durduysa (ör. kamera çıkarılıp takıldı, kodlayıcı takıldı) hattı yeniden
+                # başlat; üç kez üst üste olursa yalnızca JPEG'e geç (uygulama da kendiliğinden JPEG'e geçer)
+                if h264_yaz and kare_geldi and self.aboneler and time.time() - max(self.son_h264, baslangic) > H264_BEKCI:
+                    self.h264_takilma += 1
+                    log("H.264 kolu kare vermiyor, kamera hattı yeniden başlatılıyor (%d)" % self.h264_takilma)
+                    if self.h264_takilma >= 3:
+                        self.h264_destek = False
                     break
                 uzunluk = None
                 while True:                       # parça başlıkları
@@ -306,6 +319,8 @@ class Kamera:
                         break
                     au = tampon[bas:son]
                     tampon = tampon[son:]
+                    self.son_h264 = time.time()
+                    self.h264_takilma = 0
                     anahtar = anahtar_kare_mi(au)
                     for a in list(self.aboneler):
                         a.ekle(au, anahtar)
@@ -389,8 +404,19 @@ def surucu_duyuldu():
 
 
 def nabiz_dongusu():
+    alarm_verildi = False
+    son_isi = 0.0
     while True:
         time.sleep(NABIZ_ARALIGI)
+        if time.time() - son_isi > 5:
+            son_isi = time.time()
+            t = sicaklik()
+            if t is not None and t >= ISI_ALARMI and not alarm_verildi:
+                alarm_verildi = True
+                log("Jetson ısındı:", t)
+                ARDUINO.gonder("X 6")          # EF_ALARM
+            elif t is not None and t < ISI_ALARMI - 5:
+                alarm_verildi = False
         if time.time() - SON_SURUCU_SESI[0] < NABIZ_SURESI:
             ARDUINO.gonder("N")
 
@@ -624,6 +650,8 @@ class Istek(BaseHTTPRequestHandler):
         veri = self._govde()
         if yol == "/api/dur":
             self._json({"tamam": ARDUINO.gonder("S")})
+        elif yol == "/api/efekt":       # {"no": n}: kısa ses efekti (panel kapanırken EF_KAPANIS çalar)
+            self._json({"tamam": ARDUINO.gonder("X {}".format(int(veri.get("no", 0))))})
         elif yol == "/api/kamera-ayari":
             os.makedirs(os.path.dirname(KAMERA_AYARI), exist_ok=True)
             with open(KAMERA_AYARI, "w") as f:
@@ -639,7 +667,8 @@ class UdpKanal:
     Uygulama 50 ms'de bir, ayrıca bir şey değişince hemen, tüm "istenen durumu" yollar:
       {"t":"d", "n":sıra, "z":uygulamanın saati (ms), "sol":-255..255, "sag":..,
        "led":0/1, "dortlu":0/1, "motor_sesi":0/1, "geri_bip":0/1,
-       "k":korna basılı 0/1, "ks":korna sesi 0-3, "fs":selektör sayacı, "mi":melodi sayacı, "mn":melodi no}
+       "k":korna basılı 0/1, "ks":korna sesi 0-5, "fs":selektör sayacı, "mi":melodi sayacı, "mn":melodi no,
+       "ef":efekt sayacı, "en":efekt no}
     - Paket kaybolursa sonraki paket aynı durumu taşıdığı için "aldım" (ack) gerekmez.
     - Tek seferlik işler (selektör, melodi başlatma) sayaçla gelir: sayaç değişince bir kez yapılır;
       o paket kaybolsa da sonraki pakette sayaç yine farklıdır.
@@ -727,11 +756,13 @@ class UdpKanal:
                 ARDUINO.gonder("F")
             if m.get("mi") != onceki.get("mi"):
                 ARDUINO.gonder("C {}".format(int(m.get("mn", 0))))
+            if m.get("ef") != onceki.get("ef"):
+                ARDUINO.gonder("X {}".format(int(m.get("en", 0))))
             if not m.get("k") and onceki.get("k"):
                 ARDUINO.gonder("K 1")                  # bırakıldı: hemen sus
         if taze and m.get("k") and simdi - ist["korna"] > KORNA_YENILEME:
             ist["korna"] = simdi
-            ARDUINO.gonder("K 250 {}".format(max(0, min(3, int(m.get("ks", 0))))))
+            ARDUINO.gonder("K 250 {}".format(max(0, min(5, int(m.get("ks", 0))))))
         if taze:
             ist["onceki"] = m
 

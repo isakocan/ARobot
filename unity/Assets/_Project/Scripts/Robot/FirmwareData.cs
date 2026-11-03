@@ -22,6 +22,8 @@ namespace ARaki.Robot
 
         public readonly Dictionary<string, int> Constants = new Dictionary<string, int>();
         public readonly List<Song> Songs = new List<Song>();
+        /// <summary>Kısa ses efektleri (hz, ms çiftleri); sırası Arduino'daki "X n" numarası, EF_ sabitleri.</summary>
+        public readonly List<int[]> Effects = new List<int[]>();
 
         public int this[string name] => Constants.TryGetValue(name, out int v) ? v : 0;
 
@@ -39,6 +41,7 @@ namespace ARaki.Robot
         {
             var d = new FirmwareData();
             string group = "", title = "";
+            bool effect = false;   // sıradaki NOTA satırı bir efektin mi
             foreach (var raw in text.Split('\n'))
             {
                 string line = raw.Trim();
@@ -52,13 +55,19 @@ namespace ARaki.Robot
                     var p = line.Substring(7).Split('|');
                     group = p[0];
                     title = p.Length > 1 ? p[1] : p[0];
+                    effect = false;
+                }
+                else if (line.StartsWith("EFEKT "))
+                {
+                    effect = true;
                 }
                 else if (line.StartsWith("NOTA"))
                 {
                     var p = line.Substring(4).Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
                     var notes = new int[p.Length];
                     for (int i = 0; i < p.Length; i++) notes[i] = int.Parse(p[i], CultureInfo.InvariantCulture);
-                    d.Songs.Add(new Song { Group = group, Title = title, Notes = notes });
+                    if (effect) d.Effects.Add(notes);
+                    else d.Songs.Add(new Song { Group = group, Title = title, Notes = notes });
                 }
             }
             return d;

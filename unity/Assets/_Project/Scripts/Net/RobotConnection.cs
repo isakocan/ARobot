@@ -23,14 +23,15 @@ namespace ARaki.Net
         public int Left, Right;             // -255..255
         public bool Led, Hazard, EngineSound, ReverseBeep;
         public bool Horn;                   // basılı tutuldukça
-        public int HornStyle;               // 0 düz, 1 kalın, 2 tiz, 3 titrek iki ton
+        public int HornStyle;               // 0 düz, 1 kalın, 2 tiz, 3 titrek iki ton, 4 dü-düt, 5 La Cucaracha
         public int FlashCount;              // selektör: her basışta bir artar
         public int MelodyCount, Melody;     // melodi: her istekte sayaç artar; 0 = sustur
+        public int EffectCount, Effect;     // kısa ses efekti (vites, foto, kayıt): her istekte sayaç artar
 
         public bool SameAs(ControlState o) =>
             Left == o.Left && Right == o.Right && Led == o.Led && Hazard == o.Hazard && EngineSound == o.EngineSound &&
             ReverseBeep == o.ReverseBeep && Horn == o.Horn && HornStyle == o.HornStyle && FlashCount == o.FlashCount &&
-            MelodyCount == o.MelodyCount && Melody == o.Melody;
+            MelodyCount == o.MelodyCount && Melody == o.Melody && EffectCount == o.EffectCount && Effect == o.Effect;
     }
 
     /// <summary>Köprünün durum cevabı. Alan adları köprüdeki JSON ile aynı.</summary>
@@ -160,7 +161,8 @@ namespace ARaki.Net
                               ",\"sol\":" + s.Left + ",\"sag\":" + s.Right +
                               ",\"led\":" + B(s.Led) + ",\"dortlu\":" + B(s.Hazard) + ",\"motor_sesi\":" + B(s.EngineSound) +
                               ",\"geri_bip\":" + B(s.ReverseBeep) + ",\"k\":" + B(s.Horn) + ",\"ks\":" + s.HornStyle +
-                              ",\"fs\":" + s.FlashCount + ",\"mi\":" + s.MelodyCount + ",\"mn\":" + s.Melody + "}";
+                              ",\"fs\":" + s.FlashCount + ",\"mi\":" + s.MelodyCount + ",\"mn\":" + s.Melody +
+                              ",\"ef\":" + s.EffectCount + ",\"en\":" + s.Effect + "}";
                 var bytes = Encoding.ASCII.GetBytes(json);
                 try { udp.Send(bytes, bytes.Length, target); }
                 catch (Exception) { /* ağ yok: sonraki turda tekrar */ }

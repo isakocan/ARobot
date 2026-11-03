@@ -7,9 +7,11 @@
 //   F               selektör: ışığı iki kez yakıp söndürür, eski hâline döner
 //   H <0|1>         dörtlüler: ışık kapatılana kadar yanıp söner (L komutu da kapatır)
 //   R <0|1>         ikinci röle (pin 5, şimdilik boşta)
-//   K <ms> [ses]    korna, ms boyunca; ses: 0 düz (varsayılan), 1 kalın, 2 tiz, 3 titrek iki ton
+//   K <ms> [ses]    korna, ms boyunca; ses: 0 düz (varsayılan), 1 kalın, 2 tiz, 3 titrek iki ton,
+//                   4 dü-düt (kesik iki öttürme), 5 La Cucaracha (basınca bir kez çalar)
 //   B <hz> <ms>     tek ton bip
 //   C <n>           n. melodiyi çal (1..MELODI_SAYISI), C 0 = sustur
+//   X <n>           kısa ses efekti (EFEKTLER; EF_ sabitleri): vites, foto, kayıt, kapanış...
 //   E <0|1>         motor sesi (hıza göre perdesi değişen uğultu)
 //   V <0|1>         geri vites bipi (iki motor da geri giderken)
 //   ?               durum satırını hemen gönder
@@ -29,7 +31,9 @@
 // böylece motor, LED, buzzer ve seri port birbirini bekletmez.
 //
 // Tek buzzer var; aynı anda birden çok ses istenirse öncelik:
-//   bip > korna > melodi > geri vites bipi > motor sesi
+//   bip > korna > efekt > melodi > geri vites bipi > motor sesi
+// Kendiliğinden çalan efektler: açılışta "açılış", ilk sürücü bağlanınca / bağlantı geri gelince "bağlandı",
+// bağlantı kopunca "koptu", akım koruması devreye girince "alarm".
 
 // --- Pinler (VNH5019 shield düzeni; test edildi) ---
 const uint8_t SOL_A = 2, SOL_B = 4, SOL_PWM = 9, SOL_ARIZA = 6, SOL_AKIM = A0;   // Motor 1 = sol
@@ -64,6 +68,7 @@ const unsigned long DORTLU_ADIMI = 500;        // ms; dakikada 60 yanıp sönme 
 // Korna sesleri. Tek buzzer aynı anda iki ton çalamaz; düz tek ton kare dalga olduğu için zaten
 // pürüzlüdür ve kornaya en çok benzeyendir. 3 numara eski sesimiz: iki ton 4 ms'de bir değişir.
 const uint16_t KORNA_HZ[] = { 440, 330, 660 };
+const uint16_t DUDUT_HZ = 415;                       // 4: dü-düt (170 ms öt, 60 ms sus, 170 ms öt, 120 ms sus)
 const uint16_t KORNA_HZ_1 = 420, KORNA_HZ_2 = 500;
 const unsigned long KORNA_ADIMI = 4;                // ms
 const uint16_t GERI_BIP_HZ = 1100;
@@ -89,6 +94,7 @@ unsigned long sonKomut = 0, sonRampa = 0, sonDurum = 0, selektorZamani = 0, dort
 unsigned long bipBitis = 0, kornaBitis = 0, geriBaslangic = 0;
 uint16_t bipHz = 0;
 uint8_t kornaSesi = 0;
+unsigned long kornaBaslangic = 0;
 char satir[32];
 uint8_t uzunluk = 0;
 
@@ -160,6 +166,49 @@ const uint16_t *const MELODILER[] = {
 };
 const uint8_t MELODI_SAYISI = sizeof(MELODILER) / sizeof(MELODILER[0]);
 
+// Kısa ses efektleri (şarkı listesinde görünmez). Biçim melodilerle aynı: hz, ms çiftleri; hz 0 = sessizlik.
+const uint16_t E_ACILIS[] PROGMEM = { 523, 90, 659, 90, 784, 90, 1047, 220, 0, 0 };
+const uint16_t E_BAGLANDI[] PROGMEM = { 1047, 70, 0, 40, 1319, 130, 0, 0 };
+const uint16_t E_KOPTU[] PROGMEM = { 330, 260, 0, 0 };
+const uint16_t E_KAPANIS[] PROGMEM = { 1047, 120, 784, 120, 523, 280, 0, 0 };
+const uint16_t E_VITES[] PROGMEM = { 1800, 8, 0, 0 };
+const uint16_t E_ALARM[] PROGMEM = { 1760, 80, 0, 60, 1760, 80, 0, 60, 1760, 80, 0, 0 };
+const uint16_t E_FOTO[] PROGMEM = { 2600, 12, 0, 50, 1800, 20, 0, 0 };
+const uint16_t E_KAYIT_BASLA[] PROGMEM = { 880, 80, 1319, 130, 0, 0 };
+const uint16_t E_KAYIT_BITTI[] PROGMEM = { 1319, 80, 880, 130, 0, 0 };
+const uint16_t E_CUCARACHA[] PROGMEM = { 392, 110, 0, 20, 392, 110, 0, 20, 392, 110, 523, 220, 0, 30, 659, 300, 0, 0 };
+const uint16_t *const EFEKTLER[] = {
+  E_ACILIS, E_BAGLANDI, E_KOPTU, E_KAPANIS, E_VITES, E_ALARM, E_FOTO, E_KAYIT_BASLA, E_KAYIT_BITTI, E_CUCARACHA,
+};
+const uint8_t EF_ACILIS = 1, EF_BAGLANDI = 2, EF_KOPTU = 3, EF_KAPANIS = 4, EF_VITES = 5, EF_ALARM = 6,
+              EF_FOTO = 7, EF_KAYIT_BASLA = 8, EF_KAYIT_BITTI = 9, EF_CUCARACHA = 10;
+const uint8_t EFEKT_SAYISI = sizeof(EFEKTLER) / sizeof(EFEKTLER[0]);
+
+const uint16_t *efekt = 0;        // çalan efekt, 0 = yok
+uint16_t efektSira = 0, efektHz = 0;
+unsigned long efektBitis = 0;
+
+void efektAdim(unsigned long simdi) {
+  uint16_t hz = pgm_read_word(efekt + efektSira * 2), ms = pgm_read_word(efekt + efektSira * 2 + 1);
+  if (ms == 0) { efekt = 0; efektHz = 0; return; }
+  efektSira++;
+  efektBitis = simdi + ms;
+  efektHz = hz;
+}
+
+void efektCal(uint8_t n) {
+  efekt = 0;
+  efektHz = 0;
+  if (n < 1 || n > EFEKT_SAYISI) return;
+  efekt = EFEKTLER[n - 1];
+  efektSira = 0;
+  efektAdim(millis());
+}
+
+void efektIlerlet(unsigned long simdi) {
+  if (efekt && (long)(simdi - efektBitis) >= 0) efektAdim(simdi);
+}
+
 uint8_t melodi = 0;               // çalan melodi (1..), 0 = yok
 uint16_t notaSirasi = 0;
 uint16_t melodiHz = 0;            // melodinin şu an istediği ses (0 = sessizlik)
@@ -210,8 +259,13 @@ void sesGuncelle(unsigned long simdi) {
   uint16_t hz = 0;
   if (bipBitis && (long)(simdi - bipBitis) < 0) {
     hz = bipHz;
-  } else if (kornaBitis && (long)(simdi - kornaBitis) < 0) {
-    hz = kornaSesi < 3 ? KORNA_HZ[kornaSesi] : (simdi / KORNA_ADIMI) % 2 ? KORNA_HZ_1 : KORNA_HZ_2;
+  } else if (kornaBitis && (long)(simdi - kornaBitis) < 0 && kornaSesi != 5) {
+    if (kornaSesi == 4) {
+      unsigned long t = (simdi - kornaBaslangic) % 520;
+      hz = t < 170 || (t >= 230 && t < 400) ? DUDUT_HZ : 0;
+    } else hz = kornaSesi < 3 ? KORNA_HZ[kornaSesi] : (simdi / KORNA_ADIMI) % 2 ? KORNA_HZ_1 : KORNA_HZ_2;
+  } else if (efekt) {
+    hz = efektHz;
   } else if (melodi) {
     hz = melodiHz;
   } else if (geriBip && geriGidiyor) {
@@ -331,6 +385,7 @@ void akimKoru(unsigned long simdi) {
     korumaBitis = simdi + AKIM_BEKLEME;
     akimSolBaslangic = akimSagBaslangic = 0;
     hedefSol = hedefSag = 0;
+    efektCal(EF_ALARM);
   }
 }
 
@@ -366,8 +421,13 @@ void komutuIsle(char *k) {
       break;
     case 'K':
       if (n >= 1 && a > 0) {
+        bool yeni = !kornaBitis || (long)(simdi - kornaBitis) >= 0;   // basılı tutarken gelen yenileme değil
         kornaBitis = simdi + constrain(a, 1, 2000);
-        kornaSesi = n == 2 ? constrain(b, 0, 3) : 0;
+        kornaSesi = n == 2 ? constrain(b, 0, 5) : 0;
+        if (yeni) {
+          kornaBaslangic = simdi;
+          if (kornaSesi == 5) efektCal(EF_CUCARACHA);
+        }
       }
       break;
     case 'B':
@@ -378,6 +438,9 @@ void komutuIsle(char *k) {
       break;
     case 'C':
       if (n >= 1) melodiCal(a);
+      break;
+    case 'X':
+      if (n >= 1) efektCal(a);
       break;
     case 'E':
       if (n >= 1) motorSesi = a;
@@ -424,6 +487,7 @@ void setup() {
 
   Serial.begin(115200);
   Serial.println(F("HAZIR robot_kontrol"));
+  efektCal(EF_ACILIS);
 }
 
 void loop() {
@@ -441,6 +505,13 @@ void loop() {
     melodi = 0;
     melodiHz = 0;
     kornaBitis = bipBitis = 0;
+  }
+  // Bağlantı sesi: ilk sürücü bağlanınca / bağlantı geri gelince "bağlandı", kopunca "koptu"
+  static bool bagliydi = false;
+  bool bagli = sonSatir && !kopuk;
+  if (bagli != bagliydi) {
+    bagliydi = bagli;
+    efektCal(bagli ? EF_BAGLANDI : EF_KOPTU);
   }
   // Sürerken bağlantı koparsa dörtlüler yanar; bağlantı gelince (ya da 1 dk sonra) söner
   if (kopuk && !otoDortlu && !dortlu && sonHareket && simdi - sonHareket < BAGLANTI_ZAMAN_ASIMI + 2000) {
@@ -463,6 +534,7 @@ void loop() {
   }
 
   melodiIlerlet(simdi);
+  efektIlerlet(simdi);
   sesGuncelle(simdi);
   selektorIlerlet(simdi);
   dortluIlerlet(simdi);

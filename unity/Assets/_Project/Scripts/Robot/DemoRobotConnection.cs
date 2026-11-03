@@ -19,7 +19,11 @@ namespace ARaki.Robot
         float lastCommand, rampClock;
         bool led, hazard, engine, reverseBeep = true;
 
-        public DemoRobotConnection(BuzzerSynth buzzer) { this.buzzer = buzzer; }
+        public DemoRobotConnection(BuzzerSynth buzzer)
+        {
+            this.buzzer = buzzer;
+            buzzer.PlayEffect(fw["EF_BAGLANDI"]);   // gerçek robot da ilk sürücü bağlanınca böyle öter
+        }
 
         public string Host => "demo";
         public bool Connected => true;
@@ -41,6 +45,7 @@ namespace ARaki.Robot
                 if (s.EngineSound != previous.EngineSound) buzzer.SetEngineSound(engine = s.EngineSound);
                 if (s.ReverseBeep != previous.ReverseBeep) buzzer.SetReverseBeep(reverseBeep = s.ReverseBeep);
                 if (s.MelodyCount != previous.MelodyCount) buzzer.PlayMelody(s.Melody);
+                if (s.EffectCount != previous.EffectCount) buzzer.PlayEffect(s.Effect);
                 if (!s.Horn && previous.Horn) buzzer.Horn(1, 0);
             }
             else

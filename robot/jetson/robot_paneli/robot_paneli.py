@@ -20,6 +20,7 @@ Python 3.6 uyumlu (Ubuntu 18.04), yalnızca standart kütüphane + nmcli.
 """
 
 import json
+import urllib.request
 import os
 import subprocess
 import threading
@@ -179,6 +180,16 @@ def ap_profilini_hazirla():
     if kod != 0:
         log("kurulum profili oluşturulamadı:", cikti)
 
+
+
+def kapanis_sesi():
+    """Kapanmadan önce robot "kapanış" sesini çalsın (sürüş köprüsü Arduino'ya iletir; köprü yoksa sessiz geçer)."""
+    try:
+        istek = urllib.request.Request("http://127.0.0.1:8080/api/efekt", data=b'{"no": 4}',
+                                       headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(istek, timeout=1).close()
+    except Exception:
+        pass
 
 class Durum:
     def __init__(self):
@@ -535,7 +546,8 @@ class Istek(BaseHTTPRequestHandler):
                 return
             log("güç:", komut)
             self._json({"tamam": True})
-            threading.Timer(1.0, subprocess.run, args=(["systemctl", komut],)).start()
+            kapanis_sesi()
+            threading.Timer(1.2, subprocess.run, args=(["systemctl", komut],)).start()
             return
         if yol == "/api/ag-girisi":
             veri = self._govde()

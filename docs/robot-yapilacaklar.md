@@ -71,6 +71,8 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
   - Sayfa: voltajdan yüzde. 4S için kabaca 16,8 V = %100, 15,0 V = %0 (bizim sınırımız).
 - **Davranış:**
   - 15,3 V altında uyarı ve "dönüş" melodisi.
+  - **Düşük pil sesi** (3 Kasım ses efektleri listesinden, sensör gelince): 30 sn'de bir iki inen ton. Arduino'da
+    `EFEKTLER` tablosuna `E_PIL` olarak eklenir, `X <n>` ile ya da Arduino'nun kendisi çalar.
   - 15,0 V altında motor gücü %40'a iner, dörtlüler yanar.
   - Daha da düşerse panel Jetson'u güvenli kapatır.
 - **Oyuna bağlantı:** gerçek pil = oyundaki yakıt (CLAUDE.md'deki fikir).
