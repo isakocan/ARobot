@@ -23,7 +23,7 @@ namespace ARaki.Tests
             PlayerPrefs.SetInt(RealRobotLink.DemoKey, 0);
             yield return SceneManager.LoadSceneAsync("RealRobot");
             var link = Object.FindFirstObjectByType<RealRobotLink>();
-            var video = Object.FindFirstObjectByType<MjpegStream>();
+            var video = Object.FindFirstObjectByType<RobotVideo>();
             var drive = Object.FindFirstObjectByType<DriveController>();
             link.FindRobot();
             float t = 0f;

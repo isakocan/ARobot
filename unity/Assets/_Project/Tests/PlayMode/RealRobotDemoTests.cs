@@ -104,6 +104,11 @@ namespace ARaki.Tests
                 yield return Shot(Path.Combine(dir, "kokpit_" + side.ToString().ToLowerInvariant() + ".png"));
                 drive.TouchForward = drive.TouchTurn = 0;
             }
+            var cockpit = Object.FindFirstObjectByType<DriveCockpit>();
+            cockpit.MenuOpen = true;
+            yield return new WaitForSecondsRealtime(0.3f);
+            yield return Shot(Path.Combine(dir, "menu_acik.png"));
+            cockpit.MenuOpen = false;
             drive.SettingsOpen = true;
             yield return new WaitForSecondsRealtime(0.3f);
             yield return Shot(Path.Combine(dir, "ayarlar.png"));

@@ -256,6 +256,10 @@ def internet_dongusu():
         durum, adres = ag_girisi.internet_kontrol()
         D.internet_gecikme = int((time.time() - bas) * 1000) if durum == "var" else None
         internet_kaydet(durum, ssid)
+        # Yeni ağda internete çıkabiliyorsak ağ çalışıyordur: biri panele girmese de geçişi onayla
+        # (telefon kurulum ağında kalınca robot 5 dk sonra eski ağına dönüyordu)
+        if durum == "var" and D.onay and D.onay["ad"] == ssid:
+            gecisi_onayla()
         D.portal = adres if durum == "portal" else None
         if durum == "portal":
             D.canli_tut = None

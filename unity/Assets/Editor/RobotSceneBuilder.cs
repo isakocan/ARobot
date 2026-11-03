@@ -29,6 +29,7 @@ namespace ARaki.EditorTools
         public static void Build()
         {
             WriteFirmwareData();
+            ConfigureH264Plugins();
             // Robotla düz HTTP (kamera ayarı) ve ağ erişimi; telefonda gerekli
             PlayerSettings.insecureHttpOption = InsecureHttpOption.AlwaysAllowed;
             PlayerSettings.Android.forceInternetPermission = true;
@@ -69,7 +70,8 @@ namespace ARaki.EditorTools
             var buzzer = robotGo.AddComponent<BuzzerSynth>();
             var link = robotGo.AddComponent<RealRobotLink>();
             SceneBuilder.SetRef(link, "buzzer", buzzer);
-            var stream = robotGo.AddComponent<MjpegStream>();
+            var stream = robotGo.AddComponent<RobotVideo>();
+            SceneBuilder.SetRef(stream, "yuvShader", Shader.Find("ARaki/YuvToRgb"));
             SceneBuilder.SetRef(stream, "robot", link);
             SceneBuilder.SetRef(stream, "target", sphereRenderer);
             var mount = robotGo.AddComponent<RobotCameraMount>();
@@ -94,6 +96,92 @@ namespace ARaki.EditorTools
             EditorBuildSettings.scenes = scenes.ToArray();
             AssetDatabase.SaveAssets();
             Debug.Log("[RobotSceneBuilder] sahne hazır: " + ScenePath);
+        }
+
+        /// <summary>
+        /// Robotsuz H.264 denemesi: tools/robotsuz_deneme/kayit/goruntu.h264 kaydını OpenH264 ile çözer, son kareyi
+        /// YuvToRgb ve DualFisheye'dan geçirip ARAKI_SHOT yoluna PNG olarak kaydeder.
+        /// </summary>
+        public static void VerifyH264()
+        {
+            string file = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "tools", "robotsuz_deneme", "kayit", "goruntu.h264"));
+            string shot = System.Environment.GetEnvironmentVariable("ARAKI_SHOT") ?? "h264.png";
+            byte[] data = File.ReadAllBytes(file);
+            var starts = new List<int>();
+            for (int i = 0; i + 4 < data.Length; i++)
+                if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 0 && data[i + 3] == 1 && (data[i + 4] & 0x1F) == 9) starts.Add(i);
+            starts.Add(data.Length);
+            byte[] y = null, u = null, v = null;
+            int frames = 0;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            using (var dec = new H264Decoder())
+            {
+                for (int k = 0; k + 1 < starts.Count; k++)
+                    if (dec.Decode(data, starts[k], starts[k + 1] - starts[k], ref y, ref u, ref v)) frames++;
+                Debug.Log($"[H264] {starts.Count - 1} erişim birimi, {frames} kare çözüldü, {dec.Width}x{dec.Height} (adım {dec.StrideY}/{dec.StrideUV}), " +
+                          $"kare başına {sw.Elapsed.TotalMilliseconds / Mathf.Max(1, frames):0.0} ms");
+                EditorSceneManager.OpenScene(ScenePath);
+                Texture2D Plane(int w, int h, byte[] bytes)
+                {
+                    var t = new Texture2D(w, h, TextureFormat.R8, false, true);
+                    t.LoadRawTextureData(bytes);
+                    t.Apply();
+                    return t;
+                }
+                var mat = new Material(Shader.Find("ARaki/YuvToRgb"));
+                mat.SetTexture("_Y", Plane(dec.StrideY, dec.Height, y));
+                mat.SetTexture("_U", Plane(dec.StrideUV, dec.Height / 2, u));
+                mat.SetTexture("_V", Plane(dec.StrideUV, dec.Height / 2, v));
+                mat.SetVector("_Scale", new Vector4(dec.Width / (float)dec.StrideY, 1f, dec.Width / 2f / dec.StrideUV, 1f));
+                var rgb = new RenderTexture(dec.Width, dec.Height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                Graphics.Blit(null, rgb, mat);
+
+                var viewer = Object.FindFirstObjectByType<PanoramaViewer>();
+                var mount = Object.FindFirstObjectByType<RobotCameraMount>();
+                var sphere = GameObject.Find("Panorama").GetComponent<MeshRenderer>();
+                viewer.Bind();
+                mount.Apply();
+                sphere.sharedMaterial.SetTexture("_MainTex", rgb);
+                viewer.SetLook(0f, 4f);
+                var cam = viewer.ViewCamera;
+                var rt = new RenderTexture(1280, 720, 24);
+                cam.targetTexture = rt;
+                for (int i = 0; i < 40; i++) { cam.Render(); System.Threading.Thread.Sleep(200); if (!ShaderUtil.anythingCompiling) break; }
+                cam.Render();
+                RenderTexture.active = rt;
+                var outTex = new Texture2D(1280, 720, TextureFormat.RGB24, false);
+                outTex.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);
+                outTex.Apply();
+                File.WriteAllBytes(shot, outTex.EncodeToPNG());
+                RenderTexture.active = null;
+                cam.targetTexture = null;
+                Debug.Log("[H264] kaydedildi: " + shot);
+            }
+        }
+
+        /// <summary>OpenH264 kütüphaneleri: Windows (Editör + 64 bit oyun) ve Android ARM64.</summary>
+        static void ConfigureH264Plugins()
+        {
+            void Set(string path, System.Action<PluginImporter> configure)
+            {
+                var imp = AssetImporter.GetAtPath(path) as PluginImporter;
+                if (imp == null) { Debug.LogWarning("[RobotSceneBuilder] eklenti yok: " + path); return; }
+                imp.SetCompatibleWithAnyPlatform(false);
+                configure(imp);
+                imp.SaveAndReimport();
+            }
+            Set("Assets/Plugins/x86_64/openh264.dll", imp =>
+            {
+                imp.SetCompatibleWithEditor(true);
+                imp.SetEditorData("CPU", "x86_64");
+                imp.SetEditorData("OS", "Windows");
+                imp.SetCompatibleWithPlatform(BuildTarget.StandaloneWindows64, true);
+            });
+            Set("Assets/Plugins/Android/arm64-v8a/libopenh264.so", imp =>
+            {
+                imp.SetCompatibleWithPlatform(BuildTarget.Android, true);
+                imp.SetPlatformData(BuildTarget.Android, "CPU", "ARM64");
+            });
         }
 
         /// <summary>

@@ -72,7 +72,7 @@ namespace ARaki.Video
             var filter = sphere.GetComponent<MeshFilter>();
             if (filter.sharedMesh == null || filter.sharedMesh.name != "EquirectSphere")
                 filter.sharedMesh = EquirectSphere.Create();
-            if (source == null) return;    // gerçek robot: dokuyu ve malzemeyi MjpegStream / RobotCameraMount verir
+            if (source == null) return;    // gerçek robot: dokuyu ve malzemeyi RobotVideo / RobotCameraMount verir
             source.EnsureTargets();
             var mat = sphere.sharedMaterial;
             mat.SetTexture("_BaseMap", source.Equirect);

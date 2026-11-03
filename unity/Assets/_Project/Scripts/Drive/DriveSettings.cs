@@ -17,6 +17,7 @@ namespace ARaki.Drive
         public WheelSide Wheel = WheelSide.Left;
         public SpeedUnit Unit = SpeedUnit.KilometersPerHour;
         public int HornStyle;               // 0 düz, 1 kalın, 2 tiz, 3 titrek iki ton
+        public int Video;                   // 0 otomatik (H.264, olmazsa JPEG), 1 H.264, 2 JPEG
         public float PowerLimit = 0.6f;     // en yüksek güç (0.2..1)
         public float WheelDiameterCm = 6.5f;
         public float BatteryVolts = 14.8f;  // pil ölçümü gelene kadar 4S LiPo'nun ortalaması
@@ -39,6 +40,7 @@ namespace ARaki.Drive
             s.Wheel = (WheelSide)PlayerPrefs.GetInt("wheel", (int)s.Wheel);
             s.Unit = (SpeedUnit)PlayerPrefs.GetInt("unit", (int)s.Unit);
             s.HornStyle = PlayerPrefs.GetInt("hornStyle", s.HornStyle);
+            s.Video = PlayerPrefs.GetInt("video", s.Video);
             s.PowerLimit = PlayerPrefs.GetFloat("power", s.PowerLimit);
             s.WheelDiameterCm = PlayerPrefs.GetFloat("wheelCm", s.WheelDiameterCm);
             return s;
@@ -51,6 +53,7 @@ namespace ARaki.Drive
             PlayerPrefs.SetInt("wheel", (int)Wheel);
             PlayerPrefs.SetInt("unit", (int)Unit);
             PlayerPrefs.SetInt("hornStyle", HornStyle);
+            PlayerPrefs.SetInt("video", Video);
             PlayerPrefs.SetFloat("power", PowerLimit);
             PlayerPrefs.SetFloat("wheelCm", WheelDiameterCm);
             PlayerPrefs.Save();
