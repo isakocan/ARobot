@@ -113,8 +113,14 @@
   .vites b { font-weight: 600; }
   .vites b.aktif { color: var(--yazi); }
   .vites b.aktif.geri { color: var(--kotu); }
-  .hiz { width: 64px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
-  .hiz i { display: block; height: 100%; width: 0; background: var(--vurgu); transition: width .1s linear; }
+  .devir { width: 46px; height: 36px; overflow: visible; }
+  .devir .yay { fill: none; stroke: rgba(255,255,255,.16); stroke-width: 3; stroke-linecap: round; }
+  .devir .kirmizi { fill: none; stroke: var(--kotu); stroke-width: 3; stroke-linecap: round; opacity: .8; }
+  .devir .ibre { stroke: var(--vurgu); stroke-width: 2.2; stroke-linecap: round; transform-origin: 23px 23px; }
+  .devir text { font: 600 7px/1 var(--mono); fill: var(--soluk); text-anchor: middle; }
+  .hizgosterge { display: flex; flex-direction: column; align-items: flex-end; min-width: 38px; font-family: var(--mono); }
+  .hizgosterge b { font-size: 17px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .hizgosterge small { font-size: 9px; color: var(--soluk); letter-spacing: .06em; margin-top: 2px; }
   .lamba { width: 16px; height: 16px; color: rgba(255,255,255,.2); }
   .lamba.yanik { color: var(--sari); }
   .lamba.dortlu.yanik { color: var(--turuncu); }
@@ -226,7 +232,13 @@
   <div class="gosterge">
     <svg class="lamba" id="lIsik" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 6c-4 0-6 2.7-6 6s2 6 6 6c1.5 0 2-1 2-6s-.5-6-2-6zM16 8h5M16 12h5M16 16h5"/></svg>
     <div class="vites" id="vites"><b data-v="-1">R</b><b data-v="0">N</b><b data-v="1">1</b><b data-v="2">2</b><b data-v="3">3</b><b data-v="4">4</b></div>
-    <div class="hiz"><i id="hizCubuk"></i></div>
+    <svg class="devir" viewBox="0 0 46 36" aria-label="Devir">
+      <path class="yay" d="M6.5 32.5 A19 19 0 1 1 39.5 32.5"/>
+      <path class="kirmizi" d="M41.9 21 A19 19 0 0 1 39.5 32.5"/>
+      <line class="ibre" id="devirIbre" x1="23" y1="23" x2="23" y2="9"/>
+      <text x="23" y="34" id="devirYazi">0.9</text>
+    </svg>
+    <div class="hizgosterge" title="Tahmini hız (ayarlardan ayarlanır)"><b id="hizYazi">0,0</b><small>KM/SA</small></div>
     <svg class="lamba dortlu" id="lDortlu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l9.5 17h-19z"/><path d="M12 9.5l4.2 7.5H7.8z"/></svg>
   </div>
 </div>
@@ -264,6 +276,8 @@
     <label class="anahtar">Vites (basılı tuttukça hızlanır)<input type="checkbox" id="sVites"></label>
     <label class="anahtar">Geri vites bipi<input type="checkbox" id="sGeriBip"></label>
     <label class="anahtar">Kamera hareketi (hızlanma, fren, viraj)<input type="checkbox" id="sSalinim"></label>
+    <div class="alan"><label for="aTamHiz">Tam güçte hız <output id="oTamHiz"></output></label><input id="aTamHiz" type="range" min="0.5" max="5" step="0.1"></div>
+    <p>Göstergedeki hız tahmindir (tekerlerde sayaç yok). Robotu tam güçte 2 m sürüp süreyi ölç: 7,2 / saniye = km/sa.</p>
   </section>
   <section>
     <h2>Görüntü</h2>
@@ -339,7 +353,7 @@ baglan();
 
 // =================================================================== sürüş
 const tus = { ileri: false, geri: false, sol: false, sag: false };
-const ayarlar = { vites: tercihOku('vites', true), geriBip: tercihOku('geriBip', true), salinim: tercihOku('salinim', true), goruntu: tercihOku('goruntu', 'otomatik') };
+const ayarlar = { vites: tercihOku('vites', true), geriBip: tercihOku('geriBip', true), salinim: tercihOku('salinim', true), tamHiz: tercihOku('tamHiz', 1.5), goruntu: tercihOku('goruntu', 'otomatik') };
 
 // Vites: basılı tuttukça hız bu vitesin üst sınırına çıkar, sınıra varınca vites büyür.
 // Vites değişirken ~0,2 sn güç düşer (kavrama); bu hem görünür hem motor sesinde duyulur.
@@ -552,7 +566,7 @@ function durumCiz() {
     if (!!m.dortlu !== dortluAcik) { dortluAcik = !!m.dortlu; ikonDurum('dortlu', 'dortlu-acik', dortluAcik); }
     if (!!m.motor_sesi !== motorSesiAcik) { motorSesiAcik = !!m.motor_sesi; ikonDurum('motorSesi', 'secili', motorSesiAcik); }
     if ((m.melodi || 0) !== calanMelodi) { calanMelodi = m.melodi || 0; muzikCiz(); }
-    $('hizCubuk').style.width = Math.round(Math.max(Math.abs(m.sol), Math.abs(m.sag)) / 2.55) + '%';
+    motorGucu = (m.sol + m.sag) / 2 / 255;   // ileri bileşen; yerinde dönerken sıfır
   }
   $('tVeri').textContent = d && d.veri_kbps != null ? (d.veri_kbps / 1000).toFixed(1) + ' Mbit/s' : '—';
   $('tSinyal').textContent = d && d.sinyal != null ? d.sinyal + ' dBm' : '—';
@@ -876,6 +890,31 @@ function dokuYukle() {
 
 let sonCizim = performance.now(), direksiyonHedef = 0, direksiyonAci = 0;
 
+// Devir ve hız göstergesi. Gerçek bir motor devri yok; devir vitesin içindeki ilerlemeden üretilir:
+// vitesin alt sınırında rölanti, üst sınırında kırmızı bölgeye yakın. Vites büyüyünce ibre düşer (ETS2 gibi).
+// Hız, Arduino'nun bildirdiği gerçek motor gücünden (rampa dahil) "tam güçte hız" ayarıyla hesaplanır.
+const DEVIR_ROLANTI = 900, DEVIR_UST = 3700, DEVIR_OLCEK = 4000;
+let motorGucu = 0, gosterilenDevir = DEVIR_ROLANTI, gosterilenHiz = 0;
+function devirHesapla() {
+  const a = Math.abs(hiz);
+  if (!ayarlar.vites) return DEVIR_ROLANTI + a * (DEVIR_UST - DEVIR_ROLANTI);
+  if (vites === 0) return DEVIR_ROLANTI;
+  const ust = vites < 0 ? GERI_UST : VITES_UST[vites];
+  const alt = vites <= 1 ? 0 : VITES_UST[vites - 1] * 0.8;   // bu vitese inilen hız
+  return DEVIR_ROLANTI + (DEVIR_UST - DEVIR_ROLANTI) * Math.max(0, Math.min(1, (a - alt) / (ust - alt)));
+}
+function gostergeCiz(dt, simdi) {
+  const k = Math.min(1, dt * 10);
+  // kavrama anında devir hafif düşüp toparlanır; rölantide hafif kıpırdar
+  const hedefDevir = devirHesapla() * (simdi < kavramaBitis ? 0.85 : 1) + Math.sin(simdi / 90) * 15;
+  gosterilenDevir += (hedefDevir - gosterilenDevir) * k;
+  const oran = Math.max(0, Math.min(1, gosterilenDevir / DEVIR_OLCEK));
+  $('devirIbre').style.transform = 'rotate(' + (-120 + 240 * oran).toFixed(1) + 'deg)';
+  $('devirYazi').textContent = (gosterilenDevir / 1000).toFixed(1).replace('.', ',');
+  gosterilenHiz += (Math.abs(motorGucu) * ayarlar.tamHiz - gosterilenHiz) * k;
+  $('hizYazi').textContent = gosterilenHiz.toFixed(1).replace('.', ',');
+}
+
 // Kamera hareketi. Gerçek kamera robota sabit; bu, sürücünün başı gibi davranan bir sahte hareket:
 // hızlanınca görüntü hafif yukarı kalkar (geri yaslanma), frende ve bırakınca öne eğilir, vites
 // geçişindeki güç düşüşünde başını sallar, virajda dışa yatar, hızlıyken hafifçe titrer.
@@ -901,6 +940,7 @@ function ciz() {
   // direksiyon ve yumuşak bakış dönüşü
   direksiyonAci += (direksiyonHedef * 110 - direksiyonAci) * Math.min(1, dt * 9);
   const [salinimEgim, salinimYatma] = salinimTik(dt, simdi);
+  gostergeCiz(dt, simdi);
   $('direksiyon').style.transform = 'rotate(' + direksiyonAci.toFixed(1) + 'deg)';
   document.querySelectorAll('#vites b').forEach((b) => {
     const v = +b.dataset.v;
@@ -1024,6 +1064,12 @@ document.querySelectorAll('.panel').forEach((p) => p.addEventListener('pointerdo
 $('sVites').checked = ayarlar.vites;
 $('sGeriBip').checked = ayarlar.geriBip;
 $('sSalinim').checked = ayarlar.salinim;
+$('aTamHiz').value = ayarlar.tamHiz;
+$('oTamHiz').textContent = ayarlar.tamHiz.toFixed(1) + ' km/sa';
+$('aTamHiz').addEventListener('input', (e) => {
+  ayarlar.tamHiz = +e.target.value; tercihYaz('tamHiz', ayarlar.tamHiz);
+  $('oTamHiz').textContent = ayarlar.tamHiz.toFixed(1) + ' km/sa';
+});
 
 const ALANLAR = [['aYon', 'oYon', 'yon'], ['aEgim', 'oEgim', 'egim'], ['aYatma', 'oYatma', 'yatma']];
 function ayarCiz() { ALANLAR.forEach(([g, o, k]) => { $(g).value = ayar[k]; $(o).textContent = ayar[k] + '°'; }); }

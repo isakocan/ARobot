@@ -49,6 +49,7 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
   - **Hayalet yarış:** önceki turun AR'da yarı saydam bir robot olarak görünür, onunla yarışırsın.
 - **Parti modu:** müzik + ışık ritimle (dörtlü melodinin vuruşuna göre). Röle yıpranmasına dikkat.
 - **Telefonla bakma:** telefonun jiroskopu ile telefonu çevirince 360° görüntüde etrafa bakılır; Cardboard ile VR gözlüğü.
+- **El hareketiyle kontrol:** kameraya el sallayınca robot gelir, avuç gösterince durur, işaret parmağıyla yön. Jetson'da el iskeleti modeli (ör. MediaPipe Hands / trt_pose_hand) 360° karenin ön parçasında çalışır.
 - **Telefonu direksiyon yapmak:** telefonu yatay tutup sağa sola eğerek dönme.
 - **360° fotoğraf:** düğmeyle o anki tam kareyi indir.
 
@@ -141,6 +142,26 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
 B ile arkaya bakınca W yine robotun önüne gider. İstenirse "kameraya göre sür" seçeneği: arkaya bakarken tuşlar ters çevrilir.
 
 ## D. Uygulama (Unity) tarafı
-- `RealRobotLink`: köprünün WebSocket'ine bağlanır (`/kontrol`, `/goruntu-h264`), ya da daha düşük gecikme için Jetson'a UDP komut kanalı eklenir.
+- [x] `RealRobotLink` (3 Kasım): köprünün WebSocket'ine bağlanır, görüntü şimdilik JPEG akışından; `Scenes/RealRobot.unity`. İleride daha düşük gecikme için UDP komut kanalı.
 - **Görüntü:** H.264 Android'in donanım çözücüsü (MediaCodec) ile çözülür, 360° düzeltme aynı gölgelendirici mantığıyla Unity'de.
 - **Son kullanıcı arayüzü:** teşhis bilgileri (ms, dBm, Mbit/s, akım) gizli bir geliştirici ekranına taşınır; kullanıcı yalnızca basit durum görür.
+
+## E. Korumalar ve iyileştirmeler (bütün sistem)
+Rampa, 300 ms bekçi ve "önce sıfırdan geç" Arduino'nun çekirdeğinde (`loop` → `yaklas`): hangi yoldan gelirse gelsin (sayfa, köprünün "dur"u, bekçi) her motor komutu bunlardan geçer. Aşağıdakiler de mümkün olduğunca en alt katmana konmalı.
+
+### Arduino (ağ kopsa da çalışır)
+- **Donanım bekçisi (AVR watchdog):** `loop` bir hata yüzünden takılırsa Arduino 0,25 sn içinde kendini yeniden başlatır, motorlar durur. Parça gerekmez, birkaç satır.
+- **Sürücü arıza pini:** VNH5019 aşırı ısı / kısa devre bildirirse (pin 6 / 12) o tarafı durdur, sayfada "motor sürücü arızası". Şu an yalnızca bildiriliyor.
+- **Akım sınırı ve sıkışma:** B4.
+- **Düşük pil:** B1 ile; 15,2 V altında güç sınırı %50, 15 V'ta motorlar durur.
+- **Sıcaklık payı:** yüksek akım uzun sürerse gücü kademeli düşür (sürücü ve motor ısınmasın).
+
+### Jetson
+- **Düşük pilde güvenli kapanma:** B1 ile; kritik voltajda Jetson kendini kapatır, SD kart bozulmaz.
+- **Kamera donarsa:** birkaç saniye kare gelmezse görüntü boru hattı kendiliğinden yeniden başlar.
+- **Isı ve gerilim takibi:** `tegrastats` ile; Jetson ısınırsa ya da gerilim düşerse sayfada uyarı.
+- **SD kart ömrü:** günlükleri RAM'de tut (sürekli yazma kartı yıpratır).
+
+### Ağ
+- **Sinyale göre görüntü kalitesi:** gidip gelme süresi ya da kayıp artınca H.264 bit hızı 4 → 1,5 Mbit/s'ye iner, düzelince geri çıkar. Görüntü biraz bulanıklaşır ama donmaz ve gecikme birikmez.
+- **Sinyale göre en yüksek hız:** ağ kötüleşince güç sınırı kendiliğinden düşer; komutlar geç ulaşırken robot hızlı gitmesin.
