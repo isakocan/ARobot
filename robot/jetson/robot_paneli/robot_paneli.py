@@ -115,6 +115,25 @@ def ip_adresi():
     return ilk.split("/")[0] if ilk else ""
 
 
+def frekans():
+    """Bağlı olunan erişim noktasının frekansı (MHz), bağlı değilse None."""
+    try:
+        cikti = subprocess.run(["iw", "dev", ARAYUZ, "link"], stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, timeout=3).stdout.decode()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for satir in cikti.splitlines():
+        if satir.strip().startswith("freq:"):
+            return int(float(satir.split()[1]))
+    return None
+
+
+def bant_tercihi(ad):
+    """Profilin bant ayarı: '' (otomatik), 'bg' (2,4 GHz) ya da 'a' (5 GHz)."""
+    _, cikti = nmcli("-g", "802-11-wireless.band", "con", "show", ad)
+    return cikti.strip()
+
+
 def ag_tara():
     nmcli("dev", "wifi", "rescan", "ifname", ARAYUZ, sure=15)
     time.sleep(3)
@@ -282,6 +301,28 @@ def gecisi_geri_al():
             kurulum_modunu_ac("geri dönüş başarısız")
 
 
+def bant_degistir(bant):
+    """Bağlı ağın bandını değiştirip yeniden bağlanır; olmazsa eski ayara döner.
+    Aynı ağ adı iki bantta da yayınlanıyorsa 2,4 GHz duvardan daha iyi geçer, 5 GHz daha hızlıdır."""
+    with D.kilit:
+        ad = aktif_baglanti()
+        if not ad or ad == AP_PROFIL:
+            return
+        onceki = bant_tercihi(ad)
+        log("bant:", ad, repr(onceki), "→", repr(bant))
+        time.sleep(1.5)           # sayfaya verilen yanıt ulaşsın
+        nmcli("con", "modify", ad, "802-11-wireless.band", bant)
+        kod, cikti = nmcli("--wait", str(BAGLANMA_SURESI), "con", "up", ad, sure=BAGLANMA_SURESI + 10)
+        if kod != 0:
+            log("bu bantta bağlanılamadı:", cikti)
+            nmcli("con", "modify", ad, "802-11-wireless.band", onceki)
+            nmcli("--wait", str(BAGLANMA_SURESI), "con", "up", ad, sure=BAGLANMA_SURESI + 10)
+            D.son_hata = "“{}” bu bantta bulunamadı; önceki ayara dönüldü.".format(ad)
+        else:
+            D.son_hata = ""
+        D.son_bagli = time.time()
+
+
 def kurulum_modunu_ac(neden):
     log("kurulum ağı açılıyor:", neden)
     D.aglar = ag_tara()   # AP açılınca tarama yapılamıyor, listeyi önceden al
@@ -436,6 +477,8 @@ class Istek(BaseHTTPRequestHandler):
                 "giris_kullanici": giris["kullanici"] if giris else None,
                 "giris_hata": D.giris_hata,
                 "ip": ip_adresi() if D.mod == "istemci" else PORTAL_IP,
+                "frekans": frekans() if ag else None,
+                "bant": bant_tercihi(ag) if ag else None,
                 "kurulum_agi": ayarlar()["ssid"],
                 "aglar": aglar,
                 "son_hata": D.son_hata,
@@ -507,6 +550,17 @@ class Istek(BaseHTTPRequestHandler):
             if ssid:
                 ag_girisi.sil(ssid)
             D.giris_hata = ""
+            self._json({"tamam": True})
+            return
+        if yol == "/api/bant":
+            bant = self._govde().get("bant")
+            if bant not in ("", "bg", "a") or D.mod != "istemci":
+                self._json({"hata": "Geçersiz bant."}, 400)
+                return
+            if D.kilit.locked():
+                self._json({"hata": "Robot şu an ağ değiştiriyor."}, 409)
+                return
+            threading.Thread(target=bant_degistir, args=(bant,), daemon=True).start()
             self._json({"tamam": True})
             return
         if yol == "/api/tara" and D.mod == "istemci":

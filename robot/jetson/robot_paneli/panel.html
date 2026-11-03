@@ -121,6 +121,12 @@
   .tam { text-align: center; padding-top: 18vh; }
   .tam h1 { margin-bottom: 12px; }
   .tam p { color: var(--soluk); max-width: 340px; margin: 0 auto 10px; }
+  .sur { display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; margin-bottom: 14px; }
+  .sur svg { width: 15px; height: 15px; }
+  .bantlar { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--kart); border: 1px solid var(--cizgi); border-radius: 12px; padding: 3px; gap: 3px; }
+  .bantlar button { font: inherit; font-size: 14px; border: 0; border-radius: 9px; padding: 10px 4px; background: none; color: var(--yazi); cursor: pointer; }
+  .bantlar button.secili { background: var(--yazi); color: var(--zemin); font-weight: 600; }
+  .bantlar button:disabled { opacity: .5; cursor: default; }
   .gizli { display: none !important; }
 </style>
 </head>
@@ -140,6 +146,9 @@
       <strong id="durumYazi">Durum alınıyor…</strong>
       <small id="durumAyrinti"></small>
     </div>
+
+    <a class="dugme sur gizli" id="sur" target="_blank" rel="noopener">Robotu sür
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3h7v7M13 3 4 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
 
     <div class="kutu internet gizli" id="internet">
       <div class="net-ust">
@@ -179,6 +188,14 @@
     </div>
 
     <div id="degistirBolumu" class="gizli">
+      <div class="baslik"><h2>Wi-Fi bandı</h2></div>
+      <div class="bantlar" id="bantlar" role="group" aria-label="Wi-Fi bandı">
+        <button type="button" data-bant="">Otomatik</button>
+        <button type="button" data-bant="bg">2,4 GHz</button>
+        <button type="button" data-bant="a">5 GHz</button>
+      </div>
+      <p class="aciklama" id="bantAciklama">2,4 GHz duvarların ardına daha iyi ulaşır, 5 GHz yakında daha hızlıdır. Ağ iki bantta da yayın yapıyorsa uzak odalar için 2,4 GHz'i seç.</p>
+
       <div class="baslik"><h2>Başka ağa geç</h2></div>
       <button class="dugme ikincil" id="kurulumaGec" type="button">Robotu kurulum moduna al</button>
       <p class="aciklama" id="kurulumAciklama"></p>
@@ -368,7 +385,7 @@ function durumuCiz() {
   if (durum.mod === 'istemci' && durum.ag) {
     nokta.classList.add('iyi');
     $('durumYazi').textContent = durum.ag + ' ağına bağlı';
-    $('durumAyrinti').textContent = 'IP ' + durum.ip;
+    $('durumAyrinti').textContent = 'IP ' + durum.ip + (durum.frekans ? ' · ' + (durum.frekans < 3000 ? '2,4' : '5') + ' GHz' : '');
     $('baslik').textContent = 'Robot çevrimiçi';
     $('altyazi').textContent = 'Robot şu an bir ağa bağlı. İstersen başka bir ağa geçirebilirsin.';
     $('degistirBolumu').classList.remove('gizli');
@@ -384,6 +401,13 @@ function durumuCiz() {
     nokta.classList.add('bekle');
     $('durumYazi').textContent = 'Bağlanıyor…';
     $('durumAyrinti').textContent = durum.son_deneme || '';
+  }
+  const sur = $('sur');
+  sur.href = 'http://' + location.hostname + ':8080/';
+  sur.classList.toggle('gizli', durum.mod === 'baglaniyor');
+  for (const b of document.querySelectorAll('#bantlar button')) {
+    b.classList.toggle('secili', durum.bant === b.dataset.bant);
+    b.disabled = bantDegisiyor;
   }
   girisiCiz();
   internetiCiz();
@@ -502,6 +526,22 @@ async function robotCevapVeriyor() {
     clearTimeout(zaman);
   }
 }
+
+let bantDegisiyor = false;
+$('bantlar').addEventListener('click', async (e) => {
+  const b = e.target.closest('button');
+  if (!b || bantDegisiyor || durum.bant === b.dataset.bant) return;
+  bantDegisiyor = true;
+  $('bantAciklama').textContent = 'Robot yeniden bağlanıyor; birkaç saniye bağlantı kopabilir.';
+  durumuCiz();
+  await fetch('/api/bant', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bant: b.dataset.bant }),
+  }).catch(() => null);
+  await bekle(6000);
+  while (!(await robotCevapVeriyor())) await bekle(2000);
+  bantDegisiyor = false;
+  location.reload();
+});
 
 async function guc(islem) {
   const r = await fetch('/api/guc', {

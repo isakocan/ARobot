@@ -48,7 +48,7 @@ namespace ARaki.Video
             baseFov = viewCamera.fieldOfView;
             Bind();
             Apply();
-            source.TargetsRecreated += Bind;     // kalite değişince doku yeniden bağlanır
+            if (source != null) source.TargetsRecreated += Bind;     // kalite değişince doku yeniden bağlanır
         }
 
         void OnDestroy()
@@ -58,10 +58,11 @@ namespace ARaki.Video
 
         public void Bind()
         {
-            source.EnsureTargets();
             var filter = sphere.GetComponent<MeshFilter>();
             if (filter.sharedMesh == null || filter.sharedMesh.name != "EquirectSphere")
                 filter.sharedMesh = EquirectSphere.Create();
+            if (source == null) return;    // gerçek robot: dokuyu ve malzemeyi MjpegStream / RobotCameraMount verir
+            source.EnsureTargets();
             var mat = sphere.sharedMaterial;
             mat.SetTexture("_BaseMap", source.Equirect);
             mat.SetTextureScale("_BaseMap", Vector2.one);   // aynalama yok: UV'ler zaten doğru yönde

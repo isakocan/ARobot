@@ -14,7 +14,7 @@ ssh jetson 'systemctl --user stop surus-koprusu; ~/.local/bin/arduino-cli compil
 ```
 
 Kontrol listesi:
-- [ ] Ayarlar panelinde "Görüntü: H.264 (video)" yazıyor, veri ~4 Mbit/s.
+- [x] Yüklendi (3 Kasım). Ayarlar panelinde "Görüntü: H.264 (video)" yazıyor, veri ~4 Mbit/s, 15 fps, ping 3 ms.
 - [ ] Ölü bölge: güç %20'de robot kımıldıyor mu? Kımıldamıyorsa `OLU_BOLGE`'yi büyüt, fırlıyorsa küçült.
 - [ ] Korna kornaya benziyor mu? Değilse `KORNA_HZ_1/2` ve `KORNA_ADIMI` ile oyna (örn. 350/440 Hz, 3-8 ms).
 - [ ] Motor sesi ve vites geçişi duyuluyor mu?
@@ -30,13 +30,7 @@ Kontrol listesi:
   - Kartta iki kablo da takılı mı (MAIN/AUX)?
   - Anten 5 GHz destekliyor mu? Üstünde ya da belgesinde "2.4/5 GHz dual band" geçmeli.
   - Anten metal kasanın dışında mı?
-- 2,4 GHz deneme (duvardan daha iyi geçer):
-
-  ```bash
-  ssh -t jetson "sudo nmcli con modify EDUROAM 802-11-wireless.band bg && sudo nmcli con up EDUROAM"
-  ```
-
-  Geri almak için: `802-11-wireless.band ""`.
+- 2,4 GHz deneme (duvardan daha iyi geçer): panelde "Wi-Fi bandı" bölümünden 2,4 GHz seç. Kart (Intel 8265) iki bandı da destekliyor; okulda EDUROAM'ın 2,4 GHz yayını da görünüyor. O bantta bağlanamazsa robot eski ayara kendisi döner.
 - Doğrudan bağlantı: panelden "Robotu kurulum moduna al", bilgisayarı `Robot-A78C` ağına bağla, `http://10.42.0.1:8080`. Aynı gecikme ve menzil ölçümünü yap.
 - Sonuçları karşılaştır: sinyal (dBm, ayarlar panelinde), gidip gelme (ms), kaç metrede/hangi duvarda koptuğu.
 
@@ -49,7 +43,10 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
 
 ### A6. Hız sabitleyici, kayıt ve tekrar (yazılım fikirleri)
 - **Hız sabitleyici:** C tuşu o anki hızı tutar, tuşa basmadan gider.
-- **Sürüşü kaydet ve tekrar oynat:** sayfa gönderdiği komutları zamanlarıyla saklar, "tekrar" deyince aynı yolu sürer. Encoder olmadığı için kayma birikir; kısa yollarda eğlenceli.
+- **Sürüşü kaydet ve tekrar oynat:** sayfa gönderdiği komutları zamanlarıyla saklar, "tekrar" deyince aynı yolu sürer. Encoder olmadığı için kayma birikir; kısa yollarda eğlenceli. Senaryolar:
+  - **Üsse otomatik dönüş:** pil azalınca robot geldiği yolu tersten sürüp üsse döner. Kayma birikeceği için son metrelerde kamera üssü (ArUco işareti) görüp yerleşmeli.
+  - **Devriye:** kaydedilen bir yolu robot tekrar tekrar sürer, sen kameradan izlersin (ev bekçisi).
+  - **Hayalet yarış:** önceki turun AR'da yarı saydam bir robot olarak görünür, onunla yarışırsın.
 - **Parti modu:** müzik + ışık ritimle (dörtlü melodinin vuruşuna göre). Röle yıpranmasına dikkat.
 - **Telefonla bakma:** telefonun jiroskopu ile telefonu çevirince 360° görüntüde etrafa bakılır; Cardboard ile VR gözlüğü.
 - **Telefonu direksiyon yapmak:** telefonu yatay tutup sağa sola eğerek dönme.

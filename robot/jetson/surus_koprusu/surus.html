@@ -263,6 +263,7 @@
     <h2>Sürüş</h2>
     <label class="anahtar">Vites (basılı tuttukça hızlanır)<input type="checkbox" id="sVites"></label>
     <label class="anahtar">Geri vites bipi<input type="checkbox" id="sGeriBip"></label>
+    <label class="anahtar">Kamera hareketi (hızlanma, fren, viraj)<input type="checkbox" id="sSalinim"></label>
   </section>
   <section>
     <h2>Görüntü</h2>
@@ -338,7 +339,7 @@ baglan();
 
 // =================================================================== sürüş
 const tus = { ileri: false, geri: false, sol: false, sag: false };
-const ayarlar = { vites: tercihOku('vites', true), geriBip: tercihOku('geriBip', true), goruntu: tercihOku('goruntu', 'otomatik') };
+const ayarlar = { vites: tercihOku('vites', true), geriBip: tercihOku('geriBip', true), salinim: tercihOku('salinim', true), goruntu: tercihOku('goruntu', 'otomatik') };
 
 // Vites: basılı tuttukça hız bu vitesin üst sınırına çıkar, sınıra varınca vites büyür.
 // Vites değişirken ~0,2 sn güç düşer (kavrama); bu hem görünür hem motor sesinde duyulur.
@@ -353,6 +354,7 @@ const KAVRAMA_MS = 200, KAVRAMA = 0.55;
 const DONUS_EN_AZ = 0.6, IC_TEKER = -0.25, YERINDE = 0.8;
 
 let hiz = 0, vites = 0, kavramaBitis = 0, sonTik = performance.now();
+let cikis = 0, ivme = 0;    // kavrama dahil ileri/geri güç ve süzülmüş değişim hızı (kamera hareketi için)
 let sonGonderilen = '0,0', sonGonderimZamani = 0;
 
 function vitesTik(dt, simdi) {
@@ -397,6 +399,8 @@ function surusTik() {
   const dt = Math.min(0.1, (simdi - sonTik) / 1000);
   sonTik = simdi;
   const f = vitesTik(dt, simdi);
+  ivme += ((f - cikis) / Math.max(dt, 0.004) - ivme) * Math.min(1, dt * 8);
+  cikis = f;
   const t = (tus.sag ? 1 : 0) - (tus.sol ? 1 : 0);
   const guc = $('guc').value / 100;
   let [sol, sag] = karistir(f, t).map((x) => Math.round(x * guc * 255));
@@ -466,6 +470,7 @@ function vitesAyarla(acik) {
   ayarlar.vites = acik; tercihYaz('vites', acik); $('sVites').checked = acik;
 }
 $('sVites').addEventListener('change', (e) => vitesAyarla(e.target.checked));
+$('sSalinim').addEventListener('change', (e) => { ayarlar.salinim = e.target.checked; tercihYaz('salinim', e.target.checked); });
 $('sGeriBip').addEventListener('change', (e) => {
   ayarlar.geriBip = e.target.checked; tercihYaz('geriBip', e.target.checked);
   gonder({ t: 'geri_bip', acik: e.target.checked });
@@ -870,12 +875,32 @@ function dokuYukle() {
 }
 
 let sonCizim = performance.now(), direksiyonHedef = 0, direksiyonAci = 0;
+
+// Kamera hareketi. Gerçek kamera robota sabit; bu, sürücünün başı gibi davranan bir sahte hareket:
+// hızlanınca görüntü hafif yukarı kalkar (geri yaslanma), frende ve bırakınca öne eğilir, vites
+// geçişindeki güç düşüşünde başını sallar, virajda dışa yatar, hızlıyken hafifçe titrer.
+// Her eksen bir yay + amortisör: hedefe gider, biraz geçer, yerine oturur (ağırlık hissi).
+const SALINIM_EGIM = 3, SALINIM_EGIM_UST = 4;    // derece / (güç/sn), en çok derece
+const SALINIM_YATMA = 2.5, TITREME = 0.12;       // derece
+const salinim = { egim: 0, egimHiz: 0, yatma: 0, yatmaHiz: 0 };
+function salinimTik(dt, simdi) {
+  const s = salinim, acik = ayarlar.salinim && mod === '360';
+  const hedefEgim = acik ? Math.max(-SALINIM_EGIM_UST, Math.min(SALINIM_EGIM_UST, ivme * SALINIM_EGIM)) : 0;
+  const hedefYatma = acik ? direksiyonHedef * Math.min(1, Math.abs(cikis) * 2) * SALINIM_YATMA : 0;
+  s.egimHiz += ((hedefEgim - s.egim) * 70 - s.egimHiz * 10) * dt;
+  s.egim += s.egimHiz * dt;
+  s.yatmaHiz += ((hedefYatma - s.yatma) * 45 - s.yatmaHiz * 9) * dt;
+  s.yatma += s.yatmaHiz * dt;
+  const titreme = acik ? Math.abs(cikis) * TITREME * Math.sin(simdi * 0.09) * Math.sin(simdi * 0.023) : 0;
+  return [s.egim + titreme, s.yatma];   // egim: + = yukarı bak (bakisCiz'de pitch + aşağıdır)
+}
 function ciz() {
   requestAnimationFrame(ciz);
   const simdi = performance.now(), dt = Math.min(0.1, (simdi - sonCizim) / 1000);
   sonCizim = simdi;
   // direksiyon ve yumuşak bakış dönüşü
   direksiyonAci += (direksiyonHedef * 110 - direksiyonAci) * Math.min(1, dt * 9);
+  const [salinimEgim, salinimYatma] = salinimTik(dt, simdi);
   $('direksiyon').style.transform = 'rotate(' + direksiyonAci.toFixed(1) + 'deg)';
   document.querySelectorAll('#vites b').forEach((b) => {
     const v = +b.dataset.v;
@@ -902,7 +927,7 @@ function ciz() {
     return;
   }
   gl.uniform1f(uHam, 0);
-  bakisCiz(bakYaw, bakPitch, gorusAcisi, 0, 0, w, h, false);
+  bakisCiz(bakYaw, bakPitch - salinimEgim, gorusAcisi, 0, 0, w, h, false, salinimYatma);
   if (aynalar) {
     // Aynalar sürücünün baktığı yöne göre: soldaki o yönün sol-arkasını, sağdaki sağ-arkasını gösterir
     gl.enable(gl.SCISSOR_TEST);
@@ -918,11 +943,12 @@ function ciz() {
 }
 requestAnimationFrame(ciz);
 
-// yaw/pitch: robota göre bakış (derece), gorus: dikey görüş açısı, ayna: soldan sağa ters çevir
-function bakisCiz(yaw, pitch, gorus, x, y, w, h, ayna) {
+// yaw/pitch: robota göre bakış (derece), gorus: dikey görüş açısı, ayna: soldan sağa ters çevir,
+// yatma: bakış ekseni etrafında dönme (derece; kamera hareketi için)
+function bakisCiz(yaw, pitch, gorus, x, y, w, h, ayna, yatma = 0) {
   gl.viewport(x, y, w, h);
   const takilis = carp(carp(Rz(ayar.yatma * RAD), Rx(ayar.egim * RAD)), Ry(ayar.yon * RAD));
-  const bakis = carp(takilis, carp(Ry(yaw * RAD), Rx(pitch * RAD)));
+  const bakis = carp(takilis, carp(carp(Ry(yaw * RAD), Rx(pitch * RAD)), Rz(yatma * RAD)));
   gl.uniformMatrix3fv(uBakis, false, devrik(bakis));
   const ty = Math.tan(gorus * RAD / 2);
   gl.uniform2f(uOlcek, (ayna ? -1 : 1) * ty * w / h, ty);
@@ -997,6 +1023,7 @@ document.querySelectorAll('.panel').forEach((p) => p.addEventListener('pointerdo
 
 $('sVites').checked = ayarlar.vites;
 $('sGeriBip').checked = ayarlar.geriBip;
+$('sSalinim').checked = ayarlar.salinim;
 
 const ALANLAR = [['aYon', 'oYon', 'yon'], ['aEgim', 'oEgim', 'egim'], ['aYatma', 'oYatma', 'yatma']];
 function ayarCiz() { ALANLAR.forEach(([g, o, k]) => { $(g).value = ayar[k]; $(o).textContent = ayar[k] + '°'; }); }
