@@ -34,7 +34,8 @@ namespace ARaki.Drive
             public Action Press;
             public Action<bool> Hold;
             public Func<bool> Lit;
-            public Image Back;
+            public Graphic Back;
+            public VectorShape Icon;
             public Func<string> Dynamic;
             public int Pointer = int.MinValue;
         }
@@ -47,7 +48,8 @@ namespace ARaki.Drive
         bool dirty = true;
         string layoutKey = "";
 
-        RectTransform wheelRt, rpmBar, menuRoot, settingsRoot, musicRoot;
+        RectTransform wheelRt, tachNeedle, speedNeedle, menuRoot, settingsRoot, musicRoot;
+        float speedMax;
         bool menuOpen;
         Text gearText, speedText, statusText, toastText, centerText, songText, recText, warnText;
         Text lampLight, lampHazard, lampEngine, settingsInfo;
@@ -85,14 +87,17 @@ namespace ARaki.Drive
             content.pivot = Vector2.zero;
             var s = drive.Settings;
 
-            // Yarım kokpit: torpido ve sütun yok, görüntü açık. Köşede direksiyonun yalnız ince üst yayı, içinde
-            // küçük gösterge kapsülü (vites, hız, devir çubuğu); üstte küçük iç ayna, yanlarda küçük yan aynalar.
-            // Düğmeler sağ altta tek bir MENÜ'nün arkasında; korna her zaman elde.
-            float wheelX = s.Wheel == WheelSide.Left ? W / 2f - 300f : s.Wheel == WheelSide.Right ? W / 2f + 300f : W / 2f;
+            // Düzen (kullanıcının seçimi): alt köşede yarısı görünen tam direksiyon, içinden görünen iki ibreli saat
+            // (devir, hız), üstte iç ayna, yan aynalar kenarlarda orta yükseklikte; düğmeler sağ altta büyük
+            // MENÜ'nün arkasında, korna her zaman görünür. Torpido ve sütun yok, görüntü açık kalır.
+            float wheelX = s.Wheel == WheelSide.Left ? W / 2f - 330f : s.Wheel == WheelSide.Right ? W / 2f + 330f : W / 2f;
             float clusterX = s.Cockpit ? wheelX : W / 2f;
-            const float wheelY = -78f, clusterY = 26f;
+            const float wheelY = 34f, clusterY = 102f, dialR = 34f, dialDx = 50f;
 
-            // direksiyon: merkezi ekranın çok altında, yalnız üst yayı görünür
+            var body = Shape("Gövde", content);
+            if (!s.Cockpit) body.RoundRect(new Rect(clusterX - 104f, clusterY - 44f, 208f, 88f), 18f, new Color(0.03f, 0.035f, 0.04f, 0.55f));
+
+            // direksiyon
             if (s.Cockpit)
             {
                 var wheel = Shape("Direksiyon", content);
@@ -100,46 +105,49 @@ namespace ARaki.Drive
                 wheelRt.anchorMin = wheelRt.anchorMax = Vector2.zero;
                 wheelRt.anchoredPosition = V(wheelX, wheelY);
                 wheelRt.sizeDelta = Vector2.zero;
-                var rim = new Color(0.06f, 0.065f, 0.075f, 0.88f);
-                wheel.Arc(Vector2.zero, 136f, 146f, 0f, 360f, rim, 120);
-                wheel.Arc(Vector2.zero, 144f, 146f, 0f, 360f, new Color(1f, 1f, 1f, 0.12f), 120);
-                foreach (float a in new[] { 90f, 270f })
+                var rim = new Color(0.07f, 0.075f, 0.085f, 0.94f);
+                wheel.Arc(Vector2.zero, 132f, 150f, 0f, 360f, rim, 120);
+                wheel.Arc(Vector2.zero, 147f, 150f, 0f, 360f, new Color(1f, 1f, 1f, 0.14f), 120);
+                wheel.Arc(Vector2.zero, 132f, 134f, 0f, 360f, new Color(0f, 0f, 0f, 0.5f), 120);
+                foreach (float a in new[] { 90f, 270f, 180f })
                 {
                     float r = a * Mathf.Deg2Rad;
-                    wheel.Line(Vector2.zero, new Vector2(Mathf.Sin(r), Mathf.Cos(r)) * 138f, 10f, rim);
+                    wheel.Line(Vector2.zero, new Vector2(Mathf.Sin(r), Mathf.Cos(r)) * 136f, 18f, rim);
                 }
-                wheel.Arc(Vector2.zero, 136f, 146f, -2.5f, 2.5f, Accent);   // tepe işareti
+                wheel.Disc(Vector2.zero, 32f, Hex("#22262B"), Hex("#121417"));
+                wheel.Arc(Vector2.zero, 32f, 34f, 0f, 360f, new Color(1f, 1f, 1f, 0.12f));
+                wheel.Arc(Vector2.zero, 132f, 150f, -3f, 3f, Accent);   // tepe işareti
             }
             else wheelRt = null;
 
-            // gösterge kapsülü: vites | hız + birim, altında ince devir çubuğu
-            var capsule = Shape("Gösterge", content);
-            capsule.RoundRect(new Rect(clusterX - 66f, clusterY - 18f, 132f, 40f), 12f, new Color(0.03f, 0.035f, 0.04f, 0.7f));
-            gearText = Label(content, "N", mono, 22, Text, TextAnchor.MiddleCenter, V(clusterX - 42f, clusterY + 4f), V(30, 26));
-            speedText = Label(content, "0,0", mono, 22, Text, TextAnchor.MiddleRight, V(clusterX + 12f, clusterY + 4f), V(60, 26));
-            Label(content, s.Unit == SpeedUnit.KilometersPerHour ? "km/sa" : "m/sn", font, 11, Dim, TextAnchor.MiddleLeft,
-                  V(clusterX + 66f - 22f, clusterY + 2f), V(40, 14));
-            capsule.RoundRect(new Rect(clusterX - 54f, clusterY - 12f, 108f, 3f), 1.5f, new Color(1f, 1f, 1f, 0.14f));
-            capsule.RoundRect(new Rect(clusterX - 54f + 108f * 0.85f, clusterY - 12f, 108f * 0.15f, 3f), 1.5f, new Color(Red.r, Red.g, Red.b, 0.5f));
-            rpmBar = Rt("Devir", content, V(clusterX - 54f, clusterY - 12f), V(0f, 3f));
-            rpmBar.gameObject.AddComponent<Image>().color = Accent;
-            // lambalar: kapsülün üstünde küçük
-            lampLight = Label(content, "IŞIK", font, 11, Dim, TextAnchor.MiddleCenter, V(clusterX - 44f, clusterY + 34f), V(40, 14));
-            lampHazard = Label(content, "DÖRTLÜ", font, 11, Dim, TextAnchor.MiddleCenter, V(clusterX, clusterY + 34f), V(48, 14));
-            lampEngine = Label(content, "MOTOR", font, 11, Dim, TextAnchor.MiddleCenter, V(clusterX + 44f, clusterY + 34f), V(40, 14));
+            // ibreli saatler: direksiyonun üst boşluğundan görünür
+            Dial(body, V(clusterX - dialDx, clusterY), dialR, 4f, 1f, 3.4f, out tachNeedle);
+            speedMax = s.Unit == SpeedUnit.KilometersPerHour ? 3f : 0.8f;
+            Dial(body, V(clusterX + dialDx, clusterY), dialR, speedMax, s.Unit == SpeedUnit.KilometersPerHour ? 1f : 0.2f, -1f, out speedNeedle);
+            gearText = Label(content, "N", mono, 16, Text, TextAnchor.MiddleCenter, V(clusterX - dialDx, clusterY - 16f), V(24, 18));
+            speedText = Label(content, "0,0", mono, 12, Text, TextAnchor.MiddleCenter, V(clusterX + dialDx, clusterY - 15f), V(40, 14));
+            Label(content, s.Unit == SpeedUnit.KilometersPerHour ? "km/sa" : "m/sn", font, 9, Dim, TextAnchor.MiddleCenter,
+                  V(clusterX + dialDx, clusterY - 25f), V(40, 10));
+            // lambalar: saatlerin üstünde
+            lampLight = Label(content, "IŞIK", font, 11, Dim, TextAnchor.MiddleCenter, V(clusterX - 46f, clusterY + 46f), V(40, 14));
+            lampHazard = Label(content, "DÖRTLÜ", font, 11, Dim, TextAnchor.MiddleCenter, V(clusterX, clusterY + 49f), V(48, 14));
+            lampEngine = Label(content, "MOTOR", font, 11, Dim, TextAnchor.MiddleCenter, V(clusterX + 46f, clusterY + 46f), V(40, 14));
             foreach (var l in new[] { lampLight, lampHazard, lampEngine }) UiShadow(l);
 
-            // sağ alt: korna ve menü; menü açılınca üstünde düğme ızgarası
-            var pill = new Color(0.03f, 0.035f, 0.04f, 0.62f);
+            // sağ alt: büyük KORNA ve MENÜ; menü açılınca üstünde simgeli düğmeler
             float mx = W - 24f;
-            Button("MENÜ", new Rect(mx - 84f, 14f, 84f, 36f), () => { menuOpen = !menuOpen; drive.MusicMenuOpen = drive.SettingsOpen = false; }, null, () => menuOpen, 13);
-            Button("KORNA", new Rect(mx - 84f - 8f - 92f, 14f, 92f, 36f), null, held => drive.TouchHorn = held, null, 13);
-            songText = Label(content, "", font, 13, Text, TextAnchor.MiddleRight, V(mx - 160f, 64f), V(320, 16));
+            Button("MENÜ", new Rect(mx - 78f, 16f, 78f, 78f), () => { menuOpen = !menuOpen; drive.MusicMenuOpen = drive.SettingsOpen = false; },
+                   null, () => menuOpen, 13, icon: "menu");
+            Button("KORNA", new Rect(mx - 78f - 10f - 78f, 16f, 78f, 78f), null, held => drive.TouchHorn = held, null, 13, icon: "korna");
+            songText = Label(content, "", font, 14, Text, TextAnchor.MiddleRight, V(mx - 170f, 108f), V(340, 18));
             UiShadow(songText);
-            menuRoot = Rt("Menü", content, V(mx - 284f, 56f), V(284f, 112f));
+            const float bw = 100f, bh = 78f, gap = 8f;
+            float mw = 3 * bw + 4 * gap, mh = 3 * bh + 4 * gap;
+            menuRoot = Rt("Menü", content, V(mx - mw, 104f), V(mw, mh));
             var menuBg = Shape("Zemin", menuRoot);
-            menuBg.RoundRect(new Rect(0, 0, 284f, 112f), 12f, pill);
+            menuBg.RoundRect(new Rect(0, 0, mw, mh), 16f, new Color(0.03f, 0.035f, 0.04f, 0.82f));
             string[] names = { "IŞIK", "SELEKTÖR", "DÖRTLÜ", "MOTOR SESİ", "MÜZİK", "FOTO", "VİDEO", "GÜÇ", "AYARLAR" };
+            string[] icons = { "isik", "selektor", "dortlu", "motor", "muzik", "foto", "video", "guc", "ayar" };
             Action[] acts = { drive.ToggleLight, drive.Flash, drive.ToggleHazard, drive.ToggleEngineSound,
                               () => { drive.MusicMenuOpen = !drive.MusicMenuOpen; drive.SettingsOpen = false; menuOpen = false; },
                               drive.Photo, drive.Video, () => drive.ChangePower(drive.Settings.PowerLimit >= 0.99f ? -0.8f : 0.1f),
@@ -149,24 +157,24 @@ namespace ARaki.Drive
             for (int i = 0; i < names.Length; i++)
             {
                 int col = i % 3, row = i / 3;
-                Button(names[i], new Rect(mx - 284f + 8f + col * 90f, 56f + 112f - 8f - 30f - row * 34f, 86f, 30f), acts[i], null, lits[i], 12,
-                       TextAnchor.MiddleCenter, menuRoot);
+                Button(names[i], new Rect(mx - mw + gap + col * (bw + gap), 104f + mh - gap - bh - row * (bh + gap), bw, bh), acts[i], null, lits[i], 12,
+                       TextAnchor.MiddleCenter, menuRoot, icon: icons[i]);
             }
             menuRoot.gameObject.SetActive(false);
 
-            // aynalar: küçük, ince çerçeve
+            // aynalar: iç ayna üstte, yan aynalar kenarlarda orta yükseklikte
             if (s.Cockpit && s.Mirrors)
             {
-                rearImg = Mirror("İç ayna", new Rect(W / 2f - 100f, H - 12f - 48f, 200f, 48f), rearRt, true);
-                leftImg = Mirror("Sol ayna", new Rect(16f, 150f, 92f, 56f), leftRt, true);
-                rightImg = Mirror("Sağ ayna", new Rect(W - 108f, 150f, 92f, 56f), rightRt, true);
+                rearImg = Mirror("İç ayna", new Rect(W / 2f - 115f, H - 12f - 54f, 230f, 54f), rearRt, true);
+                leftImg = Mirror("Sol ayna", new Rect(14f, H / 2f - 20f, 116f, 70f), leftRt, true);
+                rightImg = Mirror("Sağ ayna", new Rect(W - 130f, H / 2f - 20f, 116f, 70f), rightRt, true);
             }
             else rearImg = leftImg = rightImg = null;
 
             // durum ve bildirimler
-            statusText = Label(content, "", mono, 14, Text, TextAnchor.MiddleRight, V(W / 2f - 260f, H - 28f), V(290, 18));
+            statusText = Label(content, "", mono, 14, Text, TextAnchor.MiddleRight, V(W / 2f - 270f, H - 28f), V(290, 18));
             UiShadow(statusText);
-            recText = Label(content, "", font, 16, Red, TextAnchor.MiddleLeft, V(W / 2f + 260f, H - 28f), V(290, 18));
+            recText = Label(content, "", font, 16, Red, TextAnchor.MiddleLeft, V(W / 2f + 270f, H - 28f), V(290, 18));
             UiShadow(recText);
             toastText = Label(content, "", font, 20, Text, TextAnchor.MiddleCenter, V(W / 2f, H - 100f), V(700, 30));
             UiShadow(toastText);
@@ -178,10 +186,10 @@ namespace ARaki.Drive
             // dokunmatik sürüş: solda yön, sağda pedallar
             if (s.TouchControls)
             {
-                Button("SOL", new Rect(24f, 230f, 76f, 76f), null, h => drive.TouchTurn = h ? -1 : (drive.TouchTurn == -1 ? 0 : drive.TouchTurn), null, 18);
-                Button("SAĞ", new Rect(108f, 230f, 76f, 76f), null, h => drive.TouchTurn = h ? 1 : (drive.TouchTurn == 1 ? 0 : drive.TouchTurn), null, 18);
-                Button("GAZ", new Rect(W - 100f, 230f, 76f, 120f), null, h => drive.TouchForward = h ? 1 : (drive.TouchForward == 1 ? 0 : drive.TouchForward), null, 16);
-                Button("FREN", new Rect(W - 186f, 230f, 76f, 90f), null, h => drive.TouchForward = h ? -1 : (drive.TouchForward == -1 ? 0 : drive.TouchForward), null, 16);
+                Button("SOL", new Rect(24f, 220f, 80f, 80f), null, h => drive.TouchTurn = h ? -1 : (drive.TouchTurn == -1 ? 0 : drive.TouchTurn), null, 18);
+                Button("SAĞ", new Rect(112f, 220f, 80f, 80f), null, h => drive.TouchTurn = h ? 1 : (drive.TouchTurn == 1 ? 0 : drive.TouchTurn), null, 18);
+                Button("GAZ", new Rect(W - 104f, 220f, 80f, 120f), null, h => drive.TouchForward = h ? 1 : (drive.TouchForward == 1 ? 0 : drive.TouchForward), null, 16);
+                Button("FREN", new Rect(W - 192f, 220f, 80f, 90f), null, h => drive.TouchForward = h ? -1 : (drive.TouchForward == -1 ? 0 : drive.TouchForward), null, 16);
             }
 
             BuildMusicMenu();
@@ -191,6 +199,32 @@ namespace ARaki.Drive
         }
 
         string Key() => W + "|" + drive.Settings.Wheel + drive.Settings.Cockpit + drive.Settings.Mirrors + drive.Settings.TouchControls + drive.Settings.Unit;
+
+        void Dial(VectorShape body, Vector2 c, float r, float max, float step, float redFrom, out RectTransform needle)
+        {
+            body.Disc(c, r + 3f, new Color(1f, 1f, 1f, 0.14f), new Color(1f, 1f, 1f, 0.06f));
+            body.Disc(c, r, new Color(0.05f, 0.055f, 0.065f, 0.92f), new Color(0.02f, 0.022f, 0.026f, 0.95f));
+            if (redFrom > 0f) body.Arc(c, r - 4f, r - 1f, Angle(redFrom, max), Angle(max, max), Red);
+            for (float v = 0f; v <= max + 0.001f; v += step / 2f)
+            {
+                bool major = Mathf.Abs(v / step - Mathf.Round(v / step)) < 0.01f;
+                float a = Angle(v, max) * Mathf.Deg2Rad;
+                var d = new Vector2(Mathf.Sin(a), Mathf.Cos(a));
+                body.Line(c + d * (r - (major ? 6f : 3.5f)), c + d * (r - 1f), major ? 1.6f : 1f, major ? Text : Dim);
+                if (major)
+                    Label(content, step < 1f ? v.ToString("0.0").Replace('.', ',') : v.ToString("0"), mono, 10, Dim,
+                          TextAnchor.MiddleCenter, c + d * (r - 13f), V(24, 12));
+            }
+            var n = Shape("İbre", content);
+            needle = (RectTransform)n.transform;
+            needle.anchorMin = needle.anchorMax = Vector2.zero;
+            needle.anchoredPosition = c;
+            needle.sizeDelta = Vector2.zero;
+            n.Line(V(0, -3f), V(0, r - 5f), 2f, Accent);
+            n.Disc(Vector2.zero, 3.5f, Hex("#2E3237"), Hex("#2E3237"), 16);
+        }
+
+        static float Angle(float v, float max) => -130f + 260f * Mathf.Clamp01(v / max);
 
         RawImage Mirror(string name, Rect r, RenderTexture rt, bool flip)
         {
@@ -326,7 +360,9 @@ namespace ARaki.Drive
                 wheelAngle = Mathf.Lerp(wheelAngle, model.Steer * 100f, Mathf.Min(1f, Time.unscaledDeltaTime * 8f));
                 wheelRt.localRotation = Quaternion.Euler(0f, 0f, -wheelAngle);
             }
-            rpmBar.sizeDelta = V(108f * Mathf.Clamp01(drive.Rpm / DriveModel.ScaleRpm), 3f);
+            tachNeedle.localRotation = Quaternion.Euler(0f, 0f, -Angle(drive.Rpm / 1000f, 4f));
+            float shown = s.Unit == SpeedUnit.KilometersPerHour ? drive.SpeedMs * 3.6f : drive.SpeedMs;
+            speedNeedle.localRotation = Quaternion.Euler(0f, 0f, -Angle(shown, speedMax));
             menuRoot.gameObject.SetActive(menuOpen);
             speedText.text = s.FormatSpeed(drive.SpeedMs, out _);
             gearText.text = model.Gear < 0 ? "R" : model.Gear == 0 ? "N" : s.Gears ? model.Gear.ToString() : "D";
@@ -367,8 +403,9 @@ namespace ARaki.Drive
                 if (b.Back == null) continue;
                 bool on = b.Lit != null && b.Lit() || b.Pointer != int.MinValue;
                 // koyu cam: açık renkli görüntünün üstünde de okunur
-                b.Back.color = on ? new Color(Accent.r * 0.45f, Accent.g * 0.45f, Accent.b * 0.45f, 0.78f) : new Color(0.03f, 0.035f, 0.04f, 0.6f);
+                b.Back.color = on ? new Color(Accent.r * 0.42f, Accent.g * 0.42f, Accent.b * 0.42f, 0.86f) : ButtonOff;
                 b.Label.color = on ? Accent : Text;
+                if (b.Icon != null) b.Icon.color = b.Label.color;
                 if (b.Dynamic != null) b.Label.text = b.Dynamic();
             }
             UpdateMirrors();
@@ -486,17 +523,96 @@ namespace ARaki.Drive
         // ---------------------------------------------------------------- yardımcılar
 
         void Button(string text, Rect r, Action press, Action<bool> hold, Func<bool> lit, int size = 13,
-                    TextAnchor align = TextAnchor.MiddleCenter, RectTransform parent = null, Func<string> dynamic = null)
+                    TextAnchor align = TextAnchor.MiddleCenter, RectTransform parent = null, Func<string> dynamic = null, string icon = null)
         {
             parent = parent != null ? parent : content;
             Vector2 origin = parent == content ? Vector2.zero : ((RectTransform)parent).anchoredPosition;
             var rt = Rt("Düğme " + text, parent, r.position - origin, r.size);
-            var back = rt.gameObject.AddComponent<Image>();
-            back.color = new Color(0.03f, 0.035f, 0.04f, 0.6f);
-            back.raycastTarget = false;
-            var label = Label(rt, text, font, size, Text, align, align == TextAnchor.MiddleLeft ? V(r.width / 2f + 8f, r.height / 2f) : r.size / 2f,
+            float radius = Mathf.Min(12f, r.height / 2f);
+            // ince açık çerçeve + koyu cam: açık renkli görüntünün üstünde de belli olur
+            var border = Shape("Çerçeve", rt);
+            border.RoundRect(new Rect(0, 0, r.width, r.height), radius, new Color(1f, 1f, 1f, 0.26f));
+            var back = Shape("Zemin", rt);
+            back.RoundRect(new Rect(1.5f, 1.5f, r.width - 3f, r.height - 3f), radius - 1.5f, Color.white);
+            back.color = ButtonOff;
+            VectorShape ic = null;
+            Text label;
+            if (icon != null)
+            {
+                ic = Shape("Simge", rt);
+                Icon(ic, icon, V(r.width / 2f, r.height / 2f + 9f), Mathf.Min(r.width, r.height) * 0.22f);
+                label = Label(rt, text, font, size, Text, TextAnchor.MiddleCenter, V(r.width / 2f, 14f), V(r.width, 16));
+            }
+            else
+                label = Label(rt, text, font, size, Text, align, align == TextAnchor.MiddleLeft ? V(r.width / 2f + 8f, r.height / 2f) : r.size / 2f,
                               align == TextAnchor.MiddleLeft ? r.size - V(16, 0) : r.size);
-            buttons.Add(new Btn { Rt = rt, Label = label, Press = press, Hold = hold, Lit = lit, Back = back, Dynamic = dynamic });
+            buttons.Add(new Btn { Rt = rt, Label = label, Press = press, Hold = hold, Lit = lit, Back = back, Icon = ic, Dynamic = dynamic });
+        }
+
+        static readonly Color ButtonOff = new Color(0.03f, 0.035f, 0.04f, 0.72f);
+
+        /// <summary>Basit çizgi simgeler (beyaz; düğme rengine boyanır). c merkez, r yarı boy.</summary>
+        static void Icon(VectorShape s, string kind, Vector2 c, float r)
+        {
+            Color w = Color.white;
+            float t = Mathf.Max(1.8f, r * 0.16f);
+            switch (kind)
+            {
+                case "isik":
+                case "selektor":
+                    s.Arc(c + V(-r * 0.25f, 0), r * 0.55f - t, r * 0.55f, 180f, 360f, w);
+                    s.Line(c + V(-r * 0.25f, -r * 0.55f), c + V(-r * 0.25f, r * 0.55f), t, w);
+                    for (int i = -1; i <= 1; i++)
+                    {
+                        float tilt = kind == "selektor" ? i * 0.35f : 0f;
+                        s.Line(c + V(r * 0.15f, i * r * 0.4f), c + V(r * 0.95f, i * r * 0.4f + tilt * r), t, w);
+                    }
+                    break;
+                case "dortlu":
+                    var a = c + V(0, r * 0.85f); var b = c + V(r * 0.95f, -r * 0.7f); var d = c + V(-r * 0.95f, -r * 0.7f);
+                    s.Line(a, b, t, w); s.Line(b, d, t, w); s.Line(d, a, t, w);
+                    break;
+                case "motor":
+                    s.Arc(c, r * 0.85f - t, r * 0.85f, -125f, 125f, w);
+                    s.Line(c, c + V(r * 0.45f, r * 0.45f), t, w);
+                    s.Circle(c, t * 0.9f, w, 12);
+                    break;
+                case "muzik":
+                    s.Circle(c + V(-r * 0.35f, -r * 0.55f), r * 0.3f, w, 16);
+                    s.Line(c + V(-r * 0.08f, -r * 0.55f), c + V(-r * 0.08f, r * 0.85f), t, w);
+                    s.Line(c + V(-r * 0.08f, r * 0.85f), c + V(r * 0.65f, r * 0.45f), t, w);
+                    break;
+                case "foto":
+                    s.Line(c + V(-r, -r * 0.6f), c + V(r, -r * 0.6f), t, w); s.Line(c + V(r, -r * 0.6f), c + V(r, r * 0.55f), t, w);
+                    s.Line(c + V(r, r * 0.55f), c + V(-r, r * 0.55f), t, w); s.Line(c + V(-r, r * 0.55f), c + V(-r, -r * 0.6f), t, w);
+                    s.Arc(c + V(0, -r * 0.02f), r * 0.32f - t, r * 0.32f, 0f, 360f, w);
+                    break;
+                case "video":
+                    s.Arc(c, r * 0.8f - t, r * 0.8f, 0f, 360f, w);
+                    s.Circle(c, r * 0.38f, w, 20);
+                    break;
+                case "guc":
+                    s.Polygon(new[] { c + V(r * 0.2f, r * 0.95f), c + V(-r * 0.55f, -r * 0.05f), c + V(0, -r * 0.05f) }, w);
+                    s.Polygon(new[] { c + V(0, r * 0.1f), c + V(r * 0.55f, r * 0.1f), c + V(-r * 0.2f, -r * 0.95f) }, w);
+                    break;
+                case "ayar":
+                    s.Arc(c, r * 0.5f - t, r * 0.5f, 0f, 360f, w);
+                    for (int i = 0; i < 8; i++)
+                    {
+                        float ang = i * Mathf.PI / 4f;
+                        var dir = V(Mathf.Sin(ang), Mathf.Cos(ang));
+                        s.Line(c + dir * r * 0.5f, c + dir * r * 0.85f, t * 1.4f, w);
+                    }
+                    break;
+                case "korna":
+                    s.Polygon(new[] { c + V(-r * 0.9f, -r * 0.25f), c + V(-r * 0.9f, r * 0.25f), c + V(r * 0.15f, r * 0.7f), c + V(r * 0.15f, -r * 0.7f) }, w);
+                    s.Arc(c + V(r * 0.2f, 0), r * 0.45f - t, r * 0.45f, 45f, 135f, w);
+                    s.Arc(c + V(r * 0.2f, 0), r * 0.85f - t, r * 0.85f, 50f, 130f, w);
+                    break;
+                case "menu":
+                    for (int i = -1; i <= 1; i++) s.Line(c + V(-r * 0.8f, i * r * 0.5f), c + V(r * 0.8f, i * r * 0.5f), t, w);
+                    break;
+            }
         }
 
         VectorShape Shape(string name, Transform parent)

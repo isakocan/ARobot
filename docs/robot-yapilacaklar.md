@@ -32,7 +32,9 @@ Kontrol listesi:
   - Anten metal kasanın dışında mı?
 - 2,4 GHz deneme (duvardan daha iyi geçer): panelde "Wi-Fi bandı" bölümünden 2,4 GHz seç. Kart (Intel 8265) iki bandı da destekliyor; okulda EDUROAM'ın 2,4 GHz yayını da görünüyor. O bantta bağlanamazsa robot eski ayara kendisi döner.
 - Doğrudan bağlantı: panelden "Robotu kurulum moduna al", bilgisayarı `Robot-A78C` ağına bağla, `http://10.42.0.1:8080`. Aynı gecikme ve menzil ölçümünü yap.
-- Sonuçları karşılaştır: sinyal (dBm, ayarlar panelinde), gidip gelme (ms), kaç metrede/hangi duvarda koptuğu.
+- **Telefonun internet paylaşımı:** telefonun hotspot'unu aç, PC'yi ve robotu ona bağla (robotu panelden). Ev dışı / okul ağı olmadan kullanım böyle olacak.
+- **Robotun kendi ağına doğrudan:** PC'yi Robot-A78C'ye bağla (o sırada PC'nin interneti gider), Unity'den sür.
+- Sonuçları karşılaştır: sinyal (dBm, ayarlar panelinde), gidip gelme (ms), kaç metrede/hangi duvarda koptuğu. Ölçümü Claude yapar (UDP gidip gelme, kayıp, sinyal); kullanıcı sürerek his testi yapar.
 
 ### A4. Jetson'u tam güç moduna al (isteğe bağlı)
 - Şu an 5 W modunda (2 çekirdek). `sudo nvpmodel -m 0 && sudo jetson_clocks` ile 10 W, 4 çekirdek.

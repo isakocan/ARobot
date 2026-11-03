@@ -272,8 +272,9 @@ def oncelik_ver(ad):
     """En son onaylanan ağ en öncelikli olsun."""
     profiller = kayitli_wifi_profilleri()
     en_yuksek = max([o for p, o in profiller.values() if p != ad] + [0])
+    # permissions boş: profil kimsenin oturumuna bağlı olmasın (masaüstü kapalıyken de bağlansın)
     nmcli("con", "modify", ad, "connection.autoconnect", "yes",
-          "connection.autoconnect-priority", str(en_yuksek + 1))
+          "connection.autoconnect-priority", str(en_yuksek + 1), "connection.permissions", "")
 
 
 def gecisi_onayla():
