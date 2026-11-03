@@ -69,7 +69,7 @@ namespace ARaki.Drive
         DPad dpad;
 
         RectTransform wheelRt, hubRt, tachNeedle, speedNeedle, menuRoot, settingsRoot, musicRoot;
-        VectorShape hubPress;
+        VectorShape hubPress, hubIcon;
         float speedMax;
         bool menuOpen;
         public bool MenuOpen { get => menuOpen; set => menuOpen = value; }
@@ -120,7 +120,8 @@ namespace ARaki.Drive
             const float wheelY = 64f, clusterY = 68f, dialR = 50f, dialDx = 84f;
 
             // panel düğmeleri gösterge kutusunun direksiyona uzak yanında; ön panel direksiyondan düğmelerin sonuna uzanır
-            const float sw = 58f, sh = 66f, sg = 8f, swCount = 4;
+            const float sw = 58f, sh = 66f, sg = 8f;
+            int swCount = s.Cockpit ? 3 : 4;   // kokpitte korna direksiyonun göbeğinde
             float swWidth = swCount * sw + (swCount - 1) * sg;
             float sx = switchesLeft ? clusterX - 172f - 16f - swWidth : clusterX + 172f + 16f;
             float wheelSide = s.Cockpit ? (s.Wheel == WheelSide.Right ? wheelX + 172f : wheelX - 172f) : (switchesLeft ? clusterX + 230f : clusterX - 230f);
@@ -142,6 +143,9 @@ namespace ARaki.Drive
                 hubPress = Shape("Göbek basılı", hubRt);
                 hubPress.RoundRect(new Rect(-45f, -34f, 90f, 64f), 22f, Color.white);
                 hubPress.color = new Color(1f, 1f, 1f, 0f);
+                hubIcon = Shape("Korna simgesi", hubRt);
+                Icon(hubIcon, "korna", V(-2f, -2f), 13f);
+                hubIcon.color = new Color(1f, 1f, 1f, 0.5f);
                 // korna: gerçek araçtaki gibi göbeğe basılır
                 Button("", new Rect(wheelX - 52f, wheelY - 40f, 104f, 80f), null, held => drive.TouchHorn = held, null,
                        style: ButtonStyle.Invisible);
@@ -154,7 +158,7 @@ namespace ARaki.Drive
             else
             {
                 wheelRt = hubRt = null;
-                hubPress = null;
+                hubPress = hubIcon = null;
                 if (s.Gearbox == GearMode.Manual)
                 {
                     float px = switchesLeft ? clusterX + 172f + 12f : clusterX - 172f - 44f;
@@ -192,11 +196,14 @@ namespace ARaki.Drive
                                 icon: "dortlu", style: ButtonStyle.Switch);
                 hz.IconTint = Red;
                 hz.LedColor = Red;
-                var horn = Button("KORNA", new Rect(sx + 3 * (sw + sg), y0, sw, sh), null, held => drive.TouchHorn = held, null, 10,
-                                  icon: "korna", style: ButtonStyle.Switch);
-                horn.Held = () => drive.Link.State.Horn;
-                horn.LedColor = Amber;
-                horn.Lit = () => drive.Link.State.Horn;
+                if (!s.Cockpit)   // direksiyon yoksa korna panelde
+                {
+                    var horn = Button("KORNA", new Rect(sx + 3 * (sw + sg), y0, sw, sh), null, held => drive.TouchHorn = held, null, 10,
+                                      icon: "korna", style: ButtonStyle.Switch);
+                    horn.Held = () => drive.Link.State.Horn;
+                    horn.LedColor = Amber;
+                    horn.Lit = () => drive.Link.State.Horn;
+                }
             }
 
             // MENÜ sağ üstte; açılınca altında 3 + 2 simgeli düğme
@@ -339,7 +346,7 @@ namespace ARaki.Drive
         /// </summary>
         void Dashboard(VectorShape b, float cx, float x0, float x1, bool switchesLeft, float swFrom, float swTo)
         {
-            const float half = 172f, edge = 112f, crown = 156f, shelf = 100f, low = 44f, fade = 34f;
+            const float half = 172f, edge = 112f, crown = 156f, shelf = 100f, low = 92f, fade = 34f;   // low: direksiyonun arkası
             float Hood(float x)
             {
                 float u = (x - cx) / half;
@@ -415,14 +422,13 @@ namespace ARaki.Drive
             }
         }
 
-        /// <summary>Hava yastığı kapağı (korna): basınca hafifçe içeri girer ve aydınlanır.</summary>
+        /// <summary>Hava yastığı kapağı (korna; ortadaki simge ayrı çizilir): basınca hafifçe içeri girer ve aydınlanır.</summary>
         static void HubCover(VectorShape h)
         {
             const float hub = 38f;
             h.RoundRect(new Rect(-hub - 9f, -hub + 2f, 2f * hub + 18f, 2f * hub - 8f), 24f, new Color(0f, 0f, 0f, 0.6f));
             h.RoundRect(new Rect(-hub - 7f, -hub + 4f, 2f * hub + 14f, 2f * hub - 12f), 22f, Hex("#1D2024"));
             h.RoundRect(new Rect(-hub - 3f, 0f, 2f * hub + 6f, hub - 12f), 18f, new Color(1f, 1f, 1f, 0.04f));
-            h.Arc(V(0f, -1f), 8f, 10f, 0f, 360f, new Color(Accent.r, Accent.g, Accent.b, 0.8f), 32);
         }
 
         VectorShape Lamp(string icon, Vector2 c)
@@ -653,6 +659,7 @@ namespace ARaki.Drive
                 float hk = Mathf.Min(1f, dt * 20f);
                 hubRt.localScale = Vector3.one * Mathf.Lerp(hubRt.localScale.x, horn ? 0.93f : 1f, hk);
                 hubPress.color = new Color(1f, 1f, 1f, Mathf.Lerp(hubPress.color.a, horn ? 0.16f : 0f, hk));
+                hubIcon.color = Color.Lerp(hubIcon.color, horn ? Accent : new Color(1f, 1f, 1f, 0.5f), hk);
             }
             tachNeedle.localRotation = Quaternion.Euler(0f, 0f, -Angle(drive.Rpm / 1000f, 4f));
             float shown = s.Unit == SpeedUnit.KilometersPerHour ? drive.SpeedMs * 3.6f : drive.SpeedMs;
