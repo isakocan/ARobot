@@ -12,6 +12,8 @@ namespace ARaki.Video
     /// Okuma arka planda; yalnızca en yeni kare tutulur, ana iş parçacığı onu çözer (eski kareler atlanır,
     /// gecikme birikmez). Doku ham çift balık gözü karesidir (1280x720); küreye DualFisheye gölgelendiricisi kaplar.
     ///
+    /// Robotsuz demoda robottan kaydedilmiş kareler (Resources/RobotDemo) 15 fps döngüyle oynar.
+    ///
     /// Not: JPEG akışı H.264'ten 5-12 kat fazla veri ister. Telefonda H.264 için Android'in donanımsal
     /// çözücüsüne (MediaCodec) bir eklenti gerekir; o gelene kadar bu yol kullanılır.
     /// </summary>
@@ -32,6 +34,13 @@ namespace ARaki.Video
         string streamHost;
         int frameCounter;
         float fpsTimer;
+        TextAsset[] demoFrames;
+        int demoIndex;
+        float demoTimer;
+        bool hasFrame;
+
+        /// <summary>En az bir kare geldi mi (gelmediyse ekranda "görüntü bekleniyor").</summary>
+        public bool HasFrame => hasFrame;
 
         public void Bind(Renderer r) { target = r; if (Texture != null) Apply(); }
 
@@ -45,13 +54,33 @@ namespace ARaki.Video
 
         void Update()
         {
-            string host = robot != null ? robot.Host : null;
-            if (!string.IsNullOrEmpty(host) && host != streamHost) StartReader(host);
+            string host = robot != null && !robot.Demo ? robot.Host : null;
+            if (host != streamHost)
+            {
+                StopReader();
+                hasFrame = false;
+                if (!string.IsNullOrEmpty(host)) StartReader(host);
+            }
 
-            byte[] jpeg;
-            lock (latestLock) { jpeg = latest; latest = null; }
+            byte[] jpeg = null;
+            if (robot != null && robot.Demo)
+            {
+                if (demoFrames == null)
+                {
+                    demoFrames = Resources.LoadAll<TextAsset>("RobotDemo");
+                    Array.Sort(demoFrames, (a, b) => string.CompareOrdinal(a.name, b.name));
+                }
+                demoTimer += Time.unscaledDeltaTime;
+                if (demoFrames.Length > 0 && (demoTimer >= 1f / fps || !hasFrame))
+                {
+                    demoTimer = 0f;
+                    jpeg = demoFrames[demoIndex++ % demoFrames.Length].bytes;
+                }
+            }
+            else lock (latestLock) { jpeg = latest; latest = null; }
             if (jpeg != null && Texture.LoadImage(jpeg, false))
             {
+                hasFrame = true;
                 FramesDecoded++;
                 frameCounter++;
             }
@@ -86,7 +115,7 @@ namespace ARaki.Video
                     using (var client = new TcpClient())
                     {
                         client.ReceiveBufferSize = 256 * 1024;
-                        if (!client.ConnectAsync(host, ARaki.Net.RobotBridge.Port).Wait(4000)) throw new IOException("bağlanılamadı");
+                        if (!client.ConnectAsync(host, ARaki.Net.UdpRobotConnection.HttpPort).Wait(4000)) throw new IOException("bağlanılamadı");
                         var net = client.GetStream();
                         net.ReadTimeout = 5000;
                         var stream = new BufferedStream(net, 64 * 1024);

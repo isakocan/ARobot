@@ -13,6 +13,11 @@
      Çıktıyı robot_kontrol/sarkilar.h içine yapıştır, robot_kontrol.ino'daki MELODILER
      listesine ve surus.html'deki MELODILER adlarına ekle (sıra aynı olmalı).
 
+  3) Arduino C kodu (internette yaygın biçim): NOTE_ tanımları + "xMelodi[] = {...}" ve hemen ardından
+     gelen "xSureleri[] = {...}" dizileri. Süreler ms; hepsi 16'dan küçükse nota bölenidir (4 = dörtlük,
+     tam nota --tam ms, varsayılan 1000). Başlık, dizinin üstündeki "// 1. BAŞLIK" yorumundan alınır.
+         python tools/melodi_cevir.py c tools/sarkilar/eklenen.c > robot/arduino/robot_kontrol/sarkilar_ek.h
+
 Buzzer (piezo) kalın seslerde kısık kaldığı için ortanca nota 520 Hz'in altındaysa şarkı
 oktav oktav yukarı taşınır.
 """
@@ -79,6 +84,34 @@ def liste_cevir(yol):
             b = int(bolen)
             ms = tam_nota / abs(b) * (1.5 if b < 0 else 1)
             notalar.append((None if nota == "REST" else nota_adi_midi(nota), ms))
+        notalar, oktav = yukari_tasi(notalar)
+        ek = " (+{} oktav)".format(oktav) if oktav else ""
+        cikis.append(c_dizisi(ad, baslik, notalar, ek))
+        print("{}: {} nota{}".format(ad, len(notalar), ek), file=sys.stderr)
+    return "\n".join(cikis)
+
+
+# ---------------------------------------------------------------- Arduino C kodu
+
+def c_kodu_cevir(yol, tam_nota=1000):
+    metin = open(yol, encoding="utf-8").read()
+    cikis = ["// Bu dosya tools/melodi_cevir.py ile {} dosyasından üretildi; elle düzenleme.".format(
+        yol.replace("\\", "/")), ""]
+    yorumsuz = lambda t: re.sub(r"//[^\n]*", "", t)
+    diziler = list(re.finditer(r"int\s+(\w+)\s*\[[^\]]*\]\s*=\s*\{(.*?)\};", metin, re.S))
+    for m_nota, m_sure in zip(diziler[0::2], diziler[1::2]):
+        basliklar = re.findall(r"//\s*\d+\.\s*([^\n]+)", metin[:m_nota.start()])
+        baslik = basliklar[-1].strip() if basliklar else m_nota.group(1)
+        kok = re.sub(r"Melodi$", "", m_nota.group(1))
+        ad = "M_" + re.sub(r"(?<!^)(?=[A-Z])", "_", kok).upper()
+        notalar_ham = [t.strip() for t in yorumsuz(m_nota.group(2)).split(",") if t.strip()]
+        sureler = [int(t) for t in yorumsuz(m_sure.group(2)).split(",") if t.strip()]
+        bolen = max(sureler) <= 16
+        notalar = []
+        for nota, sure in zip(notalar_ham, sureler):
+            nota = re.sub(r"^NOTE_([A-G])(\d)S$", r"NOTE_\1S\2", nota)   # NOTE_A4S yazım hatası → NOTE_AS4
+            ms = tam_nota / sure if bolen else sure
+            notalar.append((None if nota in ("0", "REST") else nota_adi_midi(nota), ms))
         notalar, oktav = yukari_tasi(notalar)
         ek = " (+{} oktav)".format(oktav) if oktav else ""
         cikis.append(c_dizisi(ad, baslik, notalar, ek))
@@ -184,6 +217,10 @@ if __name__ == "__main__":
     if len(sys.argv) >= 3 and sys.argv[1] == "liste":
         sys.stdout.reconfigure(encoding="utf-8")
         print(liste_cevir(sys.argv[2]))
+    elif len(sys.argv) >= 3 and sys.argv[1] == "c":
+        sys.stdout.reconfigure(encoding="utf-8")
+        argv = sys.argv[3:]
+        print(c_kodu_cevir(sys.argv[2], int(argv[argv.index("--tam") + 1]) if "--tam" in argv else 1000))
     elif len(sys.argv) >= 5 and sys.argv[1] == "midi":
         sys.stdout.reconfigure(encoding="utf-8")
         argv = sys.argv[5:]

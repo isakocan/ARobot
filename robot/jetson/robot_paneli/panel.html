@@ -123,7 +123,7 @@
   .tam p { color: var(--soluk); max-width: 340px; margin: 0 auto 10px; }
   .sur { display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; margin-bottom: 14px; }
   .sur svg { width: 15px; height: 15px; }
-  .bantlar { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--kart); border: 1px solid var(--cizgi); border-radius: 12px; padding: 3px; gap: 3px; }
+  .bantlar { display: grid; grid-template-columns: repeat(2, 1fr); background: var(--kart); border: 1px solid var(--cizgi); border-radius: 12px; padding: 3px; gap: 3px; }
   .bantlar button { font: inherit; font-size: 14px; border: 0; border-radius: 9px; padding: 10px 4px; background: none; color: var(--yazi); cursor: pointer; }
   .bantlar button.secili { background: var(--yazi); color: var(--zemin); font-weight: 600; }
   .bantlar button:disabled { opacity: .5; cursor: default; }
@@ -190,11 +190,10 @@
     <div id="degistirBolumu" class="gizli">
       <div class="baslik"><h2>Wi-Fi bandı</h2></div>
       <div class="bantlar" id="bantlar" role="group" aria-label="Wi-Fi bandı">
-        <button type="button" data-bant="">Otomatik</button>
         <button type="button" data-bant="bg">2,4 GHz</button>
         <button type="button" data-bant="a">5 GHz</button>
       </div>
-      <p class="aciklama" id="bantAciklama">2,4 GHz duvarların ardına daha iyi ulaşır, 5 GHz yakında daha hızlıdır. Ağ iki bantta da yayın yapıyorsa uzak odalar için 2,4 GHz'i seç.</p>
+      <p class="aciklama" id="bantAciklama">2,4 GHz duvarların ardına daha iyi ulaşır, 5 GHz yakında daha hızlıdır. Seçili olan, robotun şu an bağlı olduğu bant.</p>
 
       <div class="baslik"><h2>Başka ağa geç</h2></div>
       <button class="dugme ikincil" id="kurulumaGec" type="button">Robotu kurulum moduna al</button>
@@ -406,7 +405,9 @@ function durumuCiz() {
   sur.href = 'http://' + location.hostname + ':8080/';
   sur.classList.toggle('gizli', durum.mod === 'baglaniyor');
   for (const b of document.querySelectorAll('#bantlar button')) {
-    b.classList.toggle('secili', durum.bant === b.dataset.bant);
+    // Seçili görünen: şu an bağlı olunan bant (ayar boş olsa bile)
+    const simdiki = durum.frekans ? (durum.frekans < 3000 ? 'bg' : 'a') : durum.bant;
+    b.classList.toggle('secili', simdiki === b.dataset.bant);
     b.disabled = bantDegisiyor;
   }
   girisiCiz();
@@ -530,7 +531,7 @@ async function robotCevapVeriyor() {
 let bantDegisiyor = false;
 $('bantlar').addEventListener('click', async (e) => {
   const b = e.target.closest('button');
-  if (!b || bantDegisiyor || durum.bant === b.dataset.bant) return;
+  if (!b || bantDegisiyor || b.classList.contains('secili')) return;
   bantDegisiyor = true;
   $('bantAciklama').textContent = 'Robot yeniden bağlanıyor; birkaç saniye bağlantı kopabilir.';
   durumuCiz();

@@ -27,7 +27,9 @@ Tarayıcıda `http://jetson.local` ya da robotun IP adresi. İki işi var: Wi-Fi
 
 ## Sürüş köprüsü (`surus_koprusu/`)
 
-Tarayıcıda `http://<robot>:8080`: canlı 360° görüntü, vitesli sürüş, kokpit, yan aynalar, ışık/selektör/dörtlü, korna, motor sesi, melodiler. Kısayollar sayfada `?` düğmesinde. Nasıl çalıştığı ve sayıların gerekçesi: `docs/robot-teknik-notlar.md`; sıradaki işler: `docs/robot-yapilacaklar.md`.
+Asıl sürüş uygulaması Unity'de (`unity/Assets/_Project/Scenes/RealRobot.unity`): köprünün **UDP 8081** kanalıyla konuşur (50 ms'de bir "istenen durum" paketi, robotu kendisi bulur: `{"t":"bul"}` yayınına köprü cevap verir). Görüntü şimdilik `/goruntu.mjpg`'den.
+
+Yedek olarak tarayıcıda `http://<robot>:8080`: canlı 360° görüntü, vitesli sürüş, kokpit, yan aynalar, ışık/selektör/dörtlü, korna, motor sesi, melodiler. Kısayollar sayfada `?` düğmesinde. Nasıl çalıştığı ve sayıların gerekçesi: `docs/robot-teknik-notlar.md`; sıradaki işler: `docs/robot-yapilacaklar.md`.
 
 - `surus_koprusu.py`: Arduino (seri), kamera (GStreamer: JPEG + donanım H.264), web sunucusu.
 - `websoket.py`: küçük WebSocket sunucusu. `/kontrol` sürüş komutları ve durum, `/goruntu-h264` görüntü.
@@ -50,6 +52,13 @@ Arduino tarafı: `robot/arduino/robot_kontrol` (seri 115200). Jetson üzerinden 
 ## Jetson ekranı
 
 Masaüstündeki **Jetson Ekranı** kısayolu (`tools/jetson_ekrani.ps1`): SSH tüneli açar, TigerVNC ile bağlanır.
+
+Masaüstü arayüzü RAM ve işlemci yer; gerek yoksa kapatılabilir (`araclar/ekran_modu.sh`):
+
+```bash
+ssh -t jetson "sudo bash ~/robot/araclar/ekran_modu.sh terminal"   # arayüzsüz; köprü yine açılışta başlar
+ssh -t jetson "sudo bash ~/robot/araclar/ekran_modu.sh masaustu"   # geri al (Jetson Ekranı için gerekli)
+```
 
 ## Robotu bulma
 

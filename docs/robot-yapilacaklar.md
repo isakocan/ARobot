@@ -142,7 +142,9 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
 B ile arkaya bakınca W yine robotun önüne gider. İstenirse "kameraya göre sür" seçeneği: arkaya bakarken tuşlar ters çevrilir.
 
 ## D. Uygulama (Unity) tarafı
-- [x] `RealRobotLink` (3 Kasım): köprünün WebSocket'ine bağlanır, görüntü şimdilik JPEG akışından; `Scenes/RealRobot.unity`. İleride daha düşük gecikme için UDP komut kanalı.
+- [x] Sürüş Unity'de (3 Kasım): `Scenes/RealRobot.unity`, `Scripts/Drive`. UDP sürüş kanalı (köprü :8081), robotu otomatik bulma, kokpit (direksiyon sol/orta/sağ, iç ve yan aynalar, devir ve hız saatleri), vites, kamera hareketi, şarkı menüsü, foto/video, robotsuz demo (kayıtlı görüntü + buzzer kopyası). Tarayıcı sürüş sayfası artık yalnızca yedek.
+- [ ] **Unity'de H.264:** şu an görüntü JPEG akışından (20-50 Mbit/s). Telefonda Android'in donanım çözücüsü (MediaCodec) için küçük bir eklenti, PC'de FFmpeg. Wi-Fi menzili için en büyük kazanç bu.
+- [ ] **Telefona kurmak:** Unity Hub → 6000.3.26f1 → "Android Build Support" modülü (OpenJDK + SDK/NDK ile). Sonra telefonu kabloyla bağlayıp Build And Run.
 - **Görüntü:** H.264 Android'in donanım çözücüsü (MediaCodec) ile çözülür, 360° düzeltme aynı gölgelendirici mantığıyla Unity'de.
 - **Son kullanıcı arayüzü:** teşhis bilgileri (ms, dBm, Mbit/s, akım) gizli bir geliştirici ekranına taşınır; kullanıcı yalnızca basit durum görür.
 
@@ -165,3 +167,14 @@ Rampa, 300 ms bekçi ve "önce sıfırdan geç" Arduino'nun çekirdeğinde (`loo
 ### Ağ
 - **Sinyale göre görüntü kalitesi:** gidip gelme süresi ya da kayıp artınca H.264 bit hızı 4 → 1,5 Mbit/s'ye iner, düzelince geri çıkar. Görüntü biraz bulanıklaşır ama donmaz ve gecikme birikmez.
 - **Sinyale göre en yüksek hız:** ağ kötüleşince güç sınırı kendiliğinden düşer; komutlar geç ulaşırken robot hızlı gitmesin.
+
+## F. Konum bulma fikirleri (beyin fırtınası, sonra bakılacak)
+Ev haritası telefonla taranırsa harita bilinir; robot yalnızca haritadaki yerini bulur (SLAM gerekmez).
+- **Kameradan sahte lidar:** kamera yüksekliği h biliniyor. Zeminin bittiği yer ufkun α altındaysa mesafe = h / tan α (h = 25 cm, α = 14° → ~1 m). 360°'de her yön için yapılınca lidar taraması gibi. Gerekli: zemin bölütleme modeli (aynı model duvar / eşya / "gökyüzü" temasını da verir).
+- **Tavan:** lambalar, köşeler, kirişler sabit işaret; eşya yer değiştirse de tavan değişmez.
+- **Panoramadan yer tanıma:** haritalarken her ~50 cm'de 360° kare kaydet; sonra en çok benzeyeni bul. Panoramayı yatayda kaydırıp eşleştirmek yönü de verir. Robot "kaybolursa" kendini bununla bulur.
+- **Optik akış (görsel kilometre sayacı):** zemin deseninin kaymasından gerçekten ne kadar gidildiği; encoder yerine, teker kaymasını da yakalar.
+- **Wi-Fi parmak izi:** her odada görünen ağların sinyal gücü kaydedilir, oda düzeyinde (2-4 m) konum. Wi-Fi RTT (FTM) 1-2 m verir ama çoğu modem desteklemez.
+- **Motor + IMU:** düzeltmeler arasında tahmin. Motor: HN-GH12-2217Y, 12 V'ta 120 dev/dk, 50:1.
+- **Birleştirme: parçacık filtresi.** 500 "burada olabilir" tahmini; hareketle kaydır (motor + IMU), kameranın sahte lidarına uymayanları ele. Başlangıç / kaybolma için Wi-Fi ve panorama tanıma.
+- **Tek kameradan derinlik:** MiDaS / Depth Anything (küçük), göreli derinlik; ölçek zemin düzleminden.

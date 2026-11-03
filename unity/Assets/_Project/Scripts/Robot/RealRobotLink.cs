@@ -1,135 +1,127 @@
 using System;
+using System.Threading;
 using ARaki.Net;
 using UnityEngine;
 
 namespace ARaki.Robot
 {
-    /// <summary>Köprünün ~10 Hz gönderdiği durum mesajı. Alan adları köprüdeki JSON ile aynı.</summary>
-    [Serializable]
-    public class BridgeStatus
-    {
-        [Serializable]
-        public class Motor
-        {
-            public int sol, sag, sol_ma, sag_ma, melodi;
-            public bool ariza, led, dortlu, motor_sesi, geri_bip;
-        }
-
-        public string t;
-        public bool arduino;
-        public Motor motor;
-        public string kamera;     // kapali | yok | baslatiliyor | aktif
-        public float fps;
-        public bool h264;
-        public int sinyal;        // dBm (0 = bilinmiyor)
-        public int veri_kbps;
-        public int atilan;        // geç geldiği için atılan sürüş komutu sayısı
-    }
-
     /// <summary>
-    /// Gerçek robot: IRobotLink'i Wi-Fi üzerinden Jetson'daki sürüş köprüsüne bağlar.
-    /// Sürüş, tarayıcıdaki sürüş sayfasıyla aynı kurallarla gider:
-    /// hareket varken ~60 ms'de bir komut (Arduino 300 ms komut alamazsa durur), durunca bir kez sıfır,
-    /// bağlantı zayıfken (900 ms pong yok) hareket komutu yerine sıfır.
-    /// Rampa (yumuşak kalkış/duruş) Arduino'da olduğu için burada yapılmaz.
+    /// Gerçek robot ya da robotsuz demo. Gerçek modda robotun adresini kendisi bulur (RobotDiscovery) ve köprünün
+    /// UDP kanalına bağlanır; demoda aynı kurallarla çalışan DemoRobotConnection kullanılır.
+    /// Sürüş kodu (DriveController) her karede istenen durumu State'e yazar; bağlantı zayıfken (900 ms cevap yok)
+    /// hareket istenmez, sıfır gider. Rampa (yumuşak kalkış/duruş) Arduino'da.
     /// </summary>
     public class RealRobotLink : MonoBehaviour, IRobotLink
     {
-        public const string AddressKey = "robot_adresi";
+        public const string DemoKey = "robot_demo";
 
-        [Tooltip("Boşsa son kullanılan adres, o da yoksa jetson.local denenir.")]
-        [SerializeField] string host = "";
-        [SerializeField, Range(0.1f, 1f)] float pwmLimit = 0.6f;
-        [SerializeField] float sendInterval = 0.055f;
+        [SerializeField] BuzzerSynth buzzer;
         [SerializeField] float weakAfterMs = 900f;
 
-        RobotBridge bridge;
-        DriveCommand command;
-        string lastSent = "0,0";
-        float lastSendTime;
-        bool ledOn;
-        float ledChangedAt = -10f;
+        IRobotConnection connection;
+        CancellationTokenSource search;
+        float pwmLimit = 0.6f;
 
-        public string Host => bridge?.Host ?? host;
-        public bool IsConnected => bridge != null && bridge.Connected;
-        /// <summary>Bağlı ama pong gecikiyor: komutlar robota ulaşmıyor olabilir.</summary>
-        public bool IsWeak => IsConnected && bridge.SincePongMs > weakAfterMs;
-        public double RoundTripMs => bridge?.RoundTripMs ?? -1;
-        public string LastError => bridge?.LastError ?? "";
-        public BridgeStatus Status { get; private set; }
-        public RobotTelemetry Telemetry { get; private set; }
-        public bool LedOn => ledOn;
+        public bool Demo { get; private set; }
+        /// <summary>Bağlantı yokken ne yapıldığı: "robot aranıyor", "bulunamadı" ...</summary>
+        public string SearchText { get; private set; } = "";
+        public bool Searching => search != null;
+        public string Host => connection?.Host;
+        public bool IsConnected => connection != null && connection.Connected;
+        public bool IsWeak => connection != null && connection.SinceReplyMs > weakAfterMs;
+        public double RoundTripMs => connection?.RoundTripMs ?? -1;
+        public float Loss => connection?.Loss ?? 0f;
+        public RobotStatus Status => connection?.Status;
+        public RobotTelemetry Telemetry => new RobotTelemetry { Battery01 = 1f };   // pil ölçümü henüz yok
 
-        public float PwmLimit
+        /// <summary>Uygulamanın istediği durum; DriveController yazar.</summary>
+        public ControlState State;
+
+        public event Action ConnectionChanged;
+
+        public float PwmLimit { get => pwmLimit; set => pwmLimit = Mathf.Clamp(value, 0.1f, 1f); }
+        public bool LedOn => State.Led;
+        public void SetLed(bool on) => State.Led = on;
+        public void SendDrive(DriveCommand c)
         {
-            get => pwmLimit;
-            set => pwmLimit = Mathf.Clamp(value, 0.1f, 1f);
+            State.Left = Mathf.RoundToInt(Mathf.Clamp(c.Left, -1f, 1f) * pwmLimit * 255f);
+            State.Right = Mathf.RoundToInt(Mathf.Clamp(c.Right, -1f, 1f) * pwmLimit * 255f);
         }
-
-        public event Action<BridgeStatus> StatusReceived;
 
         void Start()
         {
             string env = Environment.GetEnvironmentVariable("ARAKI_ROBOT");
-            if (!string.IsNullOrEmpty(env)) host = env;
-            if (string.IsNullOrEmpty(host)) host = PlayerPrefs.GetString(AddressKey, "jetson.local");
-            Connect(host);
+            if (env == "demo") UseDemo();
+            else if (!string.IsNullOrEmpty(env)) UseRobot(env);
+            else if (PlayerPrefs.GetInt(DemoKey, 1) == 1) UseDemo();
+            else FindRobot();
         }
 
-        /// <summary>Başka bir adrese bağlanır ve adresi hatırlar.</summary>
-        public void Connect(string address)
+        public void UseDemo()
         {
-            bridge?.Dispose();
-            host = address.Trim();
-            PlayerPrefs.SetString(AddressKey, host);
-            bridge = new RobotBridge(host);
+            Stop();
+            Demo = true;
+            PlayerPrefs.SetInt(DemoKey, 1);
+            connection = new DemoRobotConnection(buzzer);
+            SearchText = "";
+            ConnectionChanged?.Invoke();
         }
 
-        void OnDestroy()
+        /// <summary>Robotu ağda arar; bulunca bağlanır.</summary>
+        public async void FindRobot()
         {
-            if (bridge != null && bridge.Connected) bridge.Drive(0, 0);
-            bridge?.Dispose();
+            Stop();
+            Demo = false;
+            PlayerPrefs.SetInt(DemoKey, 0);
+            ConnectionChanged?.Invoke();
+            var cts = search = new CancellationTokenSource();
+            SearchText = "robot aranıyor";
+            string last = PlayerPrefs.GetString(RobotDiscovery.AddressKey, "");
+            string found = null;
+            try
+            {
+                found = await System.Threading.Tasks.Task.Run(() =>
+                    RobotDiscovery.FindAsync(last, s => SearchText = s, cts.Token));
+            }
+            catch (OperationCanceledException) { return; }
+            catch (Exception e) { Debug.LogWarning("[Robot] arama: " + e.Message); }
+            if (cts != search) return;   // bu arada başka bir şey seçildi
+            search = null;
+            if (found == null) { SearchText = "robot bulunamadı: aynı Wi-Fi'da mı, açık mı?"; ConnectionChanged?.Invoke(); return; }
+            UseRobot(found);
         }
 
-        public void SendDrive(DriveCommand c) => command = c;
-
-        public void SetLed(bool on)
+        public void UseRobot(string host)
         {
-            if (on == ledOn) return;
-            ledOn = on;
-            ledChangedAt = Time.unscaledTime;
-            bridge?.Send("{\"t\":\"led\",\"acik\":" + (on ? "true" : "false") + "}");
+            Stop();
+            Demo = false;
+            try
+            {
+                connection = new UdpRobotConnection(host);
+                PlayerPrefs.SetString(RobotDiscovery.AddressKey, host);
+                SearchText = "";
+            }
+            catch (Exception e) { SearchText = "bağlanılamadı: " + e.Message; }
+            ConnectionChanged?.Invoke();
         }
 
-        public void Horn(int ms = 250) => bridge?.Send("{\"t\":\"korna\",\"ms\":" + Mathf.Clamp(ms, 50, 1000) + "}");
-        public void Hazard(bool on) => bridge?.Send("{\"t\":\"dortlu\",\"acik\":" + (on ? "true" : "false") + "}");
-        public void PlayMelody(int number) => bridge?.Send("{\"t\":\"melodi\",\"no\":" + number + "}");
+        void Stop()
+        {
+            search?.Cancel();
+            search = null;
+            connection?.Dispose();
+            connection = null;
+        }
 
         void Update()
         {
-            if (bridge == null) return;
-            while (bridge.Incoming.TryDequeue(out var json))
-            {
-                if (!json.Contains("\"durum\"")) continue;
-                var s = JsonUtility.FromJson<BridgeStatus>(json);
-                Status = s;
-                // LED başka yerden (sürüş sayfası) değiştiyse benimse; az önce biz değiştirdiysek durum gecikmeli gelir
-                if (s.motor != null && s.motor.led != ledOn && Time.unscaledTime - ledChangedAt > 0.5f) ledOn = s.motor.led;
-                Telemetry = new RobotTelemetry { Battery01 = 1f };   // pil ölçümü henüz yok
-                StatusReceived?.Invoke(s);
-            }
-
-            int left = Mathf.RoundToInt(Mathf.Clamp(command.Left, -1f, 1f) * pwmLimit * 255f);
-            int right = Mathf.RoundToInt(Mathf.Clamp(command.Right, -1f, 1f) * pwmLimit * 255f);
-            if (!IsConnected || IsWeak) left = right = 0;
-            bool moving = left != 0 || right != 0;
-            string key = left + "," + right;
-            if (key != lastSent || (moving && Time.unscaledTime - lastSendTime > sendInterval))
-            {
-                if (IsConnected) bridge.Drive(left, right);
-                lastSent = key;
-                lastSendTime = Time.unscaledTime;
-            }
+            if (connection == null) return;
+            if (connection is DemoRobotConnection demo) demo.Tick();
+            var s = State;
+            if (IsWeak) s.Left = s.Right = 0;   // ulaşamıyorsak hareket isteme
+            connection.Send(s);
         }
+
+        void OnDestroy() => Stop();
     }
 }

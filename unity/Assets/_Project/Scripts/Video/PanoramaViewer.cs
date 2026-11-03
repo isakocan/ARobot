@@ -28,6 +28,17 @@ namespace ARaki.Video
         /// <summary>Dışarıdan eklenen sarsıntı (derece): güneş parlaması, elektrik şoku...</summary>
         public float ExtraShake { get; set; }
 
+        /// <summary>Kamera hareketi (derece): eğim + = yukarı bak, yatma + = sağa dönerken dışa (sola) yatma.</summary>
+        public float SwayPitch { get; set; }
+        public float SwayRoll { get; set; }
+
+        /// <summary>Kapalıysa klavye tuşlarını (Q/E, B, Z, boşluk) başka bileşen yönetir (gerçek robot sürüşü).</summary>
+        public bool UseKeyboard { get; set; } = true;
+
+        /// <summary>Yumuşakça öne (0) ya da arkaya (180) dön.</summary>
+        public void LookFront() => SnapTo(0f);
+        public void LookBack() => SnapTo(lookedBack ? 0f : 180f);
+
         float? snapYaw;
         float baseFov;
         bool lookedBack;
@@ -83,6 +94,7 @@ namespace ARaki.Video
                 mouse = null;
             }
 
+            if (!UseKeyboard) kb = null;
             if (kb != null)
             {
                 if (kb.eKey.isPressed || kb.qKey.isPressed) snapYaw = null;
@@ -141,7 +153,7 @@ namespace ARaki.Video
             }
             float n = Time.time * 17f;
             Vector3 shake = new Vector3(Mathf.PerlinNoise(n, 0.3f) - 0.5f, Mathf.PerlinNoise(0.7f, n) - 0.5f, Mathf.PerlinNoise(n, n) - 0.5f) * amplitude;
-            viewCamera.transform.localRotation = Quaternion.Euler(Pitch + shake.x, Yaw + shake.y, shake.z);
+            viewCamera.transform.localRotation = Quaternion.Euler(Pitch + shake.x - SwayPitch, Yaw + shake.y, shake.z - SwayRoll);
             if (worldAlignedRobot != null)
                 sphere.transform.localRotation = Quaternion.Euler(0f, -worldAlignedRobot.eulerAngles.y, 0f);
         }

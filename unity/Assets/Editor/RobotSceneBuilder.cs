@@ -1,9 +1,9 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Threading;
-using ARaki.Dev;
-using ARaki.Net;
+using System.Text;
+using System.Text.RegularExpressions;
+using ARaki.Drive;
 using ARaki.Robot;
 using ARaki.Video;
 using UnityEditor;
@@ -14,17 +14,24 @@ using UnityEngine.Rendering.Universal;
 namespace ARaki.EditorTools
 {
     /// <summary>
-    /// Gerçek robot sahnesi: telefondaki/PC'deki Unity uygulaması robotun köprüsüne bağlanır, 360° görüntüyü
-    /// içinden bakılan küreye kaplar ve robotu sürer. Oyun (DriveSim) simülasyonda kalır; bu sahne
-    /// gerçek robotla uçtan uca hattın (komut + görüntü + kalibrasyon) Unity'de çalıştığını gösterir.
+    /// Gerçek robot sahnesi (RealRobot): robotu telefondan / PC'den sürme uygulaması. 360° görüntü içinden
+    /// bakılan küreye kaplanır; üstünde araç içi kokpit. Robot yoksa "robotsuz demo" kayıtlı görüntü ve
+    /// buzzer'ın kopyasıyla çalışır. Oyun (DriveSim) simülasyonda kalır.
+    /// Kurarken Arduino kodundan sayılar ve şarkılar Resources/RobotFirmware.txt'e yazılır.
     /// </summary>
     public static class RobotSceneBuilder
     {
         const string ScenePath = "Assets/_Project/Scenes/RealRobot.unity";
+        const string FirmwareOut = "Assets/_Project/Resources/RobotFirmware.txt";
+        static readonly string ArduinoDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "robot", "arduino", "robot_kontrol"));
 
         [MenuItem("ARaki/Kur/Gerçek robot sahnesi")]
         public static void Build()
         {
+            WriteFirmwareData();
+            // Robotla düz HTTP (kamera ayarı) ve ağ erişimi; telefonda gerekli
+            PlayerSettings.insecureHttpOption = InsecureHttpOption.AlwaysAllowed;
+            PlayerSettings.Android.forceInternetPermission = true;
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             RenderSettings.fog = false;
             RenderSettings.skybox = null;
@@ -43,7 +50,7 @@ namespace ARaki.EditorTools
             cam.transform.SetParent(viewerGo.transform, false);
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = Color.black;
-            cam.fieldOfView = 80f;
+            cam.fieldOfView = 75f;
             cam.nearClipPlane = 0.1f;
             cam.farClipPlane = 200f;
             cam.tag = "MainCamera";
@@ -55,21 +62,31 @@ namespace ARaki.EditorTools
             SceneBuilder.SetRef(viewer, "viewCamera", cam);
             SceneBuilder.SetRef(viewer, "sphere", sphereRenderer);
             var so = new SerializedObject(viewer);
-            so.FindProperty("defaultPitch").floatValue = 0f;
+            so.FindProperty("defaultPitch").floatValue = 4f;   // hafif aşağı: kaput hizası
             so.ApplyModifiedPropertiesWithoutUndo();
 
-            var robotGo = new GameObject("Robot");
+            var robotGo = new GameObject("Robot", typeof(AudioSource));
+            var buzzer = robotGo.AddComponent<BuzzerSynth>();
             var link = robotGo.AddComponent<RealRobotLink>();
-            robotGo.AddComponent<RealDriveInput>();
+            SceneBuilder.SetRef(link, "buzzer", buzzer);
             var stream = robotGo.AddComponent<MjpegStream>();
             SceneBuilder.SetRef(stream, "robot", link);
             SceneBuilder.SetRef(stream, "target", sphereRenderer);
             var mount = robotGo.AddComponent<RobotCameraMount>();
             SceneBuilder.SetRef(mount, "robot", link);
             SceneBuilder.SetRef(mount, "sphere", sphereRenderer);
-            var overlay = robotGo.AddComponent<RealRobotOverlay>();
-            SceneBuilder.SetRef(overlay, "robot", link);
-            SceneBuilder.SetRef(overlay, "video", stream);
+
+            var driveGo = new GameObject("Sürüş");
+            var recorder = driveGo.AddComponent<ScreenRecorder>();
+            var drive = driveGo.AddComponent<DriveController>();
+            SceneBuilder.SetRef(drive, "link", link);
+            SceneBuilder.SetRef(drive, "viewer", viewer);
+            SceneBuilder.SetRef(drive, "recorder", recorder);
+            var cockpit = driveGo.AddComponent<DriveCockpit>();
+            SceneBuilder.SetRef(cockpit, "drive", drive);
+            SceneBuilder.SetRef(cockpit, "video", stream);
+            SceneBuilder.SetRef(cockpit, "font", AssetDatabase.LoadAssetAtPath<Font>("Assets/_Project/UI/Fonts/Rajdhani-Medium.ttf"));
+            SceneBuilder.SetRef(cockpit, "mono", AssetDatabase.LoadAssetAtPath<Font>("Assets/_Project/UI/Fonts/ShareTechMono-Regular.ttf"));
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             var scenes = EditorBuildSettings.scenes.ToList();
@@ -80,74 +97,51 @@ namespace ARaki.EditorTools
         }
 
         /// <summary>
-        /// Komut satırından deneme (motorları oynatmaz): ARAKI_ROBOT adresindeki köprüye bağlanır, durum mesajı ve
-        /// ping bekler, bir kare alıp sahnedeki küreyle çizer, ARAKI_SHOT yoluna PNG kaydeder.
-        /// ARAKI_LOOK = bakış yaw'ı (derece).
+        /// robot_kontrol.ino ve sarkilar*.h'den sabitleri ve MELODILER listesini (satır sonu "// grup|ad"
+        /// yorumlarıyla) okuyup Resources/RobotFirmware.txt'e yazar.
         /// </summary>
-        public static void Verify()
+        [MenuItem("ARaki/Kur/Arduino şarkılarını oku")]
+        public static void WriteFirmwareData()
         {
-            string host = System.Environment.GetEnvironmentVariable("ARAKI_ROBOT") ?? "jetson.local";
-            string shot = System.Environment.GetEnvironmentVariable("ARAKI_SHOT") ?? "robot360.png";
-            float.TryParse(System.Environment.GetEnvironmentVariable("ARAKI_LOOK") ?? "0", out float look);
+            string ino = File.ReadAllText(Path.Combine(ArduinoDir, "robot_kontrol.ino"));
+            var text = new StringBuilder(ino);
+            foreach (var h in Directory.GetFiles(ArduinoDir, "*.h")) text.Append('\n').Append(File.ReadAllText(h));
+            string all = text.ToString();
 
-            using (var bridge = new RobotBridge(host))
+            // MELODILER satırları: "  M_AD,   // grup|ad"
+            var table = Regex.Match(ino, @"MELODILER\[\]\s*=\s*\{(.*?)\};", RegexOptions.Singleline).Groups[1].Value;
+            var entries = Regex.Matches(table, @"(M_\w+)\s*,?\s*(?://\s*([^\n]*))?").Cast<Match>()
+                .Select(m => (name: m.Groups[1].Value, label: m.Groups[2].Value.Trim())).ToList();
+
+            string code = Regex.Replace(all, @"//[^\n]*", "");
+            var constants = new Dictionary<string, int>();
+            foreach (Match m in Regex.Matches(code, @"\b([A-Z][A-Z0-9_]+)\s*=\s*(\d+)\b"))
+                constants[m.Groups[1].Value] = int.Parse(m.Groups[2].Value);
+            var arrays = new Dictionary<string, List<int>>();
+            foreach (Match m in Regex.Matches(code, @"const uint16_t (M_\w+)\[\] PROGMEM = \{(.*?)\};", RegexOptions.Singleline))
             {
-                double start = RobotBridge.Now();
-                string status = null;
-                while (RobotBridge.Now() - start < 8000 && (status == null || bridge.RoundTripMs < 0))
+                var values = new List<int>();
+                foreach (var tok in m.Groups[2].Value.Split(','))
                 {
-                    Thread.Sleep(100);
-                    while (bridge.Incoming.TryDequeue(out var m)) status = m;
+                    string t = tok.Trim();
+                    if (t.Length == 0) continue;
+                    values.Add(constants.TryGetValue(t, out int v) ? v : int.Parse(t));
                 }
-                Debug.Log($"[Verify] bağlı={bridge.Connected} ping={bridge.RoundTripMs:0} ms hata='{bridge.LastError}'");
-                Debug.Log("[Verify] durum: " + status);
-                if (status != null)
-                {
-                    var s = JsonUtility.FromJson<BridgeStatus>(status);
-                    Debug.Log($"[Verify] çözülen: arduino={s.arduino} kamera={s.kamera} sinyal={s.sinyal} motor={(s.motor != null ? s.motor.sol + "/" + s.motor.sag : "yok")}");
-                }
+                arrays[m.Groups[1].Value] = values;
             }
 
-            byte[] jpeg;
-            using (var web = new WebClient()) jpeg = web.DownloadData("http://" + host + ":" + RobotBridge.Port + "/kare.jpg");
-            // Sahne açılışı kullanılmayan nesneleri boşaltır; doku ondan sonra yaratılmalı
-            EditorSceneManager.OpenScene(ScenePath);
-            var tex = new Texture2D(2, 2, TextureFormat.RGB24, false);
-            tex.LoadImage(jpeg);
-            Debug.Log($"[Verify] kare {tex.width}x{tex.height}, {jpeg.Length / 1024} KB");
-            var viewer = Object.FindFirstObjectByType<PanoramaViewer>();
-            var mount = Object.FindFirstObjectByType<RobotCameraMount>();
-            var sphere = GameObject.Find("Panorama").GetComponent<MeshRenderer>();
-            viewer.Bind();
-            mount.Apply();
-            sphere.sharedMaterial.SetTexture("_MainTex", tex);
-            viewer.SetLook(look, 0f);
-            File.WriteAllBytes(Path.ChangeExtension(shot, ".jpg"), jpeg);
-            var mesh = sphere.GetComponent<MeshFilter>().sharedMesh;
-            Debug.Log($"[Verify] küre {(mesh != null ? mesh.vertexCount : 0)} köşe, gölgelendirici {sphere.sharedMaterial.shader.name} " +
-                      $"destek={sphere.sharedMaterial.shader.isSupported} boru={UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline?.name} " +
-                      $"takılış={sphere.sharedMaterial.GetMatrix("_Mount").GetRow(0)}");
-
-            var cam = viewer.ViewCamera;
-            var rt = new RenderTexture(1280, 720, 24);
-            cam.targetTexture = rt;
-            // Gölgelendirici arka planda derlenir; hazır olana kadar yer tutucu çizilir
-            for (int i = 0; i < 80; i++)
+            var o = new StringBuilder("# Arduino kodundan üretildi (RobotSceneBuilder.WriteFirmwareData); elle düzenleme.\n");
+            foreach (var kv in constants.OrderBy(k => k.Key)) o.Append("SABIT ").Append(kv.Key).Append(' ').Append(kv.Value).Append('\n');
+            foreach (var (name, label) in entries)
             {
-                cam.Render();
-                Thread.Sleep(250);
-                if (!ShaderUtil.anythingCompiling) break;
+                if (!arrays.TryGetValue(name, out var notes)) { Debug.LogWarning("[RobotSceneBuilder] melodi yok: " + name); continue; }
+                o.Append("MELODI ").Append(string.IsNullOrEmpty(label) ? "|" + name : label).Append('\n');
+                o.Append("NOTA ").Append(string.Join(" ", notes)).Append('\n');
             }
-            cam.Render();
-            var prev = RenderTexture.active;
-            RenderTexture.active = rt;
-            var outTex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
-            outTex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
-            outTex.Apply();
-            File.WriteAllBytes(shot, outTex.EncodeToPNG());
-            RenderTexture.active = prev;
-            cam.targetTexture = null;
-            Debug.Log("[Verify] kaydedildi: " + shot);
+            Directory.CreateDirectory(Path.GetDirectoryName(FirmwareOut)!);
+            File.WriteAllText(FirmwareOut, o.ToString());
+            AssetDatabase.ImportAsset(FirmwareOut);
+            Debug.Log($"[RobotSceneBuilder] Arduino verisi: {constants.Count} sabit, {entries.Count} melodi");
         }
     }
 }

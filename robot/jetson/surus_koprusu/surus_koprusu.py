@@ -18,6 +18,9 @@ Sürüş (/kontrol, WebSocket): sayfa basılı tuş varken ~60 ms'de bir {"t":"s
   - Arduino 300 ms komut alamazsa motorları kendisi durdurur.
   - Aynı anda iki kişi sürerse son hareket ettiren sürücü olur; öteki 0,6 sn yok sayılır.
 
+Sürüş (UDP :8081, Unity uygulaması): uygulama 50 ms'de bir "istenen durum" paketi yollar (kayıp olursa
+  sonraki aynı bilgiyi taşır, "aldım" beklemeye gerek kalmaz). Ayrıntı: UdpKanal.
+
 Python 3.6 uyumlu, standart kütüphane + pyserial.
 """
 
@@ -50,6 +53,9 @@ ANAHTAR_ARALIGI = 15        # kare; 15 fps'te saniyede bir tam kare (yeni izleye
 ESKI_KOMUT_MS = 250         # bundan geç gelen hareket komutu uygulanmaz
 SURUCU_KILIDI = 0.6         # sn
 DURUM_ARALIGI = 0.1         # sn: WebSocket'ten durum gönderme
+UDP_PORT = 8081
+UDP_ISTEMCI_ZAMAN_ASIMI = 1.0   # sn: bu kadar paket gelmezse istemci gitmiş sayılır
+KORNA_YENILEME = 0.12       # sn: korna basılıyken Arduino'ya bu aralıkla "K 250" (bırakınca en geç 250 ms'de susar)
 
 
 def log(*parca):
@@ -579,8 +585,120 @@ class Istek(BaseHTTPRequestHandler):
             self.send_error(404)
 
 
+class UdpKanal:
+    """Unity uygulamasının sürüş kanalı (UDP).
+
+    Uygulama 50 ms'de bir, ayrıca bir şey değişince hemen, tüm "istenen durumu" yollar:
+      {"t":"d", "n":sıra, "z":uygulamanın saati (ms), "sol":-255..255, "sag":..,
+       "led":0/1, "dortlu":0/1, "motor_sesi":0/1, "geri_bip":0/1,
+       "k":korna basılı 0/1, "ks":korna sesi 0-3, "fs":selektör sayacı, "mi":melodi sayacı, "mn":melodi no}
+    - Paket kaybolursa sonraki paket aynı durumu taşıdığı için "aldım" (ack) gerekmez.
+    - Tek seferlik işler (selektör, melodi başlatma) sayaçla gelir: sayaç değişince bir kez yapılır;
+      o paket kaybolsa da sonraki pakette sayaç yine farklıdır.
+    - LED gibi durumlar yalnızca uygulamanın istediği değer değişince Arduino'ya yazılır; böylece
+      tarayıcıdan yapılan değişikliği yeni bağlanan uygulama ezmez.
+    - Sırası eski (n küçük) ya da geç kalmış (z) paketin sürüş kısmı uygulanmaz.
+    - Her pakete durum + aynı n ve z ile cevap verilir: uygulama gidip gelme süresini ve kaybı ölçer.
+    {"t":"bul"} paketine (yayın) {"t":"robot"} cevabı verilir: uygulama robotun adresini kendisi bulur.
+    """
+
+    DURUMLAR = (("led", "L"), ("dortlu", "H"), ("motor_sesi", "E"), ("geri_bip", "V"))
+
+    def __init__(self):
+        self.soket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.soket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.soket.bind(("0.0.0.0", UDP_PORT))
+        self.istemciler = {}
+        threading.Thread(target=self._dongu, daemon=True).start()
+        threading.Thread(target=self._bekci, daemon=True).start()
+
+    def _cevap(self, adres, veri):
+        try:
+            self.soket.sendto(json.dumps(veri).encode(), adres)
+        except OSError:
+            pass
+
+    def _dongu(self):
+        while True:
+            try:
+                paket, adres = self.soket.recvfrom(2048)
+                m = json.loads(paket.decode())
+            except (OSError, ValueError, UnicodeDecodeError):
+                continue
+            t = m.get("t") if isinstance(m, dict) else None
+            if t == "bul":
+                self._cevap(adres, {"t": "robot", "ad": socket.gethostname(), "port": PORT})
+            elif t == "d":
+                try:
+                    self._durum_paketi(adres, m)
+                except (ValueError, TypeError):
+                    continue
+
+    def _durum_paketi(self, adres, m):
+        simdi = time.time()
+        ist = self.istemciler.get(adres)
+        n = int(m.get("n", 0))
+        # Uygulama yeniden açıldıysa sıra baştan başlar: uzun süre ses yoksa yeni istemci say
+        if ist is None or simdi - ist["son"] > UDP_ISTEMCI_ZAMAN_ASIMI or n < ist["n"] - 1000:
+            if ist:
+                SURUCU.ayrildi(ist["baglanti"])
+            ist = {"baglanti": object(), "n": n - 1, "fark_min": None, "onceki": None, "korna": 0.0, "atilan": 0}
+            self.istemciler[adres] = ist
+            log("UDP istemci:", adres[0])
+        ist["son"] = simdi
+        taze = n > ist["n"]
+        if taze:
+            ist["n"] = n
+
+        sol = max(-255, min(255, int(m.get("sol", 0))))
+        sag = max(-255, min(255, int(m.get("sag", 0))))
+        if "z" in m:
+            fark = ms() - float(m["z"])
+            if ist["fark_min"] is None or fark < ist["fark_min"]:
+                ist["fark_min"] = fark
+            if (sol or sag) and fark - ist["fark_min"] > ESKI_KOMUT_MS:
+                taze = False
+                ist["atilan"] += 1
+        if taze:
+            SURUCU.surus(ist["baglanti"], sol, sag)
+        elif sol or sag:
+            SURUCU.surus(ist["baglanti"], 0, 0)
+
+        onceki = ist["onceki"]
+        if taze and onceki is not None:
+            for alan, harf in self.DURUMLAR:
+                if alan in m and m[alan] != onceki.get(alan):
+                    ARDUINO.gonder("{} {}".format(harf, 1 if m[alan] else 0))
+            if m.get("fs") != onceki.get("fs"):
+                ARDUINO.gonder("F")
+            if m.get("mi") != onceki.get("mi"):
+                ARDUINO.gonder("C {}".format(int(m.get("mn", 0))))
+            if not m.get("k") and onceki.get("k"):
+                ARDUINO.gonder("K 1")                  # bırakıldı: hemen sus
+        if taze and m.get("k") and simdi - ist["korna"] > KORNA_YENILEME:
+            ist["korna"] = simdi
+            ARDUINO.gonder("K 250 {}".format(max(0, min(3, int(m.get("ks", 0))))))
+        if taze:
+            ist["onceki"] = m
+
+        d = durum()
+        d.update(t="s", n=n, z=m.get("z"), atilan=ist["atilan"])
+        self._cevap(adres, d)
+
+    def _bekci(self):
+        while True:
+            time.sleep(0.2)
+            simdi = time.time()
+            for adres, ist in list(self.istemciler.items()):
+                if simdi - ist["son"] > UDP_ISTEMCI_ZAMAN_ASIMI:
+                    SURUCU.ayrildi(ist["baglanti"])
+                    del self.istemciler[adres]
+                    log("UDP istemci gitti:", adres[0])
+
+
 def main():
-    log("Sürüş köprüsü hazır, port", PORT)
+    UdpKanal()
+    log("Sürüş köprüsü hazır, port", PORT, "UDP", UDP_PORT)
     Sunucu(("0.0.0.0", PORT), Istek).serve_forever()
 
 

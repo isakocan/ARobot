@@ -29,7 +29,7 @@ namespace ARaki.Video
 
         void Update()
         {
-            if (robot != null && robot.IsConnected && robot.Host != loadedFrom)
+            if (robot != null && !robot.Demo && robot.IsConnected && robot.Host != loadedFrom)
             {
                 loadedFrom = robot.Host;
                 StartCoroutine(Load(robot.Host));
@@ -38,7 +38,7 @@ namespace ARaki.Video
 
         IEnumerator Load(string host)
         {
-            using (var req = UnityWebRequest.Get("http://" + host + ":" + ARaki.Net.RobotBridge.Port + "/api/kamera-ayari"))
+            using (var req = UnityWebRequest.Get("http://" + host + ":" + ARaki.Net.UdpRobotConnection.HttpPort + "/api/kamera-ayari"))
             {
                 req.timeout = 4;
                 yield return req.SendWebRequest();

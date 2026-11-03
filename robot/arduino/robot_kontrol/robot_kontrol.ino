@@ -7,7 +7,7 @@
 //   F               selektör: ışığı iki kez yakıp söndürür, eski hâline döner
 //   H <0|1>         dörtlüler: ışık kapatılana kadar yanıp söner (L komutu da kapatır)
 //   R <0|1>         ikinci röle (pin 5, şimdilik boşta)
-//   K <ms>          korna (iki tonlu), ms boyunca
+//   K <ms> [ses]    korna, ms boyunca; ses: 0 düz (varsayılan), 1 kalın, 2 tiz, 3 titrek iki ton
 //   B <hz> <ms>     tek ton bip
 //   C <n>           n. melodiyi çal (1..MELODI_SAYISI), C 0 = sustur
 //   E <0|1>         motor sesi (hıza göre perdesi değişen uğultu)
@@ -45,8 +45,11 @@ const unsigned long SELEKTOR_ADIMI = 110;      // ms; röle mekanik, daha hızl�
 const unsigned long DORTLU_ADIMI = 500;        // ms; dakikada 60 yanıp sönme (arabalarda 60-120)
 
 // Ses
-const uint16_t KORNA_HZ_1 = 420, KORNA_HZ_2 = 500;  // arabaların iki tonlu kornası gibi
-const unsigned long KORNA_ADIMI = 4;                // ms; iki ton hızla değişince tek, kalın ve pürüzlü duyulur
+// Korna sesleri. Tek buzzer aynı anda iki ton çalamaz; düz tek ton kare dalga olduğu için zaten
+// pürüzlüdür ve kornaya en çok benzeyendir. 3 numara eski sesimiz: iki ton 4 ms'de bir değişir.
+const uint16_t KORNA_HZ[] = { 440, 330, 660 };
+const uint16_t KORNA_HZ_1 = 420, KORNA_HZ_2 = 500;
+const unsigned long KORNA_ADIMI = 4;                // ms
 const uint16_t GERI_BIP_HZ = 1100;
 const unsigned long GERI_BIP_YARIM = 450;            // ms çalar, ms susar
 const uint16_t MOTOR_ROLANTI_HZ = 38;                // duruyorken
@@ -62,6 +65,7 @@ bool motorSesi = false, geriBip = true;
 unsigned long sonKomut = 0, sonRampa = 0, sonDurum = 0, selektorZamani = 0, dortluZamani = 0;
 unsigned long bipBitis = 0, kornaBitis = 0, geriBaslangic = 0;
 uint16_t bipHz = 0;
+uint8_t kornaSesi = 0;
 char satir[32];
 uint8_t uzunluk = 0;
 
@@ -140,20 +144,44 @@ const uint16_t M_ROBOT[] PROGMEM = {         // kendi ezgimiz: "bip bop" robot k
 
 // Oyun ve film müzikleri: tools/melodi_cevir.py ile hazır nota dökümlerinden üretildi
 #include "sarkilar.h"
+#include "sarkilar_ek.h"
 
-// Sıra sürüş sayfasındaki MELODILER listesiyle aynı olmalı
+// Numara = listedeki sıra (1'den). Satır sonundaki "// grup|ad" yorumlarını Unity uygulaması ve robotsuz
+// deneme okuyup şarkı menüsünü kurar; şarkı eklerken yorumunu da yaz.
 const uint16_t *const MELODILER[] = {
-  M_ACILIS,
-  // oyun
-  M_MEGALOVANIA, M_DOOM, M_KANLI_GOZYASI, M_YESIL_TEPE, M_MARIO, M_TETRIS, M_PACMAN, M_ZELDA,
-  // film / dizi
-  M_IMPARATORLUK, M_GOT, M_HEDWIG, M_PEMBE_PANTER,
-  // pop / yol
-  M_TAKEONME, M_RICK, M_CUCARACHA,
-  // sakin
-  M_NINNI, M_FIRTINA, M_ELISE, M_NESE, M_NOKIA,
-  // efekt
-  M_HUCUM, M_SIREN, M_DAVUL, M_ROBOT };
+  M_ACILIS,          // |Açılış
+  M_MEGALOVANIA,     // Oyun|Megalovania (Undertale)
+  M_DOOM,            // Oyun|Doom E1M1
+  M_KANLI_GOZYASI,   // Oyun|Bloody Tears (Castlevania)
+  M_YESIL_TEPE,      // Oyun|Green Hill (Sonic)
+  M_MARIO,           // Oyun|Süper Mario
+  M_TETRIS,          // Oyun|Tetris
+  M_PACMAN,          // Oyun|Pac-Man
+  M_ZELDA,           // Oyun|Zelda teması
+  M_WITCHER_SILVER,  // Oyun|Silver for Monsters (Witcher 3)
+  M_WITCHER_STEEL,   // Oyun|Steel for Humans (Witcher 3)
+  M_WITCHER_ANA,     // Oyun|Ana tema (Witcher 3)
+  M_GIORNO,          // Anime|Il Vento d'Oro (JoJo)
+  M_SBR,             // Anime|Steel Ball Run (JoJo)
+  M_NARUTO,          // Anime|Sadness and Sorrow (Naruto)
+  M_IMPARATORLUK,    // Film / dizi|İmparatorluk Marşı
+  M_GOT,             // Film / dizi|Game of Thrones
+  M_HEDWIG,          // Film / dizi|Hedwig (Harry Potter)
+  M_PEMBE_PANTER,    // Film / dizi|Pembe Panter
+  M_KORSAN,          // Film / dizi|He's a Pirate (Karayip Korsanları)
+  M_TAKEONME,        // Pop / yol|Take On Me
+  M_RICK,            // Pop / yol|Never Gonna Give You Up
+  M_CUCARACHA,       // Pop / yol|La Cucaracha
+  M_NINNI,           // Sakin|Zelda's Lullaby
+  M_FIRTINA,         // Sakin|Song of Storms
+  M_ELISE,           // Sakin|Für Elise
+  M_NESE,            // Sakin|Neşeye Övgü
+  M_NOKIA,           // Sakin|Nokia
+  M_HUCUM,           // Efekt|Hücum borazanı
+  M_SIREN,           // Efekt|Siren
+  M_DAVUL,           // Efekt|Davul ritmi
+  M_ROBOT,           // Efekt|Robot konuşması
+};
 const uint8_t MELODI_SAYISI = sizeof(MELODILER) / sizeof(MELODILER[0]);
 
 uint8_t melodi = 0;               // çalan melodi (1..), 0 = yok
@@ -207,7 +235,7 @@ void sesGuncelle(unsigned long simdi) {
   if (bipBitis && (long)(simdi - bipBitis) < 0) {
     hz = bipHz;
   } else if (kornaBitis && (long)(simdi - kornaBitis) < 0) {
-    hz = (simdi / KORNA_ADIMI) % 2 ? KORNA_HZ_1 : KORNA_HZ_2;
+    hz = kornaSesi < 3 ? KORNA_HZ[kornaSesi] : (simdi / KORNA_ADIMI) % 2 ? KORNA_HZ_1 : KORNA_HZ_2;
   } else if (melodi) {
     hz = melodiHz;
   } else if (geriBip && geriGidiyor) {
@@ -334,7 +362,10 @@ void komutuIsle(char *k) {
       if (n >= 1) digitalWrite(YEDEK_ROLE, a ? ROLE_ACIK : !ROLE_ACIK);
       break;
     case 'K':
-      if (n >= 1 && a > 0) kornaBitis = simdi + constrain(a, 1, 2000);
+      if (n >= 1 && a > 0) {
+        kornaBitis = simdi + constrain(a, 1, 2000);
+        kornaSesi = n == 2 ? constrain(b, 0, 3) : 0;
+      }
       break;
     case 'B':
       if (n == 2 && a > 0 && b > 0) {
