@@ -49,12 +49,14 @@ namespace ARaki.Tests
             Assert.IsTrue(link.Demo && link.IsConnected);
             drive.Settings.Gears = true;
             drive.TouchForward = 1;
-            yield return new WaitForSecondsRealtime(1.5f);
-            Assert.GreaterOrEqual(drive.Model.Gear, 2, "1,5 sn'de 2. vitese geçmeli");
+            yield return new WaitForSecondsRealtime(0.9f);
+            Assert.AreEqual(1, drive.Model.Gear, "vites hemen büyümemeli: o viteste basılı tutmak gerekir");
+            yield return new WaitForSecondsRealtime(1.1f);
+            Assert.GreaterOrEqual(drive.Model.Gear, 2, "2 sn'de 2. vitese geçmeli");
             Assert.Less(drive.Model.Speed, 0.7f, "tam güce bu kadar çabuk varmamalı");
             Assert.Greater(link.Status.motor.sol, 0, "demo Arduino motoru döndürmeli");
-            yield return new WaitForSecondsRealtime(4f);
-            Assert.AreEqual(4, drive.Model.Gear, "~5 sn'de 4. vites");
+            yield return new WaitForSecondsRealtime(4.5f);
+            Assert.AreEqual(4, drive.Model.Gear, "~5,5 sn'de 4. vites");
             drive.TouchForward = 0;
             yield return new WaitForSecondsRealtime(1.5f);
             Assert.AreEqual(0, link.Status.motor.sol, "bırakınca durmalı");
@@ -106,7 +108,7 @@ namespace ARaki.Tests
             foreach (var side in new[] { WheelSide.Left, WheelSide.Right })
             {
                 drive.Settings.Wheel = side;
-                drive.Settings.Mirrors = true;
+                drive.Settings.SideMirrors = drive.Settings.RearMirror = true;
                 drive.Settings.Cockpit = true;
                 drive.TouchForward = 1;
                 drive.TouchTurn = side == WheelSide.Left ? 1 : 0;

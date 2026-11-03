@@ -11,7 +11,8 @@ namespace ARaki.Drive
         public bool Gears = true;
         public bool ReverseBeep = true;
         public bool CameraMotion = true;
-        public bool Mirrors = true;
+        public bool SideMirrors = true;
+        public bool RearMirror = true;
         public bool Cockpit = true;
         public bool TouchControls = Application.isMobilePlatform;
         public WheelSide Wheel = WheelSide.Left;
@@ -34,7 +35,8 @@ namespace ARaki.Drive
             s.Gears = Get(Names[0], s.Gears);
             s.ReverseBeep = Get(Names[1], s.ReverseBeep);
             s.CameraMotion = Get(Names[2], s.CameraMotion);
-            s.Mirrors = Get(Names[3], s.Mirrors);
+            s.SideMirrors = Get(Names[3], s.SideMirrors);
+            s.RearMirror = Get("rearMirror", s.RearMirror);
             s.Cockpit = Get(Names[4], s.Cockpit);
             s.TouchControls = Get(Names[5], s.TouchControls);
             s.Wheel = (WheelSide)PlayerPrefs.GetInt("wheel", (int)s.Wheel);
@@ -49,7 +51,7 @@ namespace ARaki.Drive
         public void Save()
         {
             Set(Names[0], Gears); Set(Names[1], ReverseBeep); Set(Names[2], CameraMotion);
-            Set(Names[3], Mirrors); Set(Names[4], Cockpit); Set(Names[5], TouchControls);
+            Set(Names[3], SideMirrors); Set("rearMirror", RearMirror); Set(Names[4], Cockpit); Set(Names[5], TouchControls);
             PlayerPrefs.SetInt("wheel", (int)Wheel);
             PlayerPrefs.SetInt("unit", (int)Unit);
             PlayerPrefs.SetInt("hornStyle", HornStyle);

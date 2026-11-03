@@ -42,6 +42,7 @@ const unsigned long BAGLANTI_ZAMAN_ASIMI = 1500;  // ms
 const unsigned long RAMPA_ADIMI_MS = 5;
 const int HIZLANMA_ADIMI = 4;                  // 0 → 255 yaklaşık 320 ms (dişliler ve pil için yumuşak kalkış)
 const int YAVASLAMA_ADIMI = 9;                 // 255 → 0 yaklaşık 140 ms (durmak hızlı olsun)
+const uint8_t YON_BEKLEME = 16;                // adım (×5 ms = 80 ms): yön değişirken sıfırda frenli bekle
 const int OLU_BOLGE = 50;                      // bunun altındaki PWM motoru döndürmüyor; 1..255 → 50..255
 const unsigned long DURUM_ARALIGI = 100;       // ms
 const int PWM_UST = 400;                       // Timer1 20 kHz için tepe değeri
@@ -62,6 +63,7 @@ const unsigned long MOTOR_TITRESIM = 30;             // ms; perde hafifçe oynar
 
 int hedefSol = 0, hedefSag = 0;   // istenen
 int simdiSol = 0, simdiSag = 0;   // rampalı, motora giden
+uint8_t bekleSol = 0, bekleSag = 0;  // yön değişiminde sıfırda kalan adım
 bool ledAcik = false;
 uint8_t selektorKalan = 0;        // kalan yak/söndür adımı
 bool dortlu = false, dortluYanik = false;
@@ -300,15 +302,18 @@ void motorYaz(uint8_t a, uint8_t b, volatile uint16_t &ocr, int deger, bool ters
   ocr = (uint16_t)(guc * PWM_UST / 255);
 }
 
-int yaklas(int simdi, int hedef) {
+int yaklas(int simdi, int hedef, uint8_t &bekle) {
   // Sıfıra doğru (yavaşlama ya da yön değiştirme) hızlı, sıfırdan uzağa (hızlanma) yavaş
   bool yavasliyor = (simdi > 0 && hedef < simdi) || (simdi < 0 && hedef > simdi);
   int adim = yavasliyor ? YAVASLAMA_ADIMI : HIZLANMA_ADIMI;
-  if (yavasliyor && ((simdi > 0 && hedef < 0) || (simdi < 0 && hedef > 0)))
-    hedef = 0;   // yön değişirken önce sıfırda dur
-  if (simdi < hedef) return min(simdi + adim, hedef);
-  if (simdi > hedef) return max(simdi - adim, hedef);
-  return simdi;
+  bool yonDegisiyor = yavasliyor && ((simdi > 0 && hedef < 0) || (simdi < 0 && hedef > 0));
+  if (yonDegisiyor) hedef = 0;   // yön değişirken önce sıfırda dur
+  // Hızlı ileri-geri (ör. W/S'ye art arda basmak): sıfırda frenleyip tekerin durmasını bekle, sonra ters
+  // yöne geç. Dönmekte olan motora ters gerilim vermek akımı ve dişlilere gelen darbeyi büyütür.
+  if (simdi == 0 && bekle) { bekle--; return 0; }
+  int yeni = simdi < hedef ? min(simdi + adim, hedef) : simdi > hedef ? max(simdi - adim, hedef) : simdi;
+  if (yonDegisiyor && yeni == 0) bekle = YON_BEKLEME;
+  return yeni;
 }
 
 void motorlariDurdur() {
@@ -447,8 +452,8 @@ void loop() {
 
   if (simdi - sonRampa >= RAMPA_ADIMI_MS) {
     sonRampa = simdi;
-    simdiSol = yaklas(simdiSol, hedefSol);
-    simdiSag = yaklas(simdiSag, hedefSag);
+    simdiSol = yaklas(simdiSol, hedefSol, bekleSol);
+    simdiSag = yaklas(simdiSag, hedefSag, bekleSag);
     motorYaz(SOL_A, SOL_B, OCR1A, simdiSol, SOL_TERS);
     motorYaz(SAG_A, SAG_B, OCR1B, simdiSag, SAG_TERS);
   }

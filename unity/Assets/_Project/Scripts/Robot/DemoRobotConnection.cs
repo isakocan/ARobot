@@ -15,7 +15,7 @@ namespace ARaki.Robot
         ControlState previous;
         bool hasPrevious;
         float lastHorn = -10f;
-        int targetLeft, targetRight, left, right;
+        int targetLeft, targetRight, left, right, waitLeft, waitRight;
         float lastCommand, rampClock;
         bool led, hazard, engine, reverseBeep = true;
 
@@ -64,8 +64,8 @@ namespace ARaki.Robot
             while (rampClock + step <= now)
             {
                 rampClock += step;
-                left = Approach(left, targetLeft);
-                right = Approach(right, targetRight);
+                left = Approach(left, targetLeft, ref waitLeft);
+                right = Approach(right, targetRight, ref waitRight);
             }
             buzzer.SetMotors(left, right, targetLeft, targetRight);
 
@@ -79,14 +79,16 @@ namespace ARaki.Robot
             Status.veri_kbps = 4000;
         }
 
-        int Approach(int now, int target)
+        int Approach(int now, int target, ref int wait)
         {
             bool slowing = (now > 0 && target < now) || (now < 0 && target > now);
             int step = slowing ? fw["YAVASLAMA_ADIMI"] : fw["HIZLANMA_ADIMI"];
-            if (slowing && ((now > 0 && target < 0) || (now < 0 && target > 0))) target = 0;   // önce sıfırda dur
-            if (now < target) return Mathf.Min(now + step, target);
-            if (now > target) return Mathf.Max(now - step, target);
-            return now;
+            bool reversing = slowing && ((now > 0 && target < 0) || (now < 0 && target > 0));
+            if (reversing) target = 0;   // önce sıfırda dur
+            if (now == 0 && wait > 0) { wait--; return 0; }   // yön değişirken sıfırda frenli bekleme
+            int next = now < target ? Mathf.Min(now + step, target) : now > target ? Mathf.Max(now - step, target) : now;
+            if (reversing && next == 0) wait = fw["YON_BEKLEME"];
+            return next;
         }
 
         public void Dispose() { }

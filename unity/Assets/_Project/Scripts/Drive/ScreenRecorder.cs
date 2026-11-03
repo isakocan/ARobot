@@ -159,7 +159,12 @@ namespace ARaki.Drive
             }
 
             /// <summary>Ham RGBA kare (ana iş parçacığı). Kodlama yetişmezse kare atlanır: kayıt sürüşü yavaşlatmasın.</summary>
-            public void AddFrame(byte[] rgba, int w, int h) => queue.TryAdd(rgba);
+            public void AddFrame(byte[] rgba, int w, int h)
+            {
+                // Kayıt durdurulduktan sonra gelen son ekran okuması atılır
+                try { if (!queue.IsAddingCompleted) queue.TryAdd(rgba); }
+                catch (System.InvalidOperationException) { }
+            }
 
             void Work()
             {

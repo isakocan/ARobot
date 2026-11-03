@@ -129,6 +129,10 @@ namespace ARaki.Net
             target = new IPEndPoint(address, UdpPort);
             udp = new UdpClient(AddressFamily.InterNetwork);
             udp.Client.ReceiveTimeout = 500;
+            // Wi-Fi önceliği: DSCP EF → WMM "ses" kuyruğu; sürüş paketleri görüntünün önüne geçer (Android uygular,
+            // Windows yalnızca QoS ilkesiyle uygular)
+            try { udp.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.TypeOfService, 0xB8); }
+            catch (SocketException) { }
             new Thread(SendLoop) { IsBackground = true, Name = "Robot UDP gönder" }.Start();
             new Thread(ReceiveLoop) { IsBackground = true, Name = "Robot UDP al" }.Start();
         }

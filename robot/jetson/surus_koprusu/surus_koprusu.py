@@ -637,6 +637,11 @@ class UdpKanal:
         self.soket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.soket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.soket.bind(("0.0.0.0", UDP_PORT))
+        # Wi-Fi önceliği: DSCP EF → WMM "ses" kuyruğu. Sinyal zayıfken bile sürüş paketleri görüntünün önüne geçer.
+        try:
+            self.soket.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, 0xB8)
+        except OSError:
+            pass
         self.istemciler = {}
         threading.Thread(target=self._dongu, daemon=True).start()
         threading.Thread(target=self._bekci, daemon=True).start()

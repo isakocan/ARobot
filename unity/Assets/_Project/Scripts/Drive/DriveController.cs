@@ -68,8 +68,9 @@ namespace ARaki.Drive
 
         public void ToggleLight() { Changed(); link.State.Led = !CurrentLed; link.State.Hazard = false; }
         public void Flash() => link.State.FlashCount++;
+        public void ToggleRearMirror() { Settings.RearMirror = !Settings.RearMirror; Settings.Save(); ShowToast(Settings.RearMirror ? "Dikiz aynası açık" : "Dikiz aynası kapalı"); }
+        public void ToggleSideMirrors() { Settings.SideMirrors = !Settings.SideMirrors; Settings.Save(); ShowToast(Settings.SideMirrors ? "Yan aynalar açık" : "Yan aynalar kapalı"); }
         public void ToggleHazard() { Changed(); link.State.Hazard = !CurrentHazard; }
-        public void ToggleEngineSound() { Changed(); link.State.EngineSound = !CurrentEngine; }
         public void PlayMelody(int n)
         {
             link.State.Melody = n;
@@ -113,7 +114,6 @@ namespace ARaki.Drive
 
         public bool CurrentLed => Synced(link.State.Led, s => s.led);
         public bool CurrentHazard => Synced(link.State.Hazard, s => s.dortlu);
-        public bool CurrentEngine => Synced(link.State.EngineSound, s => s.motor_sesi);
         public int PlayingMelody => link.Status?.motor?.melodi ?? 0;
 
         void Changed() => lastLocalChange = Time.unscaledTime;
@@ -144,13 +144,13 @@ namespace ARaki.Drive
                 if (kb.lKey.wasPressedThisFrame) ToggleLight();
                 if (kb.fKey.wasPressedThisFrame) Flash();
                 if (kb.hKey.wasPressedThisFrame) ToggleHazard();
-                if (kb.eKey.wasPressedThisFrame) ToggleEngineSound();
                 if (kb.nKey.wasPressedThisFrame) { MusicMenuOpen = !MusicMenuOpen; SettingsOpen = false; }
                 if (kb.oKey.wasPressedThisFrame) { SettingsOpen = !SettingsOpen; MusicMenuOpen = false; }
                 if (kb.escapeKey.wasPressedThisFrame) { SettingsOpen = MusicMenuOpen = false; }
                 if (kb.rKey.wasPressedThisFrame) viewer.LookFront();
                 if (kb.bKey.wasPressedThisFrame) viewer.LookBack();
-                if (kb.mKey.wasPressedThisFrame) { Settings.Mirrors = !Settings.Mirrors; Settings.Save(); }
+                if (kb.mKey.wasPressedThisFrame) ToggleRearMirror();
+                if (kb.jKey.wasPressedThisFrame) ToggleSideMirrors();
                 if (kb.kKey.wasPressedThisFrame) { Settings.Cockpit = !Settings.Cockpit; Settings.Save(); }
                 if (kb.gKey.wasPressedThisFrame) { Settings.Gears = !Settings.Gears; Settings.Save(); ShowToast(Settings.Gears ? "Vites açık" : "Vites kapalı"); }
                 if (kb.pKey.wasPressedThisFrame) Photo();
@@ -174,6 +174,9 @@ namespace ARaki.Drive
                 if (pad.buttonEast.wasPressedThisFrame) ToggleHazard();
                 if (pad.buttonNorth.wasPressedThisFrame) viewer.LookBack();
             }
+            // Robota ulaşamıyorken robot zaten duruyor: model de hız biriktirmesin, korna da kalmasın.
+            // Bağlantı gelince araç kaldığı yerden değil, durduğu yerden kalkar.
+            if (!link.Demo && (!link.IsConnected || link.IsWeak)) { forward = turn = 0; horn = false; }
             forward = Mathf.Clamp(forward, -1, 1);
             turn = Mathf.Clamp(turn, -1, 1);
             link.State.Horn = horn;
@@ -187,7 +190,15 @@ namespace ARaki.Drive
             }
 
             var m = link.Status?.motor;
-            MotorPower = m != null ? (m.sol + m.sag) / 2f / 255f : 0f;   // yerinde dönerken sıfır
+            // Robotun durumu bizimkinden farklıysa (Arduino yeniden başladı ya da tarayıcıdan değişti) istediğimiz
+            // durumu robotunkine eşitle; yoksa sonraki "aç" köprüye değişiklik gibi görünmez.
+            if (m != null && Time.unscaledTime - lastLocalChange >= 1.5f)
+            {
+                link.State.Led = m.led;
+                link.State.Hazard = m.dortlu;
+            }
+            link.State.EngineSound = false;   // motor sesi kaldırıldı (Arduino'da komutu duruyor)
+            MotorPower =m != null ? (m.sol + m.sag) / 2f / 255f : 0f;   // yerinde dönerken sıfır
             float k = Mathf.Min(1f, Time.unscaledDeltaTime * 8f);
             SpeedMs += (Settings.SpeedMs(MotorPower) - SpeedMs) * k;
             Rpm += (Model.Rpm(Settings.Gears) + Mathf.Sin(Time.unscaledTime * 11f) * 12f - Rpm) * k;

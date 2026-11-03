@@ -7,7 +7,7 @@ namespace ARaki.EditorTools
 {
     /// <summary>
     /// Robot sürüş uygulamasının derlemeleri (yalnız RealRobot sahnesi). Oyun (DriveSim) ayrı derlenir.
-    ///   Windows: build/RobotSurus/RobotSurus.exe (tam ekran pencere, F11 ile çıkılır)
+    ///   Windows: build/RobotSurus/RobotSurus.exe (pencereli 1600×900, boyutu değişir; F11 tam ekran)
     ///   Android: build/RobotSurus.apk (IL2CPP, ARM64; OpenH264 ARM64 kütüphanesi bunu ister)
     /// Komut satırı: Unity -batchmode -quit -projectPath unity -executeMethod ARaki.EditorTools.RobotBuilds.Windows
     /// </summary>
@@ -21,7 +21,10 @@ namespace ARaki.EditorTools
         {
             Build(BuildTarget.StandaloneWindows64, Path.Combine(Root, "RobotSurus", "RobotSurus.exe"), () =>
             {
-                PlayerSettings.fullScreenMode = FullScreenMode.FullScreenWindow;
+                PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
+                PlayerSettings.defaultScreenWidth = 1600;
+                PlayerSettings.defaultScreenHeight = 900;
+                PlayerSettings.resizableWindow = true;
                 PlayerSettings.SetScriptingBackend(UnityEditor.Build.NamedBuildTarget.Standalone, ScriptingImplementation.Mono2x);
             });
         }

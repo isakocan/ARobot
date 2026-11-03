@@ -6,14 +6,16 @@ namespace ARaki.Drive
     /// Sürüş hissi: vites, dönüş karışımı, motor devri ve kamera hareketi. Ağ ve Unity sahnesinden bağımsız;
     /// her 30 ms'de Step çağrılır.
     ///
-    /// Vites: ileri basılı tutuldukça güç, o vitesin üst sınırına kadar vitesin hızıyla artar; sınıra varınca
-    /// vites büyür ve 0,22 sn güç düşer (kavrama). Büyük viteslerde artış yavaştır, bu yüzden tam güce
-    /// ~5 sn'de varılır. Gerçek tekerin hızı ayrıca Arduino'daki rampayla yumuşar.
+    /// Vites: ileri basılı tutuldukça güç o vitesin üst sınırına çabuk çıkar ve orada kalır. Vites ancak o viteste
+    /// GearHold kadar gaza basılı tutulunca büyür (devir kırmızıya yaklaşır); geçerken 0,22 sn güç düşer
+    /// (kavrama), sonra yeni vitesin sınırına yine çabuk çıkar. Böylece her vites atışı belirgin bir hızlanmadır;
+    /// 4. vitese ~5,5 sn'de, tam güce ~6 sn'de varılır. Gerçek tekerin hızı ayrıca Arduino'daki rampayla yumuşar.
     /// </summary>
     public class DriveModel
     {
-        public static readonly float[] GearTop = { 0f, 0.35f, 0.55f, 0.75f, 1f };      // güç sınırının oranı
-        public static readonly float[] GearRate = { 0f, 0.45f, 0.25f, 0.16f, 0.11f };   // saniyede
+        public static readonly float[] GearTop = { 0f, 0.3f, 0.5f, 0.72f, 1f };        // güç sınırının oranı
+        public static readonly float[] GearRate = { 0f, 0.5f, 0.42f, 0.36f, 0.3f };    // saniyede
+        public static readonly float[] GearHold = { 0f, 1.4f, 1.8f, 2.2f, 0f };        // vites büyümeden önce o viteste gazda geçen sn
         public const float ReverseTop = 0.5f, ReverseRate = 0.4f;
         public const float Coast = 1.2f;    // tuş bırakınca saniyede yavaşlama
         public const float Brake = 2.5f;    // ters yöne basınca
@@ -30,7 +32,7 @@ namespace ARaki.Drive
         public float Acceleration { get; private set; } // Output'un süzülmüş değişim hızı (1/sn)
         public float Steer { get; private set; }       // -1, 0, 1
 
-        float clutchUntil, time;
+        float clutchUntil, time, inGear;   // inGear: bu viteste gaza basılı geçen süre
 
         /// <summary>forward: +1 ileri, -1 geri, 0 bırakıldı; turn: +1 sağ, -1 sol.</summary>
         public (float left, float right) Step(float dt, int forward, int turn, bool gears)
@@ -48,10 +50,11 @@ namespace ARaki.Drive
                 if (Speed < 0) Speed = Mathf.Min(0f, Speed + Brake * dt);          // önce dur
                 else
                 {
-                    if (Gear < 1) Gear = 1;
+                    if (Gear < 1) { Gear = 1; inGear = 0f; }
                     float top = GearTop[Gear];
                     Speed = Mathf.Min(top, Speed + GearRate[Gear] * dt);
-                    if (Speed >= top - 0.002f && Gear < 4) { Gear++; clutchUntil = time + ClutchTime; }
+                    inGear += dt;
+                    if (Speed >= top - 0.002f && inGear >= GearHold[Gear] && Gear < 4) { Gear++; inGear = 0f; clutchUntil = time + ClutchTime; }
                 }
             }
             else if (forward < 0)
@@ -63,7 +66,7 @@ namespace ARaki.Drive
 
             if (gears)
             {
-                if (Speed > 0) while (Gear > 1 && Speed < GearTop[Gear - 1] * 0.8f) Gear--;   // yavaşlayınca vites küçülür
+                if (Speed > 0) while (Gear > 1 && Speed < GearTop[Gear - 1] * 0.8f) { Gear--; inGear = GearHold[Gear]; }   // yavaşlayınca vites küçülür
                 if (Speed == 0 && forward == 0) Gear = 0;
             }
             Output = Speed * (gears && time < clutchUntil ? ClutchDip : 1f);
@@ -91,7 +94,10 @@ namespace ARaki.Drive
             if (Gear == 0) return IdleRpm;
             float top = Gear < 0 ? ReverseTop : GearTop[Gear];
             float bottom = Gear <= 1 ? 0f : GearTop[Gear - 1] * 0.8f;
-            float k = Mathf.Clamp01((a - bottom) / (top - bottom));
+            // Devir hem hızla hem viteste geçen süreyle artar: vites atmaya yaklaştıkça kırmızıya varır
+            float hold = GearHold[Gear] > 0f ? Mathf.Clamp01(inGear / GearHold[Gear]) : 1f;
+            float k = Gear < 0 ? Mathf.Clamp01((a - bottom) / (top - bottom))
+                               : 0.65f * Mathf.Clamp01((a - bottom) / (top - bottom)) + 0.35f * hold;
             return (IdleRpm + (TopRpm - IdleRpm) * k) * (time < clutchUntil ? 0.85f : 1f);
         }
     }
@@ -103,8 +109,8 @@ namespace ARaki.Drive
     /// </summary>
     public class CameraSway
     {
-        public const float PitchPerAccel = 1.1f, MaxPitch = 1.6f;   // derece / (güç/sn), en çok derece
-        public const float MaxRoll = 1.2f;
+        public const float PitchPerAccel = 3f, MaxPitch = 4f;   // derece / (güç/sn), en çok derece (ilk sürümdeki şiddet)
+        public const float MaxRoll = 2.5f;
         const float Stiffness = 16f, Damping = 7f;
 
         float pitch, pitchV, roll, rollV;
