@@ -21,6 +21,7 @@ namespace ARaki.Drive
         public TouchMode Touch = Application.isMobilePlatform ? TouchMode.Pad : TouchMode.Off;
         public WheelSide Wheel = WheelSide.Left;
         public SpeedUnit Unit = SpeedUnit.KilometersPerHour;
+        public bool Effects;                // uygulamanın istediği kısa sesler (vites, foto, kayıt); varsayılan kapalı
         public int HornStyle;               // 0 düz, 1 kalın, 2 tiz, 3 titrek iki ton
         public int Video;                   // 0 otomatik (H.264, olmazsa JPEG), 1 H.264, 2 JPEG
         public float PowerLimit = 0.6f;     // en yüksek güç (0.2..1)
@@ -45,6 +46,7 @@ namespace ARaki.Drive
             s.Wheel = (WheelSide)PlayerPrefs.GetInt("wheel", (int)s.Wheel);
             s.Unit = (SpeedUnit)PlayerPrefs.GetInt("unit", (int)s.Unit);
             s.HornStyle = PlayerPrefs.GetInt("hornStyle", s.HornStyle);
+            s.Effects = Get("effects", s.Effects);
             s.Video = PlayerPrefs.GetInt("video", s.Video);
             s.PowerLimit = PlayerPrefs.GetFloat("power", s.PowerLimit);
             s.WheelDiameterCm = PlayerPrefs.GetFloat("wheelCm", s.WheelDiameterCm);
@@ -58,6 +60,7 @@ namespace ARaki.Drive
             PlayerPrefs.SetInt("wheel", (int)Wheel);
             PlayerPrefs.SetInt("unit", (int)Unit);
             PlayerPrefs.SetInt("hornStyle", HornStyle);
+            Set("effects", Effects);
             PlayerPrefs.SetInt("video", Video);
             PlayerPrefs.SetFloat("power", PowerLimit);
             PlayerPrefs.SetFloat("wheelCm", WheelDiameterCm);

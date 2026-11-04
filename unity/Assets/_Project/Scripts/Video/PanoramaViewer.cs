@@ -113,9 +113,16 @@ namespace ARaki.Video
 
             if (snapYaw.HasValue)
             {
-                Yaw = Mathf.MoveTowardsAngle(Yaw, snapYaw.Value, 900f * dt);
-                Pitch = Mathf.MoveTowards(Pitch, defaultPitch, 200f * dt);
-                if (Mathf.Abs(Mathf.DeltaAngle(Yaw, snapYaw.Value)) < 0.5f) snapYaw = null;
+                // yatay ve dikey birlikte, yumuşakça (uzaktayken hızlı, yaklaşınca yavaş); ikisi de yerine gelince biter
+                float k = 1f - Mathf.Exp(-9f * dt);
+                Yaw = Mathf.MoveTowardsAngle(Mathf.LerpAngle(Yaw, snapYaw.Value, k), snapYaw.Value, 20f * dt);
+                Pitch = Mathf.MoveTowards(Mathf.Lerp(Pitch, defaultPitch, k), defaultPitch, 20f * dt);
+                if (Mathf.Abs(Mathf.DeltaAngle(Yaw, snapYaw.Value)) < 0.3f && Mathf.Abs(Pitch - defaultPitch) < 0.3f)
+                {
+                    Yaw = snapYaw.Value;
+                    Pitch = defaultPitch;
+                    snapYaw = null;
+                }
             }
 
             // Z (basılı): dürbün; sinsice yaklaşırken uzaktaki yaratığı arabayı oynatmadan inceler

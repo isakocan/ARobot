@@ -73,10 +73,10 @@ namespace ARaki.Drive
         float speedMax;
         bool menuOpen;
         public bool MenuOpen { get => menuOpen; set => menuOpen = value; }
-        Text gearText, gearModeText, speedText, statusText, infoText, toastText, centerText, songText, recText, warnText;
+        Text gearText, gearModeText, powerText, speedText, statusText, infoText, toastText, centerText, songText, recText, warnText;
         Text settingsInfo;
         VectorShape lampLight, lampHazard, lampFault;
-        float wheelAngle;
+        float wheelAngle, connectedAt;
 
         Camera rearCam;
         RenderTexture rearRt;
@@ -151,23 +151,44 @@ namespace ARaki.Drive
                 }
             }
 
+            // 1b) manuel vites kolu: gazın karşı yanında, ekranın kenarında (sağ el gazdayken sol el vites atar);
+            //     o yanda oklar varsa onların üstünde
+            if (s.Gearbox == GearMode.Manual)
+            {
+                const float kw = 76f, kh = 150f;
+                bool leftSide = !wheelRight;   // gaz direksiyonun karşısında; kol direksiyon tarafında
+                bool arrowsHere = s.Touch == TouchMode.Pedals || (s.Touch == TouchMode.Pad && s.Cockpit && s.Wheel == WheelSide.Center);
+                float kx = leftSide ? 24f : W - 24f - kw, ky = arrowsHere ? 20f + 84f + 16f : 20f;
+                var up = Button("+", new Rect(kx, ky + kh / 2f + 2f, kw, kh / 2f - 2f), drive.ShiftUp, null,
+                                () => drive.Model.ShiftHint, 18, icon: "yukari", style: ButtonStyle.Shifter);
+                up.Held = () => drive.ShiftFlash(+1);
+                var dn = Button("−", new Rect(kx, ky, kw, kh / 2f - 2f), drive.ShiftDown, null, null, 18,
+                                icon: "asagi", style: ButtonStyle.Shifter);
+                dn.Held = () => drive.ShiftFlash(-1);
+                Label(content, "VİTES", font, 10, Dim, TextAnchor.MiddleCenter, V(kx + kw / 2f, ky + kh + 10f), V(kw, 12));
+                if (!arrowsHere)
+                {
+                    if (leftSide) reserveL = Mathf.Max(reserveL, kw + 12f);
+                    else reserveR = Mathf.Max(reserveR, kw + 12f);
+                }
+            }
+
             // 2) ön panel grubu kendi koordinatlarında kurulur: soldan sağa [direksiyon] [gösterge kutusu] [düğme yuvası]
             //    (direksiyon sağdaysa aynası)
             dash = Rt("Ön panel grubu", content, Vector2.zero, Vector2.zero);
             const float wheelR = 157f, wheelY = 64f, clusterY = 68f, dialR = 50f, dialDx = 84f, half = 172f;
-            const float sw = 58f, sh = 66f, sg = 8f, shiftW = 62f;
+            const float sw = 58f, sh = 66f, sg = 8f;
             int swCount = s.Cockpit ? 3 : 4;   // kokpitte korna direksiyonun göbeğinde
             bool manual = s.Gearbox == GearMode.Manual;
             float switchesW = swCount * sw + (swCount - 1) * sg;
-            float trayW = switchesW + (manual ? 14f + shiftW : 0f);
+            float trayW = switchesW;
             float wc = wheelR + 12f;
             float cxL = s.Cockpit ? wc + 360f : half + 16f;
             float trayL = cxL + half + 18f;
             float groupW = trayL + trayW + 14f + 34f;   // 34: panel kenarının yumuşakça alçaldığı pay
             float wheelX = wheelRight ? groupW - wc : wc, clusterX = wheelRight ? groupW - cxL : cxL;
             float sx = wheelRight ? groupW - trayL - trayW : trayL;   // yuvanın sol kenarı
-            float switchX = wheelRight && manual ? sx + shiftW + 14f : sx;
-            float shiftX = wheelRight ? sx : sx + switchesW + 14f;
+            float switchX = sx;
 
             var body = Shape("Ön panel", dash);
             Dashboard(body, clusterX, s.Cockpit ? 0f : (wheelRight ? sx - 48f : clusterX - half - 20f),
@@ -213,6 +234,9 @@ namespace ARaki.Drive
             body.RoundRect(new Rect(clusterX - 22f, clusterY - 29f, 44f, 60f), 6f, Hex("#0B100F"));
             gearText = Label(dash, "N", mono, 32, Text, TextAnchor.MiddleCenter, V(clusterX, clusterY + 4f), V(44, 40));
             gearModeText = Label(dash, "", font, 9, Dim, TextAnchor.MiddleCenter, V(clusterX, clusterY - 21f), V(44, 10));
+            // anlık güç: motora o an giden pay; vites atınca artış burada görünür
+            powerText = Label(dash, "%0", mono, 13, Accent, TextAnchor.MiddleCenter, V(clusterX, clusterY - 42f), V(48, 14));
+            Label(dash, "GÜÇ", font, 8, Dim, TextAnchor.MiddleCenter, V(clusterX, clusterY - 54f), V(40, 10));
             // dijital hız ibre göbeğinin üstünde, birim altında: kadranın alt uçlarındaki rakamlarla çakışmaz
             speedText = Label(dash, "0,0", mono, 14, Text, TextAnchor.MiddleCenter, V(clusterX + dialDx, clusterY + 15f), V(48, 16));
             Label(dash, s.Unit == SpeedUnit.KilometersPerHour ? "km/sa" : "m/sn", font, 9, Dim, TextAnchor.MiddleCenter,
@@ -239,16 +263,6 @@ namespace ARaki.Drive
                     horn.Held = () => drive.Link.State.Horn;
                     horn.LedColor = Amber;
                     horn.Lit = () => drive.Link.State.Horn;
-                }
-                if (manual)
-                {
-                    // sıralı vites kolu: üst yarı büyüt, alt yarı küçült; kırmızıda üst yarı yanar
-                    var up = Button("+", new Rect(shiftX, y0 + sh / 2f + 2f, shiftW, sh / 2f - 2f), drive.ShiftUp, null,
-                                    () => drive.Model.ShiftHint, 14, parent: dash, icon: "yukari", style: ButtonStyle.Shifter);
-                    up.Held = () => drive.ShiftFlash(+1);
-                    var dn = Button("−", new Rect(shiftX, y0, shiftW, sh / 2f - 2f), drive.ShiftDown, null, null, 14,
-                                    parent: dash, icon: "asagi", style: ButtonStyle.Shifter);
-                    dn.Held = () => drive.ShiftFlash(-1);
                 }
             }
 
@@ -600,7 +614,7 @@ namespace ARaki.Drive
                 Label(settingsRoot, label, font, 16, Text, TextAnchor.MiddleLeft, V(170f + 20f, y - r.y + 14f), V(340, 22));
                 Button("", new Rect(r.xMax - 110f, y, 90f, 28f), () => { set(!get()); drive.ApplySettings(); dirty = true; }, null, get, 14,
                        TextAnchor.MiddleCenter, settingsRoot, () => get() ? "AÇIK" : "KAPALI");
-                y -= 34f;
+                y -= 32f;
             }
             void Choice(string label, string[] options, Func<int> get, Action<int> set)
             {
@@ -612,7 +626,7 @@ namespace ARaki.Drive
                     Button(options[i], new Rect(x + i * w, y, w - 4f, 28f), () => { set(k); drive.ApplySettings(); dirty = true; }, null,
                            () => get() == k, w < 70f ? 12 : 14, TextAnchor.MiddleCenter, settingsRoot);
                 }
-                y -= 34f;
+                y -= 32f;
             }
             void Stepper(string label, Func<string> value, Action minus, Action plus)
             {
@@ -620,11 +634,12 @@ namespace ARaki.Drive
                 Button("-", new Rect(r.xMax - 176f, y, 40f, 28f), () => { minus(); drive.ApplySettings(); }, null, null, 18, TextAnchor.MiddleCenter, settingsRoot);
                 Button("", new Rect(r.xMax - 134f, y, 72f, 28f), null, null, null, 15, TextAnchor.MiddleCenter, settingsRoot, value);
                 Button("+", new Rect(r.xMax - 60f, y, 40f, 28f), () => { plus(); drive.ApplySettings(); }, null, null, 18, TextAnchor.MiddleCenter, settingsRoot);
-                y -= 34f;
+                y -= 32f;
             }
 
             Choice("Vites", new[] { "Otomatik", "Manuel", "Vitessiz" }, () => (int)s.Gearbox, v => s.Gearbox = (GearMode)v);
             Toggle("Geri vites bipi", () => s.ReverseBeep, v => s.ReverseBeep = v);
+            Toggle("Efekt sesleri", () => s.Effects, v => s.Effects = v);
             Toggle("Kamera hareketi", () => s.CameraMotion, v => s.CameraMotion = v);
             Toggle("Kokpit", () => s.Cockpit, v => s.Cockpit = v);
             Toggle("Dikiz aynası", () => s.RearMirror, v => s.RearMirror = v);
@@ -677,7 +692,7 @@ namespace ARaki.Drive
             video.Mode = (VideoMode)s.Video;
             if (wheelRt != null)
             {
-                wheelAngle = Mathf.Lerp(wheelAngle, model.Steer * 120f, Mathf.Min(1f, dt * 12f));
+                wheelAngle = Mathf.Lerp(wheelAngle, model.Steer * 120f, Mathf.Min(1f, dt * 7f));
                 wheelRt.localRotation = Quaternion.Euler(0f, 0f, -wheelAngle);
                 bool horn = link.State.Horn;
                 float hk = Mathf.Min(1f, dt * 20f);
@@ -690,6 +705,7 @@ namespace ARaki.Drive
             speedNeedle.localRotation = Quaternion.Euler(0f, 0f, -Angle(shown, speedMax));
             menuRoot.gameObject.SetActive(menuOpen);
             speedText.text = s.FormatSpeed(drive.SpeedMs, out _);
+            powerText.text = "%" + Mathf.RoundToInt(Mathf.Abs(drive.MotorPower) * 100f);
             gearText.text = model.Gear < 0 ? "R" : model.Gear == 0 ? "N" : s.Gearbox == GearMode.Fixed ? "D" : model.Gear.ToString();
             bool hint = s.Gearbox == GearMode.Manual && model.ShiftHint && (int)(Time.unscaledTime / 0.25f) % 2 == 0;
             gearText.color = model.Gear < 0 ? Red : hint ? Accent : Text;
@@ -701,8 +717,11 @@ namespace ARaki.Drive
             lampLight.color = drive.CurrentLed ? Green : off;
             lampHazard.color = hazardBlink ? Red : off;
             var mm = link.Status?.motor;
+            if (!link.IsConnected || link.Demo) connectedAt = Time.unscaledTime;
+            bool cameraFault = !link.Demo && link.IsConnected &&
+                               (link.Status?.kamera == "yok" || !video.HasFrame && Time.unscaledTime - connectedAt > 8f);
             bool fault = !link.Demo && (link.IsWeak || !link.IsConnected) || mm != null && (mm.ariza || mm.sikisma != 0) ||
-                         link.Status != null && link.Status.sicaklik >= 80f;
+                         link.Status != null && link.Status.sicaklik >= 80f || cameraFault;
             lampFault.color = fault ? Amber : off;
 
             int playing = drive.PlayingMelody;
@@ -733,6 +752,7 @@ namespace ARaki.Drive
                             link.IsConnected && link.IsWeak ? "Bağlantı zayıf: robot durduruldu" :
                             m != null && m.sikisma != 0 ? "Teker sıkıştı: motorlar bir an durduruldu" :
                             m != null && m.ariza ? "Motor sürücüsü arıza bildiriyor" :
+                            st?.kamera == "yok" ? "Kamera bulunamadı: kapandı ya da kablo çıktı (ısınmış olabilir)" :
                             st != null && st.sicaklik >= 80f ? $"Jetson çok ısındı: {st.sicaklik:0}°C" : "";
             centerText.text = video.HasFrame ? "" : link.Demo ? "Kayıtlı görüntü yükleniyor" :
                               !link.IsConnected ? (string.IsNullOrEmpty(link.SearchText) ? "Robota bağlanılıyor" : Capital(link.SearchText)) : "Görüntü bekleniyor";
@@ -747,7 +767,7 @@ namespace ARaki.Drive
                     $"Jetson {(st != null && st.sicaklik > 0f ? st.sicaklik.ToString("0") + "°C" : "-")}\n" +
                     $"kayıtlar: {ScreenRecorder.Folder}";
 
-            float k = Mathf.Min(1f, dt * 18f);
+            float k = Mathf.Min(1f, dt * 11f);   // düğme ve ışık geçişleri
             foreach (var b in buttons)
             {
                 bool pressed = b.Pointer != int.MinValue || b.Held != null && b.Held();

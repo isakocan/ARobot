@@ -116,6 +116,21 @@ def ip_adresi():
     return ilk.split("/")[0] if ilk else ""
 
 
+_onbellek = {}
+
+
+def onbellekli(sure, fonk, *arg):
+    """Sayfa 2 sn'de bir durum ister; her seferinde nmcli çağırmak NetworkManager'ı meşgul eder."""
+    anahtar = (fonk.__name__,) + arg
+    simdi = time.time()
+    kayit = _onbellek.get(anahtar)
+    if kayit and simdi - kayit[0] < sure:
+        return kayit[1]
+    deger = fonk(*arg)
+    _onbellek[anahtar] = (simdi, deger)
+    return deger
+
+
 def frekans():
     """Bağlı olunan erişim noktasının frekansı (MHz), bağlı değilse None."""
     try:
@@ -477,9 +492,9 @@ class Istek(BaseHTTPRequestHandler):
             if D.onay and D.mod == "istemci" and not self.client_address[0].startswith("127.") \
                     and aktif_baglanti() == D.onay["ad"]:
                 gecisi_onayla()
-            kayitli = kayitli_wifi_profilleri()
+            kayitli = onbellekli(10, kayitli_wifi_profilleri)
             aglar = [dict(a, kayitli=a["ssid"] in kayitli) for a in D.aglar]
-            ag = aktif_baglanti() if D.mod == "istemci" else None
+            ag = onbellekli(3, aktif_baglanti) if D.mod == "istemci" else None
             giris = ag_girisi.bilgi(ag) if ag else None
             self._json({
                 "mod": D.mod,
@@ -493,8 +508,8 @@ class Istek(BaseHTTPRequestHandler):
                 "giris_kullanici": giris["kullanici"] if giris else None,
                 "giris_hata": D.giris_hata,
                 "ip": ip_adresi() if D.mod == "istemci" else PORTAL_IP,
-                "frekans": frekans() if ag else None,
-                "bant": bant_tercihi(ag) if ag else None,
+                "frekans": onbellekli(5, frekans) if ag else None,
+                "bant": onbellekli(10, bant_tercihi, ag) if ag else None,
                 "kurulum_agi": ayarlar()["ssid"],
                 "aglar": aglar,
                 "son_hata": D.son_hata,
@@ -514,6 +529,7 @@ class Istek(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        _onbellek.clear()
         yol = self.path.split("?")[0]
         if yol == "/api/baglan":
             veri = self._govde()

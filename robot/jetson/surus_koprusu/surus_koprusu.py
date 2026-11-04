@@ -41,7 +41,7 @@ import serial
 import websoket
 
 SERI_PORT = "/dev/ttyACM0"
-KAMERA = "/dev/video0"
+KAMERA_ADI = "THETA"         # /sys/class/video4linux/*/name içinde aranır
 PORT = 8080
 KLASOR = os.path.dirname(os.path.abspath(__file__))
 SAYFA = os.path.join(KLASOR, "surus.html")
@@ -61,8 +61,23 @@ UDP_ISTEMCI_ZAMAN_ASIMI = 1.0   # sn: bu kadar paket gelmezse istemci gitmiş sa
 KORNA_YENILEME = 0.12       # sn: korna basılıyken Arduino'ya bu aralıkla "K 250" (bırakınca en geç 250 ms'de susar)
 
 
+LOG_DOSYASI = os.path.expanduser("~/robot/surus_koprusu/kopru.log")
+LOG_SINIRI = 512 * 1024    # bayt; aşınca dosya baştan yazılır
+
+
 def log(*parca):
-    print(time.strftime("%H:%M:%S"), *parca, flush=True)
+    # Kayıt yazılamasa bile (servisin çıktı borusu kapandı vb.) çağıran iş parçacığı ölmesin
+    satir = time.strftime("%H:%M:%S") + " " + " ".join(str(p) for p in parca)
+    try:
+        print(satir, flush=True)
+    except (OSError, ValueError):
+        pass
+    try:
+        kip = "w" if os.path.exists(LOG_DOSYASI) and os.path.getsize(LOG_DOSYASI) > LOG_SINIRI else "a"
+        with open(LOG_DOSYASI, kip) as f:
+            f.write(satir + "\n")
+    except OSError:
+        pass
 
 
 def ms():
@@ -136,6 +151,19 @@ class Arduino:
 
 # ---------------------------------------------------------------- kamera
 
+def kamera_bul():
+    """Kamera çıkarılıp takılınca numarası değişir (video0 → video1): adından bul, bulamazsan ilk aygıt."""
+    aygitlar = sorted(glob.glob("/sys/class/video4linux/video*"))
+    for yol in aygitlar:
+        try:
+            with open(yol + "/name") as f:
+                if KAMERA_ADI in f.read():
+                    return "/dev/" + os.path.basename(yol)
+        except OSError:
+            pass
+    return "/dev/" + os.path.basename(aygitlar[0]) if aygitlar else None
+
+
 def anahtar_kare_mi(au):
     """H.264 erişim biriminde tam kare (IDR) ya da SPS var mı?"""
     i = au.find(b"\x00\x00\x01")
@@ -187,6 +215,7 @@ class Kamera:
         self.durum = "kapali"      # kapali | yok | baslatiliyor | aktif
         self.fps = 0.0
         self.h264_destek = True    # kodlayıcı açılamazsa yalnızca JPEG
+        self.aygit = None
         self.son_h264 = 0.0        # kodlayıcıdan son kare (kolu durursa hat yeniden başlatılır)
         self.h264_takilma = 0      # art arda kaç kez durdu
         self.aboneler = set()
@@ -213,7 +242,8 @@ class Kamera:
                 while self.izleyen == 0:
                     self.durum = "kapali"
                     self.kosul.wait()
-            if not os.path.exists(KAMERA):
+            self.aygit = kamera_bul()
+            if not self.aygit:
                 self.durum = "yok"
                 time.sleep(2)
                 continue
@@ -225,7 +255,7 @@ class Kamera:
             time.sleep(1)
 
     def _komut(self, h264_fd):
-        komut = ["gst-launch-1.0", "-q", "v4l2src", "device=" + KAMERA, "!",
+        komut = ["gst-launch-1.0", "-q", "v4l2src", "device=" + self.aygit, "!",
                  "image/jpeg,width=1280,height=720", "!", "tee", "name=t",
                  "t.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!",
                  "multipartmux", "boundary=kare", "!", "fdsink", "fd=1"]
@@ -668,7 +698,7 @@ class UdpKanal:
       {"t":"d", "n":sıra, "z":uygulamanın saati (ms), "sol":-255..255, "sag":..,
        "led":0/1, "dortlu":0/1, "motor_sesi":0/1, "geri_bip":0/1,
        "k":korna basılı 0/1, "ks":korna sesi 0-5, "fs":selektör sayacı, "mi":melodi sayacı, "mn":melodi no,
-       "ef":efekt sayacı, "en":efekt no}
+       "ef":efekt sayacı, "en":efekt no, "efekt":kendiliğinden efektler 0/1}
     - Paket kaybolursa sonraki paket aynı durumu taşıdığı için "aldım" (ack) gerekmez.
     - Tek seferlik işler (selektör, melodi başlatma) sayaçla gelir: sayaç değişince bir kez yapılır;
       o paket kaybolsa da sonraki pakette sayaç yine farklıdır.
@@ -679,7 +709,7 @@ class UdpKanal:
     {"t":"bul"} paketine (yayın) {"t":"robot"} cevabı verilir: uygulama robotun adresini kendisi bulur.
     """
 
-    DURUMLAR = (("led", "L"), ("dortlu", "H"), ("motor_sesi", "E"), ("geri_bip", "V"))
+    DURUMLAR = (("led", "L"), ("dortlu", "H"), ("motor_sesi", "E"), ("geri_bip", "V"), ("efekt", "Z"))
 
     def __init__(self):
         self.soket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -708,13 +738,15 @@ class UdpKanal:
             except (OSError, ValueError, UnicodeDecodeError):
                 continue
             t = m.get("t") if isinstance(m, dict) else None
-            if t == "bul":
-                self._cevap(adres, {"t": "robot", "ad": socket.gethostname(), "port": PORT})
-            elif t == "d":
-                try:
+            try:
+                if t == "bul":
+                    self._cevap(adres, {"t": "robot", "ad": socket.gethostname(), "port": PORT})
+                elif t == "d":
                     self._durum_paketi(adres, m)
-                except (ValueError, TypeError):
-                    continue
+            except (ValueError, TypeError):
+                continue
+            except Exception as e:      # beklenmeyen hata sürüş kanalını öldürmesin
+                log("UDP paket hatası:", repr(e))
 
     def _durum_paketi(self, adres, m):
         surucu_duyuldu()
@@ -748,6 +780,8 @@ class UdpKanal:
             SURUCU.surus(ist["baglanti"], 0, 0)
 
         onceki = ist["onceki"]
+        if taze and onceki is None and "efekt" in m:
+            ARDUINO.gonder("Z {}".format(1 if m["efekt"] else 0))   # yeni istemci: efekt tercihi baştan
         if taze and onceki is not None:
             for alan, harf in self.DURUMLAR:
                 if alan in m and m[alan] != onceki.get(alan):

@@ -16,8 +16,11 @@ namespace ARaki.Drive
     /// işareti yanar. Büyük viteste düşük hızdan kalkış güçsüzdür, küçük vitese inince araç motorla yavaşlar.
     /// Duruştan gaza basınca 1. vites, fren basılı tutunca geri vites kendiliğinden takılır.
     ///
-    /// Direksiyon: tuş dijital (-1/0/1) ama direksiyon yavaş yavaş döner (SteerRate), bırakınca biraz daha hızlı
-    /// ortalanır; dönüşün keskinliği de bununla birlikte artar.
+    /// Direksiyon: tuş dijital (-1/0/1) ama direksiyon yavaşça hızlanarak döner, sona yaklaşınca yavaşlar
+    /// (yumuşak başlangıç ve bitiş); tam kırmaya ~1,2 sn, bırakınca ~0,8 sn'de ortalanır. Dönüşün keskinliği de
+    /// bununla birlikte artar.
+    ///
+    /// Geri vites: 1. vitesin gücüyle başlar, 3,5 sn basılı tutunca 2. vitesin gücüne çıkar.
     /// </summary>
     public class DriveModel
     {
@@ -25,14 +28,16 @@ namespace ARaki.Drive
         public static readonly float[] GearRate = { 0f, 0.5f, 0.44f, 0.38f, 0.34f, 0.3f };  // saniyede
         public static readonly float[] GearHold = { 0f, 1.2f, 1.5f, 1.8f, 2.1f, 2.4f };     // kırmızıya varmak için o viteste gazda geçen sn
         public static int TopGear => GearTop.Length - 1;
-        public const float ReverseTop = 0.5f, ReverseRate = 0.4f;
+        public const float ReverseRate = 0.4f;
         public const float Coast = 1.2f;    // tuş bırakınca saniyede yavaşlama
         public const float Brake = 2.5f;    // ters yöne basınca
         public const float ClutchTime = 0.22f, ClutchDip = 0.6f;
-        public const float SteerRate = 2.2f, SteerReturn = 3.5f;   // direksiyon: tam kırmaya ~0,45 sn, ortalama ~0,3 sn
+        public const float SteerRate = 1.1f, SteerReturn = 1.6f, SteerAccel = 4f;   // en yüksek hız (1/sn), ivme (1/sn²)
+        public const float ReverseSecondAfter = 3.5f;
         // Dönüş: kızaklı şasi ancak tekerler arasında büyük fark olunca döner. Hareket halinde dış teker en az
         // bu kadar güçle, iç teker ters yönde dışın çeyreği kadar döner. Geri giderken de aynı (araba gibi).
         public const float TurnMinimum = 0.6f, InnerWheel = -0.25f, InPlace = 0.8f;
+        public const float TurnStart = 0.35f;   // dönüşün başladığı fark (sürtünme eşiği), direksiyonun 0..1'ine eklenir
 
         public const float IdleRpm = 900f, TopRpm = 3700f, ScaleRpm = 4000f;
 
@@ -43,6 +48,7 @@ namespace ARaki.Drive
         public float Steer { get; private set; }       // -1..1, yavaşça dönen direksiyon
 
         float clutchUntil, time, inGear;   // inGear: bu viteste gaza basılı geçen süre
+        float steerVelocity, reverseHeld;
         int shiftRequest;                  // manuel: +1 büyüt, -1 küçült (bir sonraki adımda uygulanır)
 
         public void ShiftUp() => shiftRequest = 1;
@@ -56,8 +62,13 @@ namespace ARaki.Drive
         public (float left, float right) Step(float dt, int forward, int turn, GearMode mode)
         {
             time += dt;
+            // yumuşak direksiyon: hedefe yaklaştıkça yavaşlayan hız, o hıza da ivmeyle varılır
             bool returning = turn == 0 || (Steer != 0f && Mathf.Sign(turn) != Mathf.Sign(Steer));
-            Steer = Mathf.MoveTowards(Steer, turn, (returning ? SteerReturn : SteerRate) * dt);
+            float maxRate = returning ? SteerReturn : SteerRate;
+            float wanted = Mathf.Clamp((turn - Steer) * 3f, -maxRate, maxRate);
+            steerVelocity = Mathf.MoveTowards(steerVelocity, wanted, SteerAccel * dt);
+            Steer = Mathf.Clamp(Steer + steerVelocity * dt, -1f, 1f);
+            if (Mathf.Abs(turn - Steer) < 0.002f && Mathf.Abs(steerVelocity) < 0.05f) { Steer = turn; steerVelocity = 0f; }
             float before = Output;
             bool gears = mode != GearMode.Fixed;
             if (!gears)
@@ -85,7 +96,13 @@ namespace ARaki.Drive
                 else if (forward < 0)
                 {
                     if (Speed > 0) Speed = Mathf.Max(0f, Speed - Brake * dt);
-                    else { Gear = -1; Speed = Mathf.Max(-ReverseTop, Speed - ReverseRate * dt); }
+                    else
+                    {
+                        Gear = -1;
+                        reverseHeld += dt;
+                        float top = ReverseTop;
+                        Speed = Speed > -top ? Mathf.Max(-top, Speed - ReverseRate * dt) : Mathf.Min(-top, Speed + Coast * dt);
+                    }
                 }
                 else Speed = Speed > 0 ? Mathf.Max(0f, Speed - Coast * dt) : Mathf.Min(0f, Speed + Coast * dt);
 
@@ -101,11 +118,15 @@ namespace ARaki.Drive
                     if (Gear < 0 && Speed == 0f && forward == 0) Gear = 0;
                 }
             }
+            if (forward >= 0 || Gear != -1) reverseHeld = 0f;
             ShiftHint = mode == GearMode.Manual && AtRedline && Gear < TopGear;
             Output = Speed * (gears && time < clutchUntil ? ClutchDip : 1f);
             Acceleration += ((Output - before) / Mathf.Max(dt, 0.004f) - Acceleration) * Mathf.Min(1f, dt * 4f);
             return Mix(Output, Steer);
         }
+
+        /// <summary>Geri viteste o anki güç sınırı: önce 1. vites gücü, uzun basınca 2. vites gücü.</summary>
+        public float ReverseTop => reverseHeld >= ReverseSecondAfter ? GearTop[2] : GearTop[1];
 
         bool AtRedline => Gear >= 1 && Speed >= GearTop[Gear] - 0.002f && inGear >= GearHold[Gear] - 0.001f;
 
@@ -127,18 +148,24 @@ namespace ARaki.Drive
             else if (req < 0 && Gear == 1 && Speed == 0f) { Gear = 0; ShiftCount++; }
         }
 
-        /// <summary>Teker güçleri. t direksiyonun ne kadar kırıldığı (-1..1): düzden tam dönüşe yumuşak geçiş.</summary>
+        /// <summary>
+        /// Teker güçleri. t direksiyonun ne kadar kırıldığı (-1..1). Kızaklı şasi sürtünmeyi yenmeden dönmez: küçük
+        /// farkta hiç dönmeyip eşik aşılınca birden döner. Bu yüzden direksiyon kırılmaya başlar başlamaz eşiğe
+        /// (TurnStart) atlanır, sonrası direksiyonla doğrusal artar; dönüş hızı direksiyonla kademeli büyür.
+        /// </summary>
         public static (float, float) Mix(float f, float t)
         {
-            float k = Mathf.Abs(t);
-            if (f != 0f && k > 0f)
+            float a = Mathf.Abs(t);
+            if (a < 0.02f) return (f, f);
+            float k = TurnStart + (1f - TurnStart) * a;
+            if (f != 0f)
             {
                 float outer = Mathf.Sign(f) * Mathf.Lerp(Mathf.Abs(f), Mathf.Max(Mathf.Abs(f), TurnMinimum), k);
                 float inner = Mathf.Lerp(f, InnerWheel * outer, k);
                 return t > 0f ? (outer, inner) : (inner, outer);   // dönülen taraf iç tekerdir
             }
-            if (k > 0f) return (t * InPlace, -t * InPlace);
-            return (f, f);
+            float spin = Mathf.Sign(t) * InPlace * k;   // yerinde dönüş de eşikten başlar
+            return (spin, -spin);
         }
 
         /// <summary>Gösterge için motor devri: hızla ve viteste geçen süreyle yavaş yavaş kırmızıya çıkar.</summary>
@@ -151,7 +178,7 @@ namespace ARaki.Drive
             float bottom = Gear <= 1 ? 0f : GearTop[Gear - 1] * 0.8f;
             float speedK = Mathf.Clamp01((a - bottom) / (top - bottom));
             float hold = Gear > 0 ? Mathf.Clamp01(inGear / GearHold[Gear]) : 1f;   // geri viteste (-1) dizi yok
-            float k = Gear < 0 ? speedK : 0.6f * speedK + 0.4f * hold;
+            float k = Gear < 0 ? speedK : 0.3f * speedK + 0.7f * hold;
             return (IdleRpm + (TopRpm - IdleRpm) * k) * (time < clutchUntil ? 0.85f : 1f);
         }
     }

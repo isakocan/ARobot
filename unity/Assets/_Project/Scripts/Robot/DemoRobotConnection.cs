@@ -22,7 +22,6 @@ namespace ARaki.Robot
         public DemoRobotConnection(BuzzerSynth buzzer)
         {
             this.buzzer = buzzer;
-            buzzer.PlayEffect(fw["EF_BAGLANDI"]);   // gerçek robot da ilk sürücü bağlanınca böyle öter
         }
 
         public string Host => "demo";
@@ -50,6 +49,7 @@ namespace ARaki.Robot
             }
             else
             {
+                if (s.AutoEffects) buzzer.PlayEffect(fw["EF_BAGLANDI"]);   // gerçek robot da ilk sürücü bağlanınca böyle öter
                 buzzer.SetEngineSound(engine = s.EngineSound);
                 buzzer.SetReverseBeep(reverseBeep = s.ReverseBeep);
             }

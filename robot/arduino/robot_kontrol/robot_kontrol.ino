@@ -12,6 +12,7 @@
 //   B <hz> <ms>     tek ton bip
 //   C <n>           n. melodiyi çal (1..MELODI_SAYISI), C 0 = sustur
 //   X <n>           kısa ses efekti (EFEKTLER; EF_ sabitleri): vites, foto, kayıt, kapanış...
+//   Z <0|1>         kendiliğinden çalan efektler (açılış, bağlandı, koptu); varsayılan kapalı. Alarm hep açık.
 //   E <0|1>         motor sesi (hıza göre perdesi değişen uğultu)
 //   V <0|1>         geri vites bipi (iki motor da geri giderken)
 //   ?               durum satırını hemen gönder
@@ -68,7 +69,7 @@ const unsigned long DORTLU_ADIMI = 500;        // ms; dakikada 60 yanıp sönme 
 // Korna sesleri. Tek buzzer aynı anda iki ton çalamaz; düz tek ton kare dalga olduğu için zaten
 // pürüzlüdür ve kornaya en çok benzeyendir. 3 numara eski sesimiz: iki ton 4 ms'de bir değişir.
 const uint16_t KORNA_HZ[] = { 440, 330, 660 };
-const uint16_t DUDUT_HZ = 415;                       // 4: dü-düt (170 ms öt, 60 ms sus, 170 ms öt, 120 ms sus)
+const uint16_t DUDUT_HZ = 740;                       // 4: dü-düt (170 ms öt, 60 ms sus, 170 ms öt, 120 ms sus)
 const uint16_t KORNA_HZ_1 = 420, KORNA_HZ_2 = 500;
 const unsigned long KORNA_ADIMI = 4;                // ms
 const uint16_t GERI_BIP_HZ = 1100;
@@ -167,16 +168,18 @@ const uint16_t *const MELODILER[] = {
 const uint8_t MELODI_SAYISI = sizeof(MELODILER) / sizeof(MELODILER[0]);
 
 // Kısa ses efektleri (şarkı listesinde görünmez). Biçim melodilerle aynı: hz, ms çiftleri; hz 0 = sessizlik.
-const uint16_t E_ACILIS[] PROGMEM = { 523, 90, 659, 90, 784, 90, 1047, 220, 0, 0 };
-const uint16_t E_BAGLANDI[] PROGMEM = { 1047, 70, 0, 40, 1319, 130, 0, 0 };
-const uint16_t E_KOPTU[] PROGMEM = { 330, 260, 0, 0 };
-const uint16_t E_KAPANIS[] PROGMEM = { 1047, 120, 784, 120, 523, 280, 0, 0 };
-const uint16_t E_VITES[] PROGMEM = { 1800, 8, 0, 0 };
-const uint16_t E_ALARM[] PROGMEM = { 1760, 80, 0, 60, 1760, 80, 0, 60, 1760, 80, 0, 0 };
-const uint16_t E_FOTO[] PROGMEM = { 2600, 12, 0, 50, 1800, 20, 0, 0 };
-const uint16_t E_KAYIT_BASLA[] PROGMEM = { 880, 80, 1319, 130, 0, 0 };
-const uint16_t E_KAYIT_BITTI[] PROGMEM = { 1319, 80, 880, 130, 0, 0 };
-const uint16_t E_CUCARACHA[] PROGMEM = { 392, 110, 0, 20, 392, 110, 0, 20, 392, 110, 523, 220, 0, 30, 659, 300, 0, 0 };
+// Piezo kalın seste cılız, çok kısa seste anlaşılmaz: efektler 500-2200 Hz'te, kayan tonlar 12 ms'lik adımlarla.
+// tools/efekt_tasarim.py ile üretildi.
+const uint16_t E_ACILIS[] PROGMEM = { 784, 110, 988, 110, 1175, 110, 1175, 12, 1213, 12, 1253, 12, 1294, 12, 1336, 12, 1379, 12, 1424, 12, 1471, 12, 1519, 12, 1568, 12, 1568, 260, 0, 0 };
+const uint16_t E_BAGLANDI[] PROGMEM = { 700, 12, 746, 12, 794, 12, 846, 12, 901, 12, 959, 12, 1022, 12, 1088, 12, 1159, 12, 1234, 12, 1315, 12, 1400, 12, 0, 50, 1400, 120, 0, 0 };
+const uint16_t E_KOPTU[] PROGMEM = { 1400, 12, 1353, 12, 1308, 12, 1264, 12, 1221, 12, 1180, 12, 1141, 12, 1102, 12, 1065, 12, 1030, 12, 995, 12, 962, 12, 929, 12, 898, 12, 868, 12, 839, 12, 811, 12, 783, 12, 757, 12, 732, 12, 707, 12, 683, 12, 660, 12, 638, 12, 617, 12, 596, 12, 576, 12, 557, 12, 538, 12, 520, 12, 0, 30, 520, 160, 0, 0 };
+const uint16_t E_KAPANIS[] PROGMEM = { 1568, 140, 1175, 140, 988, 140, 988, 12, 954, 12, 922, 12, 890, 12, 860, 12, 831, 12, 803, 12, 775, 12, 749, 12, 723, 12, 699, 12, 675, 12, 652, 12, 630, 12, 608, 12, 587, 12, 567, 12, 548, 12, 529, 12, 511, 12, 494, 12, 0, 0 };
+const uint16_t E_VITES[] PROGMEM = { 1300, 22, 0, 18, 900, 30, 0, 0 };
+const uint16_t E_ALARM[] PROGMEM = { 1760, 140, 1175, 140, 1760, 140, 1175, 140, 1760, 140, 1175, 140, 0, 0 };
+const uint16_t E_FOTO[] PROGMEM = { 2200, 18, 0, 45, 1500, 35, 0, 0 };
+const uint16_t E_KAYIT_BASLA[] PROGMEM = { 988, 110, 0, 25, 1480, 170, 0, 0 };
+const uint16_t E_KAYIT_BITTI[] PROGMEM = { 1480, 110, 0, 25, 988, 170, 0, 0 };
+const uint16_t E_CUCARACHA[] PROGMEM = { 784, 120, 0, 25, 784, 120, 0, 25, 784, 120, 0, 25, 1047, 260, 0, 30, 1319, 360, 0, 120, 784, 120, 0, 25, 784, 120, 0, 25, 784, 120, 0, 25, 1047, 260, 0, 30, 1319, 360, 0, 120, 0, 0 };
 const uint16_t *const EFEKTLER[] = {
   E_ACILIS, E_BAGLANDI, E_KOPTU, E_KAPANIS, E_VITES, E_ALARM, E_FOTO, E_KAYIT_BASLA, E_KAYIT_BITTI, E_CUCARACHA,
 };
@@ -185,6 +188,7 @@ const uint8_t EF_ACILIS = 1, EF_BAGLANDI = 2, EF_KOPTU = 3, EF_KAPANIS = 4, EF_V
 const uint8_t EFEKT_SAYISI = sizeof(EFEKTLER) / sizeof(EFEKTLER[0]);
 
 const uint16_t *efekt = 0;        // çalan efekt, 0 = yok
+bool otoEfekt = false;            // açılış / bağlandı / koptu sesleri (uygulamadaki "Efekt sesleri" ayarı)
 uint16_t efektSira = 0, efektHz = 0;
 unsigned long efektBitis = 0;
 
@@ -442,6 +446,9 @@ void komutuIsle(char *k) {
     case 'X':
       if (n >= 1) efektCal(a);
       break;
+    case 'Z':
+      if (n >= 1) otoEfekt = a;
+      break;
     case 'E':
       if (n >= 1) motorSesi = a;
       break;
@@ -487,7 +494,7 @@ void setup() {
 
   Serial.begin(115200);
   Serial.println(F("HAZIR robot_kontrol"));
-  efektCal(EF_ACILIS);
+  if (otoEfekt) efektCal(EF_ACILIS);
 }
 
 void loop() {
@@ -511,7 +518,7 @@ void loop() {
   bool bagli = sonSatir && !kopuk;
   if (bagli != bagliydi) {
     bagliydi = bagli;
-    efektCal(bagli ? EF_BAGLANDI : EF_KOPTU);
+    if (otoEfekt) efektCal(bagli ? EF_BAGLANDI : EF_KOPTU);
   }
   // Sürerken bağlantı koparsa dörtlüler yanar; bağlantı gelince (ya da 1 dk sonra) söner
   if (kopuk && !otoDortlu && !dortlu && sonHareket && simdi - sonHareket < BAGLANTI_ZAMAN_ASIMI + 2000) {

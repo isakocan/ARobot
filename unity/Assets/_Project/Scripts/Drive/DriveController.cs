@@ -120,7 +120,7 @@ namespace ARaki.Drive
         public void PlayEffect(string name)
         {
             int n = Firmware[name];
-            if (n <= 0) return;
+            if (n <= 0 || !Settings.Effects) return;
             link.State.Effect = n;
             link.State.EffectCount++;
         }
@@ -240,8 +240,9 @@ namespace ARaki.Drive
                 link.State.Hazard = m.dortlu;
             }
             link.State.EngineSound = false;   // motor sesi kaldırıldı (Arduino'da komutu duruyor)
+            link.State.AutoEffects = Settings.Effects;
             MotorPower = m != null ? (m.sol + m.sag) / 2f / 255f : 0f;   // yerinde dönerken sıfır
-            float k = Mathf.Min(1f, Time.unscaledDeltaTime * 8f);
+            float k = Mathf.Min(1f, Time.unscaledDeltaTime * 5f);   // ibreler yumuşak
             SpeedMs += (Settings.SpeedMs(MotorPower) - SpeedMs) * k;
             Rpm += (Model.Rpm(Settings.Gearbox) + Mathf.Sin(Time.unscaledTime * 11f) * 12f - Rpm) * k;
 
