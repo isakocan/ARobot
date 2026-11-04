@@ -7,8 +7,9 @@ namespace ARaki.Drive
     /// <summary>Otomatik: vites kendisi büyür · Manuel: sıralı, sürücü atar (E / Q, kulakçıklar) · Sabit: vites yok.</summary>
     public enum GearMode { Automatic, Manual, Fixed }
     /// <summary>Dokunmatik sürüş: kapalı · yön tuşu (tek basamaklı yön tuşu, direksiyonun karşı yanında; çapraz basınca
-    /// gaz + dönüş) · pedal (oklar bir yanda, gaz ve fren pedalı öbür yanda).</summary>
-    public enum TouchMode { Off, Pad, Pedals }
+    /// gaz + dönüş) · pedal (oklar bir yanda, gaz ve fren pedalı öbür yanda) · direksiyon (direksiyonun simidini
+    /// parmakla çevirerek dönülür, karşı yanda gaz ve fren pedalı).</summary>
+    public enum TouchMode { Off, Pad, Pedals, Wheel }
 
     /// <summary>Sürüş ayarları; cihazda (PlayerPrefs) saklanır.</summary>
     public class DriveSettings
@@ -21,7 +22,8 @@ namespace ARaki.Drive
         public TouchMode Touch = Application.isMobilePlatform ? TouchMode.Pad : TouchMode.Off;
         public WheelSide Wheel = WheelSide.Left;
         public SpeedUnit Unit = SpeedUnit.KilometersPerHour;
-        public bool Effects;                // uygulamanın istediği kısa sesler (vites, foto, kayıt); varsayılan kapalı
+        public bool Effects = true;         // kısa sesler (açılış, bağlandı, koptu, foto, kayıt); varsayılan açık
+        public bool GearSound = true;       // vites geçişinde "tı-tık" (Effects açıkken)
         public int HornStyle;               // HornNames sırası; 5 ve üstü basınca bir kez çalan ezgili kornalar
         public static readonly string[] HornNames = { "Düz", "Kalın", "Tiz", "Titrek", "Dü-düt",
                                                       "La Cucaracha", "Dixie", "Baba", "Nuri Alço", "Ta-ta-ra-ta-ta" };
@@ -48,7 +50,8 @@ namespace ARaki.Drive
             s.Wheel = (WheelSide)PlayerPrefs.GetInt("wheel", (int)s.Wheel);
             s.Unit = (SpeedUnit)PlayerPrefs.GetInt("unit", (int)s.Unit);
             s.HornStyle = PlayerPrefs.GetInt("hornStyle", s.HornStyle);
-            s.Effects = Get("effects", s.Effects);
+            s.Effects = Get("effects2", s.Effects);   // eski "effects" kapalı başlıyordu; yeni varsayılan açık
+            s.GearSound = Get("gearSound", s.GearSound);
             s.Video = PlayerPrefs.GetInt("video", s.Video);
             s.PowerLimit = PlayerPrefs.GetFloat("power", s.PowerLimit);
             s.WheelDiameterCm = PlayerPrefs.GetFloat("wheelCm", s.WheelDiameterCm);
@@ -62,7 +65,8 @@ namespace ARaki.Drive
             PlayerPrefs.SetInt("wheel", (int)Wheel);
             PlayerPrefs.SetInt("unit", (int)Unit);
             PlayerPrefs.SetInt("hornStyle", HornStyle);
-            Set("effects", Effects);
+            Set("effects2", Effects);
+            Set("gearSound", GearSound);
             PlayerPrefs.SetInt("video", Video);
             PlayerPrefs.SetFloat("power", PowerLimit);
             PlayerPrefs.SetFloat("wheelCm", WheelDiameterCm);

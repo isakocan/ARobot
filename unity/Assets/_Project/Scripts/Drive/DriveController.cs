@@ -34,11 +34,16 @@ namespace ARaki.Drive
         /// <summary>Dokunmatik düğmelerden gelen giriş (DriveCockpit yazar).</summary>
         public int TouchForward, TouchTurn;
         public bool TouchHorn;
+        /// <summary>Direksiyon simidi parmakla tutuluyorsa açısı (-1..1); null: tutulmuyor.</summary>
+        public float? TouchSteer;
+        /// <summary>Bir yazı alanına yazılıyor (ör. Wi-Fi şifresi): klavye kısayolları çalışmasın.</summary>
+        public bool TypingText;
         /// <summary>Bu karede tüm girişlerden çıkan istek (pedal ve okların basılı görünmesi için).</summary>
         public int InputForward { get; private set; }
         public int InputTurn { get; private set; }
 
-        public bool MusicMenuOpen, SettingsOpen, HornMenuOpen;
+        public bool MusicMenuOpen, SettingsOpen, HornMenuOpen, RobotPanelOpen;
+        public void CloseMenus() => MusicMenuOpen = SettingsOpen = HornMenuOpen = RobotPanelOpen = false;
         public string Toast { get; private set; } = "";
         public float ToastUntil { get; private set; }
         /// <summary>Arduino'nun bildirdiği gerçek ileri güç (-1..1), rampa dahil.</summary>
@@ -169,7 +174,7 @@ namespace ARaki.Drive
             int forward = TouchForward, turn = TouchTurn;
             bool horn = TouchHorn || Time.unscaledTime < hornUntil;
 
-            if (kb != null)
+            if (kb != null && !TypingText)
             {
                 forward += (kb.wKey.isPressed || kb.upArrowKey.isPressed ? 1 : 0) - (kb.sKey.isPressed || kb.downArrowKey.isPressed ? 1 : 0);
                 turn += (kb.dKey.isPressed || kb.rightArrowKey.isPressed ? 1 : 0) - (kb.aKey.isPressed || kb.leftArrowKey.isPressed ? 1 : 0);
@@ -177,9 +182,9 @@ namespace ARaki.Drive
                 if (kb.lKey.wasPressedThisFrame) ToggleLight();
                 if (kb.fKey.wasPressedThisFrame) Flash();
                 if (kb.hKey.wasPressedThisFrame) ToggleHazard();
-                if (kb.nKey.wasPressedThisFrame) { MusicMenuOpen = !MusicMenuOpen; SettingsOpen = HornMenuOpen = false; }
-                if (kb.oKey.wasPressedThisFrame) { SettingsOpen = !SettingsOpen; MusicMenuOpen = HornMenuOpen = false; }
-                if (kb.escapeKey.wasPressedThisFrame) { SettingsOpen = MusicMenuOpen = HornMenuOpen = false; }
+                if (kb.nKey.wasPressedThisFrame) { bool o = !MusicMenuOpen; CloseMenus(); MusicMenuOpen = o; }
+                if (kb.oKey.wasPressedThisFrame) { bool o = !SettingsOpen; CloseMenus(); SettingsOpen = o; }
+                if (kb.escapeKey.wasPressedThisFrame) CloseMenus();
                 if (kb.rKey.wasPressedThisFrame) viewer.LookFront();
                 if (kb.bKey.wasPressedThisFrame) viewer.LookBack();
                 if (kb.mKey.wasPressedThisFrame) ToggleRearMirror();
@@ -212,7 +217,9 @@ namespace ARaki.Drive
             }
             // Robota ulaşamıyorken robot zaten duruyor: model de hız biriktirmesin, korna da kalmasın.
             // Bağlantı gelince araç kaldığı yerden değil, durduğu yerden kalkar.
-            if (!link.Demo && (!link.IsConnected || link.IsWeak)) { forward = turn = 0; horn = false; }
+            float? steer = turn == 0 ? TouchSteer : null;   // tuşa basılıyorsa tuş kazanır
+            if (!link.Demo && (!link.IsConnected || link.IsWeak)) { forward = turn = 0; horn = false; steer = null; }
+            Model.AnalogSteer = steer;
             forward = Mathf.Clamp(forward, -1, 1);
             turn = Mathf.Clamp(turn, -1, 1);
             InputForward = forward;
@@ -230,7 +237,7 @@ namespace ARaki.Drive
             if (Model.ShiftCount != lastShiftCount)   // vites değişti: kısa "tık"
             {
                 lastShiftCount = Model.ShiftCount;
-                if (Settings.Gearbox != GearMode.Fixed && Model.Gear != 0) PlayEffect("EF_VITES");
+                if (Settings.Gearbox != GearMode.Fixed && Model.Gear != 0 && Settings.GearSound) PlayEffect("EF_VITES");
             }
 
             var m = link.Status?.motor;

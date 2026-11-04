@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buzzer sesleri</title>
+<style>
+  :root {
+    --zemin: #0c0e10; --yuzey: #14171a; --cizgi: rgba(255,255,255,.08); --yazi: #eceae6; --soluk: #8e949b;
+    --vurgu: #f08a45; --kirmizi: #e5533d; --amber: #f2b33d;
+    --yazi-ailesi: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --es-aralik: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--zemin); color: var(--yazi); font: 15px/1.45 var(--yazi-ailesi); }
+  main { max-width: 980px; margin: 0 auto; padding: 28px 16px 60px; }
+  header { display: flex; gap: 24px; align-items: flex-end; justify-content: space-between; flex-wrap: wrap;
+           padding-bottom: 18px; border-bottom: 1px solid var(--cizgi); }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; letter-spacing: .2px; }
+  header p { margin: 0; color: var(--soluk); max-width: 560px; font-size: 13.5px; }
+  .ses { display: flex; align-items: center; gap: 10px; color: var(--soluk); font-size: 12px; letter-spacing: .6px; }
+  input[type=range] { accent-color: var(--vurgu); width: 130px; }
+  section { margin-top: 30px; }
+  h2 { font-size: 12px; font-weight: 600; letter-spacing: 1.4px; color: var(--soluk); text-transform: uppercase;
+       margin: 0 0 10px; display: flex; gap: 10px; align-items: baseline; }
+  h2 span { text-transform: none; letter-spacing: 0; font-weight: 400; color: #6c7278; font-size: 12.5px; }
+  .liste { background: var(--yuzey); border: 1px solid var(--cizgi); border-radius: 14px; overflow: hidden; }
+  .satir { display: grid; grid-template-columns: 46px 1fr 300px 56px; gap: 14px; align-items: center;
+           padding: 10px 14px; border-top: 1px solid var(--cizgi); }
+  .satir:first-child { border-top: 0; }
+  .satir.calan { background: rgba(240,138,69,.07); }
+  .cal { width: 40px; height: 40px; border-radius: 50%; border: 1px solid rgba(255,255,255,.22); background: #0b0d0f;
+         color: var(--yazi); cursor: pointer; display: grid; place-items: center; padding: 0; touch-action: none; }
+  .cal:hover { border-color: rgba(255,255,255,.4); }
+  .calan .cal { border-color: var(--vurgu); color: var(--vurgu); box-shadow: 0 0 0 3px rgba(240,138,69,.16); }
+  .cal svg { width: 14px; height: 14px; fill: currentColor; }
+  .ad { font-weight: 600; }
+  .ne { color: var(--soluk); font-size: 13px; }
+  .etiket { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 500; color: var(--amber);
+            border: 1px solid rgba(242,179,61,.35); border-radius: 5px; padding: 0 5px; vertical-align: 1px; }
+  canvas { width: 300px; height: 34px; display: block; }
+  .sure { font: 12px var(--es-aralik); color: var(--soluk); text-align: right; }
+  footer { margin-top: 30px; color: #6c7278; font-size: 12.5px; }
+  @media (max-width: 720px) {
+    .satir { grid-template-columns: 46px 1fr 48px; }
+    .sure { grid-row: 1; grid-column: 3; }
+    canvas { grid-column: 2 / 4; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Buzzer sesleri</h1>
+      <p>Robotun çaldığı her ses, ne zaman çaldığıyla birlikte. Notalar Arduino kodundan okunur ve aynı kare dalgayla
+         çalınır. Robottaki piezo buzzer daha tiz ve cızırtılı duyulur, kalın sesleri daha kısık çalar.</p>
+    </div>
+    <label class="ses">SES <input id="ses" type="range" min="0" max="100" value="45"></label>
+  </header>
+  <div id="icerik"></div>
+  <footer>Uygulamadaki <b>Efekt sesleri</b> ayarı kapalıysa açılış, bağlandı, koptu, vites, fotoğraf ve kayıt sesleri çalmaz;
+    alarm her zaman çalar. Sayfa <code>python tools/ses_sayfasi.py</code> ile yeniden üretilir.</footer>
+</main>
+<script>
+const VERI = /*VERI*/null;
+const OYNAT = '<svg viewBox="0 0 14 14"><path d="M3 1.5v11l9.5-5.5z"/></svg>';
+const DUR = '<svg viewBox="0 0 14 14"><rect x="2.5" y="2.5" width="9" height="9" rx="1.5"/></svg>';
+
+let ctx = null, ana = null, simdiki = null;
+const sesKaydir = document.getElementById('ses');
+function ses() { return Math.pow(sesKaydir.value / 100, 2) * 0.5; }
+sesKaydir.addEventListener('input', () => { if (ana) ana.gain.value = ses(); });
+
+function ses_motoru() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const suzgec = ctx.createBiquadFilter();
+    suzgec.type = 'lowpass'; suzgec.frequency.value = 6500;
+    ana = ctx.createGain(); ana.gain.value = ses();
+    ana.connect(suzgec); suzgec.connect(ctx.destination);
+  }
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+
+function durdur() {
+  if (!simdiki) return;
+  try { simdiki.osc.stop(); } catch (e) {}
+  simdiki.kazanc.disconnect();
+  simdiki.satir.classList.remove('calan');
+  simdiki.satir.querySelector('.cal').innerHTML = OYNAT;
+  simdiki = null;
+}
+
+// notalar: [[hz, ms], ...]; melodi: Arduino'daki gibi her notanın son 20 ms'i sessiz (60 ms'den uzunsa)
+function cal(satir, notalar, melodi, tekrar) {
+  const c = ses_motoru();
+  durdur();
+  const osc = c.createOscillator(), kazanc = c.createGain();
+  osc.type = 'square';
+  kazanc.gain.value = 0;
+  osc.connect(kazanc); kazanc.connect(ana);
+  const t0 = c.currentTime + 0.03;
+  let t = t0;
+  for (const [hz, ms] of notalar) {
+    const d = ms / 1000;
+    if (hz) {
+      osc.frequency.setValueAtTime(hz, t);
+      kazanc.gain.setValueAtTime(1, t);
+      if (melodi && ms > 60) kazanc.gain.setValueAtTime(0, t + d - 0.02);
+    } else kazanc.gain.setValueAtTime(0, t);
+    t += d;
+  }
+  kazanc.gain.setValueAtTime(0, t);
+  osc.start(t0);
+  osc.stop(t + 0.05);
+  simdiki = { osc, kazanc, satir, t0, sure: t - t0, notalar, tutulan: tekrar };
+  osc.onended = () => { if (simdiki && simdiki.osc === osc) durdur(); };
+  satir.classList.add('calan');
+  satir.querySelector('.cal').innerHTML = DUR;
+  requestAnimationFrame(oynatmaCizgisi);
+}
+
+// Basılı kornalar: Arduino'daki sesGuncelle ile aynı desenler, 20 sn'lik plan (bırakınca durur)
+function kornaDeseni(stil) {
+  const n = [];
+  if (stil < 3) n.push([[440, 330, 660][stil], 20000]);
+  else if (stil === 3) for (let t = 0; t < 20000; t += 4) n.push([(t / 4) % 2 ? 420 : 500, 4]);
+  else for (let t = 0; t < 20000; t += 520) n.push([740, 170], [0, 60], [740, 170], [0, 120]);
+  return n;
+}
+
+function serit(canvas, notalar) {
+  const oran = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 300, h = canvas.clientHeight || 34;
+  canvas.width = w * oran; canvas.height = h * oran;
+  const g = canvas.getContext('2d');
+  g.scale(oran, oran);
+  const toplam = notalar.reduce((a, n) => a + n[1], 0) || 1;
+  const lo = Math.log(300), hi = Math.log(2400);
+  g.fillStyle = 'rgba(255,255,255,0.05)';
+  g.fillRect(0, h - 1, w, 1);
+  let t = 0;
+  for (const [hz, ms] of notalar) {
+    if (hz) {
+      const x = t / toplam * w, gen = Math.max(1.2, ms / toplam * w - 0.8);
+      const y = h - 3 - (Math.log(Math.max(300, Math.min(2400, hz))) - lo) / (hi - lo) * (h - 8);
+      g.fillStyle = '#f08a45';
+      g.fillRect(x, y - 1.5, gen, 3);
+    }
+    t += ms;
+  }
+  canvas._toplam = toplam;
+}
+
+function oynatmaCizgisi() {
+  if (!simdiki || simdiki.tutulan) return;
+  const canvas = simdiki.satir.querySelector('canvas');
+  if (!canvas._resim) canvas._resim = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+  const g = canvas.getContext('2d');
+  g.putImageData(canvas._resim, 0, 0);
+  const p = Math.min(1, (ctx.currentTime - simdiki.t0) / simdiki.sure);
+  const oran = window.devicePixelRatio || 1;
+  g.fillStyle = 'rgba(236,234,230,0.85)';
+  g.fillRect(p * canvas.width, 0, 1.5 * oran, canvas.height);
+  if (p < 1) requestAnimationFrame(oynatmaCizgisi);
+  else g.putImageData(canvas._resim, 0, 0);
+}
+
+function sureYazi(notalar) {
+  const ms = notalar.reduce((a, n) => a + n[1], 0);
+  return ms >= 10000 ? Math.round(ms / 1000) + ' sn' : (ms / 1000).toFixed(1).replace('.', ',') + ' sn';
+}
+
+function satirYap(liste, baslik, ne, notalar, secenek = {}) {
+  const s = document.createElement('div');
+  s.className = 'satir';
+  s.innerHTML = '<button class="cal" type="button" aria-label="Çal">' + OYNAT + '</button>' +
+    '<div><div class="ad"></div><div class="ne"></div></div><canvas></canvas><div class="sure"></div>';
+  s.querySelector('.ad').textContent = baslik;
+  if (secenek.etiket) s.querySelector('.ad').insertAdjacentHTML('beforeend', '<span class="etiket">' + secenek.etiket + '</span>');
+  s.querySelector('.ne').textContent = ne;
+  s.querySelector('.sure').textContent = secenek.basili ? 'basılı' : sureYazi(notalar);
+  liste.appendChild(s);
+  const dugme = s.querySelector('.cal');
+  if (secenek.basili) {
+    dugme.setAttribute('aria-label', 'Basılı tut');
+    const birak = () => { if (simdiki && simdiki.satir === s) durdur(); };
+    dugme.addEventListener('pointerdown', e => { e.preventDefault(); dugme.setPointerCapture(e.pointerId); cal(s, notalar, false, true); });
+    dugme.addEventListener('pointerup', birak);
+    dugme.addEventListener('pointercancel', birak);
+    serit(s.querySelector('canvas'), notalar.slice(0, secenek.seritNota || 1));
+  } else {
+    dugme.addEventListener('click', () => {
+      if (simdiki && simdiki.satir === s) durdur();
+      else cal(s, notalar, !!secenek.melodi, false);
+    });
+    serit(s.querySelector('canvas'), notalar);
+  }
+}
+
+function bolum(baslik, aciklama) {
+  const b = document.createElement('section');
+  b.innerHTML = '<h2></h2><div class="liste"></div>';
+  b.querySelector('h2').textContent = baslik;
+  if (aciklama) b.querySelector('h2').insertAdjacentHTML('beforeend', '<span></span>');
+  if (aciklama) b.querySelector('h2 span').textContent = aciklama;
+  document.getElementById('icerik').appendChild(b);
+  return b.querySelector('.liste');
+}
+
+const ef = bolum('Efektler', 'durumlara göre kendiliğinden çalar');
+for (const e of VERI.efektler) satirYap(ef, e.baslik, e.ne, e.notalar);
+const geri = [];
+for (let i = 0; i < 4; i++) geri.push([1100, 450], [0, 450]);
+satirYap(ef, VERI.geriBip.baslik, VERI.geriBip.ne, geri);
+
+const ko = bolum('Kornalar', 'basılı tuttukça öter: düğmeye basılı tut');
+const kornaNe = ['Tek ton, 440 Hz', 'Tek ton, 330 Hz (piezoda kısık)', 'Tek ton, 660 Hz',
+                 'İki ton hızla değişir (420 / 500 Hz)', 'Kesik iki öttürme, tekrar eder'];
+for (const k of VERI.kornalar)
+  satirYap(ko, k.baslik, kornaNe[k.stil], kornaDeseni(k.stil), { basili: true, seritNota: k.stil === 3 ? 60 : k.stil === 4 ? 8 : 1 });
+
+const ez = bolum('Ezgili kornalar', 'kornaya basınca bir kez çalar');
+for (const e of VERI.ezgili) satirYap(ez, e.baslik, 'Menü › Korna sesinden seçilir', e.notalar, { etiket: e.ad === 'E_NURI' ? 'yeni notalar' : '' });
+
+let grup = null, sl = null;
+for (const s of VERI.sarkilar) {
+  if (s.grup !== grup) { grup = s.grup; sl = bolum('Şarkılar · ' + grup, 'teypten seçilir'); }
+  satirYap(sl, s.baslik, '', s.notalar, { melodi: true, etiket: s.ad === 'M_GOREV' ? 'yeni' : '' });
+}
+</script>
+</body>
+</html>

@@ -59,6 +59,7 @@ namespace ARaki.Net
         public bool h264;
         public int sinyal;        // dBm (0 = bilinmiyor)
         public int veri_kbps;
+        public int hedef_kbps;    // H.264 kodlayıcının o anki bit hızı hedefi (uyarlanabilir; 0 = eski köprü)
         public int atilan;
     }
 

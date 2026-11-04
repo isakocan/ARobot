@@ -102,6 +102,20 @@ namespace ARaki.Tests
         }
 
         [UnityTest]
+        public IEnumerator WheelSteeringFollowsFingerAndReturns()
+        {
+            drive.TouchSteer = 0.5f;
+            yield return new WaitForSecondsRealtime(0.4f);
+            Assert.AreEqual(0.5f, drive.Model.Steer, 0.05f, "direksiyon parmağın açısını izlemeli");
+            drive.TouchSteer = -1f;
+            yield return new WaitForSecondsRealtime(0.4f);
+            Assert.AreEqual(-1f, drive.Model.Steer, 0.05f);
+            drive.TouchSteer = null;
+            yield return new WaitForSecondsRealtime(1.5f);
+            Assert.AreEqual(0f, drive.Model.Steer, 0.02f, "bırakınca ortaya dönmeli");
+        }
+
+        [UnityTest]
         public IEnumerator RecordsPhotoAndVideo()
         {
             string saved = null;
@@ -154,6 +168,22 @@ namespace ARaki.Tests
             drive.Settings.Gearbox = GearMode.Manual;
             yield return new WaitForSecondsRealtime(0.6f);
             yield return Shot(Path.Combine(dir, "dokunmatik_pedal.png"));
+            // dokunmatik direksiyon: simit çevrilmiş, teypte şarkı çalıyor, şaside teker güçleri
+            drive.Settings.Touch = TouchMode.Wheel;
+            drive.Settings.Gearbox = GearMode.Automatic;
+            drive.TouchTurn = 0;
+            yield return null;
+            yield return null;
+            drive.TouchSteer = 0.7f;
+            drive.PlayMelody(10);
+            yield return new WaitForSecondsRealtime(1.2f);
+            yield return Shot(Path.Combine(dir, "dokunmatik_direksiyon.png"));
+            drive.TouchSteer = null;
+            drive.TouchForward = 0;
+            drive.TouchTurn = -1;   // yerinde dönüş: bir teker ileri, öbürü geri
+            yield return new WaitForSecondsRealtime(1.2f);
+            yield return Shot(Path.Combine(dir, "yerinde_donus.png"));
+            drive.StopMelody();
             drive.TouchForward = drive.TouchTurn = 0;
             drive.Settings.Touch = TouchMode.Off;
             drive.Settings.Gearbox = GearMode.Automatic;
@@ -174,6 +204,10 @@ namespace ARaki.Tests
             yield return new WaitForSecondsRealtime(0.3f);
             yield return Shot(Path.Combine(dir, "korna.png"));
             drive.HornMenuOpen = false;
+            drive.RobotPanelOpen = true;
+            yield return new WaitForSecondsRealtime(0.3f);
+            yield return Shot(Path.Combine(dir, "robot_paneli.png"));
+            drive.RobotPanelOpen = false;
         }
 
         static IEnumerator Shot(string path)

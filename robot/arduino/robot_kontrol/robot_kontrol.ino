@@ -25,7 +25,7 @@
 //   melodi: çalan melodinin numarası (0 = yok), sikisma: akım koruması devrede (1 sol, 2 sağ, 3 ikisi),
 //   diğerleri 0/1
 //
-// Korumalar: komut 300 ms gelmezse motorlar durur; bağlantı (nabız) 1,5 sn gelmezse sesler susar,
+// Korumalar: komut 300 ms gelmezse motorlar durur; bağlantı (nabız) 1,5 sn gelmezse sesler susar, ışık söner,
 // sürerken koptuysa dörtlüler yanar (bağlantı gelince ya da 1 dk sonra söner); bir motorun akımı
 // AKIM_SINIR_MA'yı 800 ms aşarsa (teker sıkıştı) iki motor 1,5 sn durdurulur.
 //
@@ -47,8 +47,8 @@ const bool SOL_TERS = true, SAG_TERS = true;
 const bool ROLE_ACIK = LOW;
 
 const unsigned long KOMUT_ZAMAN_ASIMI = 300;  // ms
-// Bu kadar hiç satır (nabız dahil) gelmezse bağlantı kopmuş sayılır ve sesler susar: motor sesi, melodi,
-// korna. Işık olduğu gibi kalır; robot son birkaç saniyede gidiyorduysa dörtlüler kendiliğinden yanar.
+// Bu kadar hiç satır (nabız dahil) gelmezse bağlantı kopmuş sayılır: sesler susar (motor sesi, melodi,
+// korna), ışık söner; robot son birkaç saniyede gidiyorduysa dörtlüler kendiliğinden yanar.
 const unsigned long BAGLANTI_ZAMAN_ASIMI = 1500;  // ms
 const unsigned long OTO_DORTLU_SURE = 60000;      // ms; kendiliğinden yanan dörtlü en çok bu kadar yanar
 // Akım koruması. Sıkışma (stall) akımı henüz ölçülmedi; tahmini değer, ölçünce güncellenecek.
@@ -180,6 +180,8 @@ const uint8_t MELODI_SAYISI = sizeof(MELODILER) / sizeof(MELODILER[0]);
 // tools/efekt_tasarim.py ile üretildi.
 // Piezo kalın seste cılız, çok kısa seste anlaşılmaz: efektler 500-2200 Hz'te, kayan tonlar 12 ms'lik adımlarla.
 // tools/efekt_tasarim.py ile üretildi.
+// Piezo kalın seste cılız, çok kısa seste anlaşılmaz: efektler 500-2200 Hz'te, kayan tonlar 12 ms'lik adımlarla.
+// tools/efekt_tasarim.py ile üretildi.
 const uint16_t E_ACILIS[] PROGMEM = { 784, 110, 988, 110, 1175, 110, 1175, 12, 1213, 12, 1253, 12, 1294, 12, 1336, 12, 1379, 12, 1424, 12, 1471, 12, 1519, 12, 1568, 12, 1568, 260, 0, 0 };
 const uint16_t E_BAGLANDI[] PROGMEM = { 700, 12, 746, 12, 794, 12, 846, 12, 901, 12, 959, 12, 1022, 12, 1088, 12, 1159, 12, 1234, 12, 1315, 12, 1400, 12, 0, 50, 1400, 120, 0, 0 };
 const uint16_t E_KOPTU[] PROGMEM = { 1400, 12, 1353, 12, 1308, 12, 1264, 12, 1221, 12, 1180, 12, 1141, 12, 1102, 12, 1065, 12, 1030, 12, 995, 12, 962, 12, 929, 12, 898, 12, 868, 12, 839, 12, 811, 12, 783, 12, 757, 12, 732, 12, 707, 12, 683, 12, 660, 12, 638, 12, 617, 12, 596, 12, 576, 12, 557, 12, 538, 12, 520, 12, 0, 30, 520, 160, 0, 0 };
@@ -192,7 +194,7 @@ const uint16_t E_KAYIT_BITTI[] PROGMEM = { 1480, 110, 0, 25, 988, 170, 0, 0 };
 const uint16_t E_CUCARACHA[] PROGMEM = { 784, 120, 0, 25, 784, 120, 0, 25, 784, 120, 0, 25, 1047, 260, 0, 30, 1319, 360, 0, 120, 784, 120, 0, 25, 784, 120, 0, 25, 784, 120, 0, 25, 1047, 260, 0, 30, 1319, 360, 0, 120, 0, 0 };
 const uint16_t E_DIXIE[] PROGMEM = { 784, 160, 659, 80, 523, 280, 0, 20, 523, 130, 0, 15, 523, 80, 587, 80, 659, 80, 698, 80, 784, 260, 0, 20, 784, 260, 0, 20, 784, 160, 659, 420, 0, 0 };
 const uint16_t E_BABA[] PROGMEM = { 784, 180, 1047, 180, 1245, 180, 1175, 180, 1047, 520, 1245, 180, 1047, 180, 1175, 180, 1047, 180, 831, 180, 932, 180, 784, 800, 0, 0 };
-const uint16_t E_NURI[] PROGMEM = { 784, 140, 0, 20, 784, 140, 0, 20, 784, 140, 698, 140, 784, 280, 932, 140, 784, 140, 698, 140, 587, 300, 0, 60, 784, 140, 0, 20, 784, 140, 0, 20, 784, 140, 698, 140, 784, 280, 932, 140, 784, 140, 698, 140, 587, 300, 0, 60, 0, 0 };
+const uint16_t E_NURI[] PROGMEM = { 698, 150, 0, 25, 784, 150, 0, 25, 784, 150, 0, 25, 698, 150, 0, 25, 659, 150, 0, 25, 587, 150, 0, 25, 698, 150, 0, 25, 659, 150, 0, 25, 587, 150, 0, 25, 587, 150, 0, 25, 587, 360, 0, 25, 0, 120, 880, 150, 0, 25, 784, 150, 0, 25, 880, 150, 0, 25, 698, 150, 0, 25, 784, 150, 0, 25, 698, 150, 0, 25, 659, 150, 0, 25, 587, 150, 0, 25, 698, 150, 0, 25, 659, 150, 0, 25, 587, 150, 0, 25, 587, 420, 0, 25, 0, 0 };
 const uint16_t E_TRAS[] PROGMEM = { 1047, 260, 0, 20, 784, 120, 0, 15, 784, 120, 880, 260, 0, 20, 784, 260, 0, 280, 988, 260, 0, 20, 1047, 300, 0, 0 };
 const uint16_t *const EFEKTLER[] = {
   E_ACILIS, E_BAGLANDI, E_KOPTU, E_KAPANIS, E_VITES, E_ALARM, E_FOTO, E_KAYIT_BASLA, E_KAYIT_BITTI, E_CUCARACHA,
@@ -207,7 +209,7 @@ const uint8_t KORNA_SESI_SAYISI = 5 + sizeof(KORNA_EZGI);
 const uint8_t EFEKT_SAYISI = sizeof(EFEKTLER) / sizeof(EFEKTLER[0]);
 
 const uint16_t *efekt = 0;        // çalan efekt, 0 = yok
-bool otoEfekt = false;            // açılış / bağlandı / koptu sesleri (uygulamadaki "Efekt sesleri" ayarı)
+bool otoEfekt = true;             // açılış / bağlandı / koptu sesleri (uygulamadaki "Efekt sesleri" ayarı; varsayılan açık)
 uint16_t efektSira = 0, efektHz = 0;
 unsigned long efektBitis = 0;
 
@@ -524,13 +526,18 @@ void loop() {
   if ((hedefSol || hedefSag) && simdi - sonKomut > KOMUT_ZAMAN_ASIMI) {
     hedefSol = hedefSag = 0;
   }
-  // Güvenlik: bağlantı (nabız) kesilirse sesler sussun
+  // Güvenlik: bağlantı (nabız) kesilirse sesler sussun, ışık sönsün (pil boşa gitmesin, robot sahipsiz kalmasın)
   bool kopuk = simdi - sonSatir > BAGLANTI_ZAMAN_ASIMI;
   if (kopuk && (motorSesi || melodi || kornaBitis || bipBitis)) {
     motorSesi = false;
     melodi = 0;
     melodiHz = 0;
     kornaBitis = bipBitis = 0;
+  }
+  if (kopuk && sonSatir && ledAcik) {
+    ledAcik = false;
+    selektorKalan = 0;
+    if (!dortlu) ledYaz(false);   // dörtlü yanıyorsa sönünce ışık kapalı kalır
   }
   // Bağlantı sesi: ilk sürücü bağlanınca / bağlantı geri gelince "bağlandı", kopunca "koptu"
   static bool bagliydi = false;

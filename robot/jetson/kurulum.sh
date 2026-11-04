@@ -52,6 +52,8 @@ echo 'address=/#/10.42.0.1' > /etc/NetworkManager/dnsmasq-shared.d/kurulum-sayfa
 # isteği) yüzlerce ms bekleyebilir. Ayar sonraki bağlantılar için, iw de şimdiki için.
 printf '[connection]\nwifi.powersave = 2\n' > /etc/NetworkManager/conf.d/wifi-guc-tasarrufu-kapali.conf
 iw dev wlan0 set power_save off 2>/dev/null || true
+# Intel kartlarda (iwlwifi) sürücünün kendi güç düzeni de var: 1 = hep uyanık (sonraki açılışta geçerli)
+if [ -d /sys/module/iwlmvm ]; then echo 'options iwlmvm power_scheme=1' > /etc/modprobe.d/wifi-hep-uyanik.conf; fi
 systemctl reload NetworkManager 2>/dev/null || true   # ayarı okur, bağlantıyı koparmaz
 cat > /etc/systemd/system/robot-paneli.service <<EOF
 [Unit]

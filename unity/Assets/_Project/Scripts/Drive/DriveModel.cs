@@ -20,6 +20,9 @@ namespace ARaki.Drive
     /// sonrası yavaşça hızlanarak döner, sona yaklaşınca yavaşlar. Tam kırmaya ~1,2 sn; bırakınca yavaşça %30'a,
     /// oradan hemen ortaya döner. Dönüşün keskinliği de bununla birlikte artar.
     ///
+    /// Dokunmatik direksiyon (AnalogSteer): parmağın çevirdiği açı doğrudan direksiyon olur; yalnızca parmağın
+    /// titremesi süzülür (~60 ms). Bırakınca AnalogSteer null olur, direksiyon tuştaki gibi ortaya döner.
+    ///
     /// Geri vites: 1. vitesin gücüyle başlar, 3,5 sn basılı tutunca 2. vitesin gücüne çıkar.
     /// </summary>
     public class DriveModel
@@ -47,6 +50,9 @@ namespace ARaki.Drive
         public int Gear { get; private set; }          // -1 geri, 0 boş, 1..5
         public float Acceleration { get; private set; } // Output'un süzülmüş değişim hızı (1/sn)
         public float Steer { get; private set; }       // -1..1, yavaşça dönen direksiyon
+        /// <summary>Dokunmatik direksiyon tutuluyorsa istenen açı (-1..1); null: tuş / bırakıldı.</summary>
+        public float? AnalogSteer;
+        public const float AnalogFollow = 16f;   // 1/sn: parmağı izleme hızı (titreme süzülür, gecikme ~60 ms)
 
         float clutchUntil, time, inGear;   // inGear: bu viteste gaza basılı geçen süre
         float steerVelocity, reverseHeld;
@@ -64,7 +70,13 @@ namespace ARaki.Drive
         {
             time += dt;
             // yumuşak direksiyon: hedefe yaklaştıkça yavaşlayan hız, o hıza da ivmeyle varılır
-            UpdateSteer(dt, turn);
+            if (AnalogSteer.HasValue)
+            {
+                float a = Mathf.Clamp(AnalogSteer.Value, -1f, 1f);
+                Steer += (a - Steer) * Mathf.Min(1f, AnalogFollow * dt);
+                steerVelocity = 0f;
+            }
+            else UpdateSteer(dt, turn);
             float before = Output;
             bool gears = mode != GearMode.Fixed;
             if (!gears)

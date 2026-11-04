@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buzzer sesleri</title>
+<style>
+  :root {
+    --zemin: #0c0e10; --yuzey: #14171a; --cizgi: rgba(255,255,255,.08); --yazi: #eceae6; --soluk: #8e949b;
+    --vurgu: #f08a45; --kirmizi: #e5533d; --amber: #f2b33d;
+    --yazi-ailesi: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --es-aralik: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--zemin); color: var(--yazi); font: 15px/1.45 var(--yazi-ailesi); }
+  main { max-width: 980px; margin: 0 auto; padding: 28px 16px 60px; }
+  header { display: flex; gap: 24px; align-items: flex-end; justify-content: space-between; flex-wrap: wrap;
+           padding-bottom: 18px; border-bottom: 1px solid var(--cizgi); }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; letter-spacing: .2px; }
+  header p { margin: 0; color: var(--soluk); max-width: 560px; font-size: 13.5px; }
+  .ses { display: flex; align-items: center; gap: 10px; color: var(--soluk); font-size: 12px; letter-spacing: .6px; }
+  input[type=range] { accent-color: var(--vurgu); width: 130px; }
+  section { margin-top: 30px; }
+  h2 { font-size: 12px; font-weight: 600; letter-spacing: 1.4px; color: var(--soluk); text-transform: uppercase;
+       margin: 0 0 10px; display: flex; gap: 10px; align-items: baseline; }
+  h2 span { text-transform: none; letter-spacing: 0; font-weight: 400; color: #6c7278; font-size: 12.5px; }
+  .liste { background: var(--yuzey); border: 1px solid var(--cizgi); border-radius: 14px; overflow: hidden; }
+  .satir { display: grid; grid-template-columns: 46px 1fr 300px 56px; gap: 14px; align-items: center;
+           padding: 10px 14px; border-top: 1px solid var(--cizgi); }
+  .satir:first-child { border-top: 0; }
+  .satir.calan { background: rgba(240,138,69,.07); }
+  .cal { width: 40px; height: 40px; border-radius: 50%; border: 1px solid rgba(255,255,255,.22); background: #0b0d0f;
+         color: var(--yazi); cursor: pointer; display: grid; place-items: center; padding: 0; touch-action: none; }
+  .cal:hover { border-color: rgba(255,255,255,.4); }
+  .calan .cal { border-color: var(--vurgu); color: var(--vurgu); box-shadow: 0 0 0 3px rgba(240,138,69,.16); }
+  .cal svg { width: 14px; height: 14px; fill: currentColor; }
+  .ad { font-weight: 600; }
+  .ne { color: var(--soluk); font-size: 13px; }
+  .etiket { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 500; color: var(--amber);
+            border: 1px solid rgba(242,179,61,.35); border-radius: 5px; padding: 0 5px; vertical-align: 1px; }
+  canvas { width: 300px; height: 34px; display: block; }
+  .sure { font: 12px var(--es-aralik); color: var(--soluk); text-align: right; }
+  footer { margin-top: 30px; color: #6c7278; font-size: 12.5px; }
+  @media (max-width: 720px) {
+    .satir { grid-template-columns: 46px 1fr 48px; }
+    .sure { grid-row: 1; grid-column: 3; }
+    canvas { grid-column: 2 / 4; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Buzzer sesleri</h1>
+      <p>Robotun çaldığı her ses, ne zaman çaldığıyla birlikte. Notalar Arduino kodundan okunur ve aynı kare dalgayla
+         çalınır. Robottaki piezo buzzer daha tiz ve cızırtılı duyulur, kalın sesleri daha kısık çalar.</p>
+    </div>
+    <label class="ses">SES <input id="ses" type="range" min="0" max="100" value="45"></label>
+  </header>
+  <div id="icerik"></div>
+  <footer>Uygulamadaki <b>Efekt sesleri</b> ayarı kapalıysa açılış, bağlandı, koptu, vites, fotoğraf ve kayıt sesleri çalmaz;
+    alarm her zaman çalar. Sayfa <code>python tools/ses_sayfasi.py</code> ile yeniden üretilir.</footer>
+</main>
+<script>
+const VERI = {"efektler": [{"ad": "E_ACILIS", "baslik": "Açılış", "ne": "Robot açılıp hazır olunca (Arduino başlarken)", "notalar": [[784, 110], [988, 110], [1175, 110], [1175, 12], [1213, 12], [1253, 12], [1294, 12], [1336, 12], [1379, 12], [1424, 12], [1471, 12], [1519, 12], [1568, 12], [1568, 260]]}, {"ad": "E_BAGLANDI", "baslik": "Bağlandı", "ne": "Uygulama robota ilk bağlanınca ve kopan bağlantı geri gelince", "notalar": [[700, 12], [746, 12], [794, 12], [846, 12], [901, 12], [959, 12], [1022, 12], [1088, 12], [1159, 12], [1234, 12], [1315, 12], [1400, 12], [0, 50], [1400, 120]]}, {"ad": "E_KOPTU", "baslik": "Koptu", "ne": "1,5 sn robottan haber alınamayınca (sesler susar, ışık söner)", "notalar": [[1400, 12], [1353, 12], [1308, 12], [1264, 12], [1221, 12], [1180, 12], [1141, 12], [1102, 12], [1065, 12], [1030, 12], [995, 12], [962, 12], [929, 12], [898, 12], [868, 12], [839, 12], [811, 12], [783, 12], [757, 12], [732, 12], [707, 12], [683, 12], [660, 12], [638, 12], [617, 12], [596, 12], [576, 12], [557, 12], [538, 12], [520, 12], [0, 30], [520, 160]]}, {"ad": "E_KAPANIS", "baslik": "Kapanış", "ne": "Robot panelinden Kapat ya da Yeniden başlat deyince", "notalar": [[1568, 140], [1175, 140], [988, 140], [988, 12], [954, 12], [922, 12], [890, 12], [860, 12], [831, 12], [803, 12], [775, 12], [749, 12], [723, 12], [699, 12], [675, 12], [652, 12], [630, 12], [608, 12], [587, 12], [567, 12], [548, 12], [529, 12], [511, 12], [494, 12]]}, {"ad": "E_VITES", "baslik": "Vites", "ne": "Her vites geçişinde (ayarlarda Vites sesi)", "notalar": [[1300, 22], [0, 18], [900, 30]]}, {"ad": "E_FOTO", "baslik": "Fotoğraf", "ne": "Fotoğraf çekince", "notalar": [[2200, 18], [0, 45], [1500, 35]]}, {"ad": "E_KAYIT_BASLA", "baslik": "Kayıt başladı", "ne": "Video kaydı başlayınca", "notalar": [[988, 110], [0, 25], [1480, 170]]}, {"ad": "E_KAYIT_BITTI", "baslik": "Kayıt bitti", "ne": "Video kaydı bitince", "notalar": [[1480, 110], [0, 25], [988, 170]]}, {"ad": "E_ALARM", "baslik": "Alarm", "ne": "Jetson 80 °C'yi geçince ya da teker sıkışıp akım koruması devreye girince (her zaman çalar)", "notalar": [[1760, 140], [1175, 140], [1760, 140], [1175, 140], [1760, 140], [1175, 140]]}], "geriBip": {"baslik": "Geri vites bipi", "ne": "Geri giderken (ayarlarda Geri vites bipi)"}, "kornalar": [{"baslik": "Düz", "stil": 0}, {"baslik": "Kalın", "stil": 1}, {"baslik": "Tiz", "stil": 2}, {"baslik": "Titrek", "stil": 3}, {"baslik": "Dü-düt", "stil": 4}], "ezgili": [{"ad": "E_CUCARACHA", "baslik": "La Cucaracha", "notalar": [[784, 120], [0, 25], [784, 120], [0, 25], [784, 120], [0, 25], [1047, 260], [0, 30], [1319, 360], [0, 120], [784, 120], [0, 25], [784, 120], [0, 25], [784, 120], [0, 25], [1047, 260], [0, 30], [1319, 360], [0, 120]]}, {"ad": "E_DIXIE", "baslik": "Dixie", "notalar": [[784, 160], [659, 80], [523, 280], [0, 20], [523, 130], [0, 15], [523, 80], [587, 80], [659, 80], [698, 80], [784, 260], [0, 20], [784, 260], [0, 20], [784, 160], [659, 420]]}, {"ad": "E_BABA", "baslik": "Baba", "notalar": [[784, 180], [1047, 180], [1245, 180], [1175, 180], [1047, 520], [1245, 180], [1047, 180], [1175, 180], [1047, 180], [831, 180], [932, 180], [784, 800]]}, {"ad": "E_NURI", "baslik": "Nuri Alço", "notalar": [[698, 150], [0, 25], [784, 150], [0, 25], [784, 150], [0, 25], [698, 150], [0, 25], [659, 150], [0, 25], [587, 150], [0, 25], [698, 150], [0, 25], [659, 150], [0, 25], [587, 150], [0, 25], [587, 150], [0, 25], [587, 360], [0, 25], [0, 120], [880, 150], [0, 25], [784, 150], [0, 25], [880, 150], [0, 25], [698, 150], [0, 25], [784, 150], [0, 25], [698, 150], [0, 25], [659, 150], [0, 25], [587, 150], [0, 25], [698, 150], [0, 25], [659, 150], [0, 25], [587, 150], [0, 25], [587, 420], [0, 25]]}, {"ad": "E_TRAS", "baslik": "Ta-ta-ra-ta-ta", "notalar": [[1047, 260], [0, 20], [784, 120], [0, 15], [784, 120], [880, 260], [0, 20], [784, 260], [0, 280], [988, 260], [0, 20], [1047, 300]]}], "sarkilar": [{"ad": "M_ACILIS", "grup": "Genel", "baslik": "Açılış", "notalar": [[523, 110], [659, 110], [784, 110], [1047, 260]]}, {"ad": "M_MEGALOVANIA", "grup": "Oyun", "baslik": "Megalovania (Undertale)", "notalar": [[587, 133], [587, 133], [1175, 133], [0, 100], [880, 200], [0, 133], [831, 200], [0, 100], [784, 133], [0, 100], [698, 200], [0, 80], [587, 100], [698, 100], [784, 133], [523, 133], [523, 133], [1175, 133], [0, 100], [880, 200], [0, 133], [831, 200], [0, 100], [784, 133], [0, 100], [698, 200], [0, 80], [587, 100], [698, 100], [784, 133], [494, 133], [494, 133], [1175, 133], [0, 100], [880, 200], [0, 133], [831, 200], [0, 100], [784, 133], [0, 100], [698, 200], [0, 80], [587, 100], [698, 100], [784, 133], [466, 200], [466, 200], [1175, 133], [880, 200], [0, 133], [831, 200], [0, 100], [784, 133], [0, 100], [698, 200], [0, 80], [587, 100], [698, 100], [784, 133], [587, 133], [587, 133], [1175, 133], [0, 100], [880, 200], [0, 133], [831, 200], [0, 100], [784, 133], [0, 100], [698, 200], [0, 80], [587, 100], [698, 100], [784, 133], [523, 133], [523, 133], [1175, 133], [0, 100], [880, 200], [0, 133], [831, 200], [0, 100], [784, 133], [0, 100], [698, 200], [0, 80], [587, 100], [698, 100], [784, 133], [494, 133], [494, 133], [1175, 133], [0, 100], [880, 200], [0, 133], [831, 200], [0, 100], [784, 133], [0, 100], [698, 200], [0, 80], [587, 100], [698, 100], [784, 133], [466, 200], [466, 200], [1175, 133], [880, 200], [0, 133], [831, 200], [0, 100], [784, 133], [0, 100], [698, 200], [0, 80], [587, 100], [698, 100], [784, 133], [698, 100], [0, 133], [698, 133], [698, 133], [0, 100], [698, 133], [0, 100], [698, 133], [0, 100], [587, 133], [0, 100], [587, 133], [0, 133], [587, 400], [0, 100], [698, 133], [698, 133], [698, 133], [698, 133], [0, 100], [784, 100], [831, 133], [0, 100], [784, 133], [698, 200], [587, 133], [698, 133], [784, 200], [698, 133], [0, 100], [698, 133], [698, 133], [0, 100], [784, 133], [831, 200], [0, 100], [880, 133], [0, 100], [1047, 133], [0, 133], [880, 133], [0, 133], [1175, 133], [0, 100], [1175, 133], [0, 100], [1175, 133], [880, 133], [1175, 133], [1047, 400], [0, 800], [880, 133], [0, 100], [880, 133], [880, 133], [0, 100], [880, 133], [0, 100], [880, 133], [0, 100], [784, 133], [0, 100], [784, 133], [0, 400], [880, 133], [0, 100], [880, 133], [880, 133], [0, 100], [880, 133], [0, 100], [784, 133], [0, 100], [880, 133], [0, 100], [1175, 133], [0, 100], [880, 133], [0, 100], [784, 133], [0, 100], [1175, 133], [0, 100], [880, 133], [0, 100], [784, 133], [0, 100], [698, 133], [0, 100], [1047, 133], [0, 100], [880, 133], [0, 100], [784, 133], [0, 100], [698, 133], [0, 100], [587, 133], [0, 100], [659, 133], [698, 133], [0, 100], [880, 133], [0, 100], [1047, 133], [0, 800], [698, 133], [587, 133], [698, 133], [784, 133], [831, 133], [784, 133], [698, 133], [587, 133], [831, 133], [784, 133], [698, 133], [587, 133], [698, 133], [784, 133], [0, 800], [831, 133], [0, 100], [880, 133], [523, 133], [0, 100], [880, 133], [831, 133], [784, 133], [698, 133], [587, 133], [698, 133], [0, 100], [784, 133], [831, 133], [0, 100], [1047, 133], [0, 133], [1109, 133], [0, 100], [831, 133], [0, 100], [831, 133], [784, 133], [698, 133], [784, 133], [0, 800], [349, 133], [0, 100], [392, 133], [0, 100], [440, 133], [0, 100], [698, 133], [0, 100], [659, 160], [0, 100], [587, 160], [0, 100], [659, 160], [0, 100], [698, 160], [0, 100], [784, 160], [0, 100], [659, 160], [880, 400], [0, 800], [880, 133], [831, 133], [784, 133], [740, 133], [698, 133], [659, 133], [622, 133], [587, 133], [554, 200], [0, 200]]}, {"ad": "M_MARIO", "grup": "Oyun", "baslik": "Süper Mario", "notalar": [[659, 150], [659, 150], [0, 150], [659, 150], [0, 150], [523, 150], [659, 300], [784, 300], [0, 300], [392, 300], [0, 300], [523, 450], [392, 150], [0, 300], [330, 450], [440, 300], [494, 300], [466, 150], [440, 300], [392, 200], [659, 200], [784, 200], [880, 300], [698, 150], [784, 150], [0, 150], [659, 300], [523, 150], [587, 150], [494, 450]]}, {"ad": "M_TETRIS", "grup": "Oyun", "baslik": "Tetris", "notalar": [[659, 400], [494, 200], [523, 200], [587, 400], [523, 200], [494, 200], [440, 400], [440, 200], [523, 200], [659, 400], [587, 200], [523, 200], [494, 600], [523, 200], [587, 400], [659, 400], [523, 400], [440, 400], [440, 400], [0, 400], [0, 200], [587, 400], [698, 200], [880, 400], [784, 200], [698, 200], [659, 600], [523, 200], [659, 400], [587, 200], [523, 200], [494, 400], [494, 200], [523, 200], [587, 400], [659, 400], [523, 400], [440, 400], [440, 400]]}, {"ad": "M_IMPARATORLUK", "grup": "Film / dizi", "baslik": "İmparatorluk Marşı", "notalar": [[784, 500], [784, 500], [784, 500], [622, 350], [932, 150], [784, 500], [622, 350], [932, 150], [784, 1000], [1175, 500], [1175, 500], [1175, 500], [1245, 350], [932, 150], [740, 500], [622, 350], [932, 150], [784, 1000], [1568, 500], [784, 350], [784, 150], [1568, 500], [1480, 350], [1397, 150], [1319, 125], [1245, 125], [1319, 250], [0, 250], [831, 250], [1109, 500], [1047, 350], [988, 150], [932, 125], [880, 125], [932, 250], [0, 250], [622, 250], [740, 500], [622, 350], [784, 150], [932, 500], [784, 350], [932, 150], [1175, 1000]]}, {"ad": "M_GOT", "grup": "Film / dizi", "baslik": "Game of Thrones", "notalar": [[784, 450], [523, 450], [622, 225], [698, 225], [784, 450], [523, 450], [622, 225], [698, 225], [784, 450], [523, 450], [659, 225], [698, 225], [784, 450], [523, 450], [659, 225], [698, 225], [784, 1350], [523, 1350], [622, 225], [698, 225], [784, 900], [523, 900], [622, 225], [698, 225], [587, 1800], [698, 1350], [466, 1350], [622, 225], [587, 225], [698, 900], [466, 900], [622, 225], [587, 225], [523, 1800]]}, {"ad": "M_HEDWIG", "grup": "Film / dizi", "baslik": "Hedwig (Harry Potter)", "notalar": [[0, 833], [587, 417], [784, 625], [932, 208], [880, 417], [784, 833], [1175, 417], [1047, 1250], [880, 1250], [784, 625], [932, 208], [880, 417], [698, 833], [831, 417], [587, 2500], [587, 417], [784, 625], [932, 208], [880, 417], [784, 833], [1175, 417], [1397, 833], [1319, 417], [1245, 833], [988, 417], [1245, 625], [1175, 208], [1109, 417], [554, 833], [988, 417], [784, 2500], [932, 417], [1175, 833], [932, 417], [1175, 833], [932, 417], [1245, 833], [1175, 417], [1109, 833], [880, 417], [932, 625], [1175, 208], [1109, 417], [554, 833], [587, 417], [1175, 2500], [0, 417], [932, 417], [1175, 833], [932, 417], [1175, 833], [932, 417], [1397, 833], [1319, 417], [1245, 833], [988, 417], [1245, 625], [1175, 208], [1109, 417], [554, 833], [932, 417], [784, 2500]]}, {"ad": "M_PEMBE_PANTER", "grup": "Film / dizi", "baslik": "Pembe Panter", "notalar": [[0, 250], [622, 250], [659, 750], [0, 250], [740, 250], [784, 750], [0, 250], [622, 250], [659, 375], [740, 250], [784, 375], [1047, 250], [988, 375], [659, 250], [784, 375], [988, 250], [932, 1000], [880, 188], [784, 188], [659, 188], [587, 188], [659, 1000], [0, 750], [622, 500], [659, 750], [0, 250], [740, 250], [784, 750], [0, 250], [622, 250], [659, 375], [740, 250], [784, 375], [1047, 250], [988, 375], [784, 250], [988, 375], [1319, 250], [1245, 2000], [1175, 1000], [0, 750], [622, 250], [659, 750], [0, 250], [740, 250], [784, 750], [0, 250], [622, 250], [659, 375], [740, 250], [784, 375], [1047, 250], [988, 375], [659, 250], [784, 375], [988, 250], [932, 1000], [880, 188], [784, 188], [659, 188], [587, 188], [659, 750], [0, 1000], [1319, 375], [1175, 250], [988, 375], [880, 250], [784, 375], [659, 375], [932, 125], [880, 375], [932, 125], [880, 375], [932, 125], [880, 375], [932, 125], [880, 375], [784, 188], [659, 188], [587, 188], [659, 125], [659, 125], [659, 1000]]}, {"ad": "M_KORSAN", "grup": "Film / dizi", "baslik": "He's a Pirate (Karayip Korsanları)", "notalar": [[587, 150], [587, 150], [587, 150], [587, 150], [587, 150], [587, 150], [587, 150], [587, 150], [587, 150], [698, 150], [880, 300], [880, 150], [880, 150], [988, 150], [1047, 300], [1047, 150], [1047, 150], [1175, 150], [988, 300], [988, 150], [880, 150], [784, 150], [784, 150], [880, 300], [587, 150], [698, 150], [880, 300], [880, 150], [880, 150], [988, 150], [1047, 300], [1047, 150], [1047, 150], [1175, 150], [988, 300], [988, 150], [880, 150], [784, 150], [880, 450], [587, 150], [698, 150], [880, 300], [880, 150], [988, 150], [1047, 300], [1047, 150], [1175, 150], [988, 150], [988, 300], [880, 150], [784, 150], [880, 450]]}, {"ad": "M_GOREV", "grup": "Film / dizi", "baslik": "Görevimiz Tehlike", "notalar": [[784, 420], [0, 30], [784, 420], [0, 30], [932, 300], [1047, 300], [784, 420], [0, 30], [784, 420], [0, 30], [698, 300], [740, 300], [784, 420], [0, 30], [784, 420], [0, 30], [932, 300], [1047, 300], [784, 420], [0, 30], [784, 420], [0, 30], [698, 300], [740, 300], [932, 110], [784, 110], [587, 1280], [932, 110], [784, 110], [554, 1280], [932, 110], [784, 110], [523, 1280], [466, 150], [523, 900]]}, {"ad": "M_TAKEONME", "grup": "Pop", "baslik": "Take On Me", "notalar": [[740, 214], [740, 214], [587, 214], [494, 214], [0, 214], [494, 214], [0, 214], [659, 214], [0, 214], [659, 214], [0, 214], [659, 214], [831, 214], [831, 214], [880, 214], [988, 214], [880, 214], [880, 214], [880, 214], [659, 214], [0, 214], [587, 214], [0, 214], [740, 214], [0, 214], [740, 214], [0, 214], [740, 214], [659, 214], [659, 214], [740, 214], [659, 214], [740, 214], [740, 214], [587, 214], [494, 214], [0, 214], [494, 214], [0, 214], [659, 214], [0, 214], [659, 214], [0, 214], [659, 214], [831, 214], [831, 214], [880, 214], [988, 214], [880, 214], [880, 214], [880, 214], [659, 214], [0, 214], [587, 214], [0, 214], [740, 214], [0, 214], [740, 214], [0, 214], [740, 214], [659, 214], [659, 214], [740, 214], [659, 214]]}, {"ad": "M_RICK", "grup": "Pop", "baslik": "Never Gonna Give You Up", "notalar": [[587, 789], [659, 789], [440, 526], [659, 789], [740, 789], [880, 132], [784, 132], [740, 263], [587, 789], [659, 789], [440, 1053], [440, 132], [440, 132], [494, 132], [587, 263], [587, 132], [587, 789], [659, 789], [440, 526], [659, 789], [740, 789], [880, 132], [784, 132], [740, 263], [587, 789], [659, 789], [440, 1053], [440, 132], [440, 132], [494, 132], [587, 263], [587, 132], [0, 526], [494, 263], [554, 263], [587, 263], [587, 263], [659, 263], [554, 395], [494, 132], [440, 1053], [0, 1579], [494, 263], [554, 263], [587, 263], [494, 263], [0, 263], [659, 263], [740, 263], [659, 789], [440, 132], [494, 132], [587, 132], [494, 132], [740, 395], [740, 395], [659, 789], [440, 132], [494, 132], [587, 132], [494, 132], [659, 395], [659, 395], [587, 395], [554, 132], [494, 395], [440, 132], [494, 132], [587, 132], [494, 132], [587, 526], [659, 263], [554, 395], [494, 132], [440, 263], [440, 263], [440, 263], [659, 526], [587, 1053], [440, 132], [494, 132], [587, 132], [494, 132], [740, 395], [740, 395], [659, 789], [440, 132], [494, 132], [587, 132], [494, 132], [880, 526], [554, 263], [587, 395], [554, 132], [494, 263], [440, 132], [494, 132], [587, 132], [494, 132], [587, 526], [659, 263], [554, 395], [494, 132], [440, 526], [440, 263], [659, 526], [587, 1053], [0, 526]]}, {"ad": "M_NOKIA", "grup": "Pop", "baslik": "Nokia", "notalar": [[1319, 120], [1175, 120], [740, 240], [831, 240], [1109, 120], [988, 120], [587, 240], [659, 240], [988, 120], [880, 120], [554, 240], [659, 240], [880, 600]]}, {"ad": "M_SIREN", "grup": "Efekt", "baslik": "Siren", "notalar": [[650, 300], [950, 300], [650, 300], [950, 300], [650, 300], [950, 300], [650, 300], [950, 300]]}]};
+const OYNAT = '<svg viewBox="0 0 14 14"><path d="M3 1.5v11l9.5-5.5z"/></svg>';
+const DUR = '<svg viewBox="0 0 14 14"><rect x="2.5" y="2.5" width="9" height="9" rx="1.5"/></svg>';
+
+let ctx = null, ana = null, simdiki = null;
+const sesKaydir = document.getElementById('ses');
+function ses() { return Math.pow(sesKaydir.value / 100, 2) * 0.5; }
+sesKaydir.addEventListener('input', () => { if (ana) ana.gain.value = ses(); });
+
+function ses_motoru() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const suzgec = ctx.createBiquadFilter();
+    suzgec.type = 'lowpass'; suzgec.frequency.value = 6500;
+    ana = ctx.createGain(); ana.gain.value = ses();
+    ana.connect(suzgec); suzgec.connect(ctx.destination);
+  }
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+
+function durdur() {
+  if (!simdiki) return;
+  try { simdiki.osc.stop(); } catch (e) {}
+  simdiki.kazanc.disconnect();
+  simdiki.satir.classList.remove('calan');
+  simdiki.satir.querySelector('.cal').innerHTML = OYNAT;
+  simdiki = null;
+}
+
+// notalar: [[hz, ms], ...]; melodi: Arduino'daki gibi her notanın son 20 ms'i sessiz (60 ms'den uzunsa)
+function cal(satir, notalar, melodi, tekrar) {
+  const c = ses_motoru();
+  durdur();
+  const osc = c.createOscillator(), kazanc = c.createGain();
+  osc.type = 'square';
+  kazanc.gain.value = 0;
+  osc.connect(kazanc); kazanc.connect(ana);
+  const t0 = c.currentTime + 0.03;
+  let t = t0;
+  for (const [hz, ms] of notalar) {
+    const d = ms / 1000;
+    if (hz) {
+      osc.frequency.setValueAtTime(hz, t);
+      kazanc.gain.setValueAtTime(1, t);
+      if (melodi && ms > 60) kazanc.gain.setValueAtTime(0, t + d - 0.02);
+    } else kazanc.gain.setValueAtTime(0, t);
+    t += d;
+  }
+  kazanc.gain.setValueAtTime(0, t);
+  osc.start(t0);
+  osc.stop(t + 0.05);
+  simdiki = { osc, kazanc, satir, t0, sure: t - t0, notalar, tutulan: tekrar };
+  osc.onended = () => { if (simdiki && simdiki.osc === osc) durdur(); };
+  satir.classList.add('calan');
+  satir.querySelector('.cal').innerHTML = DUR;
+  requestAnimationFrame(oynatmaCizgisi);
+}
+
+// Basılı kornalar: Arduino'daki sesGuncelle ile aynı desenler, 20 sn'lik plan (bırakınca durur)
+function kornaDeseni(stil) {
+  const n = [];
+  if (stil < 3) n.push([[440, 330, 660][stil], 20000]);
+  else if (stil === 3) for (let t = 0; t < 20000; t += 4) n.push([(t / 4) % 2 ? 420 : 500, 4]);
+  else for (let t = 0; t < 20000; t += 520) n.push([740, 170], [0, 60], [740, 170], [0, 120]);
+  return n;
+}
+
+function serit(canvas, notalar) {
+  const oran = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 300, h = canvas.clientHeight || 34;
+  canvas.width = w * oran; canvas.height = h * oran;
+  const g = canvas.getContext('2d');
+  g.scale(oran, oran);
+  const toplam = notalar.reduce((a, n) => a + n[1], 0) || 1;
+  const lo = Math.log(300), hi = Math.log(2400);
+  g.fillStyle = 'rgba(255,255,255,0.05)';
+  g.fillRect(0, h - 1, w, 1);
+  let t = 0;
+  for (const [hz, ms] of notalar) {
+    if (hz) {
+      const x = t / toplam * w, gen = Math.max(1.2, ms / toplam * w - 0.8);
+      const y = h - 3 - (Math.log(Math.max(300, Math.min(2400, hz))) - lo) / (hi - lo) * (h - 8);
+      g.fillStyle = '#f08a45';
+      g.fillRect(x, y - 1.5, gen, 3);
+    }
+    t += ms;
+  }
+  canvas._toplam = toplam;
+}
+
+function oynatmaCizgisi() {
+  if (!simdiki || simdiki.tutulan) return;
+  const canvas = simdiki.satir.querySelector('canvas');
+  if (!canvas._resim) canvas._resim = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+  const g = canvas.getContext('2d');
+  g.putImageData(canvas._resim, 0, 0);
+  const p = Math.min(1, (ctx.currentTime - simdiki.t0) / simdiki.sure);
+  const oran = window.devicePixelRatio || 1;
+  g.fillStyle = 'rgba(236,234,230,0.85)';
+  g.fillRect(p * canvas.width, 0, 1.5 * oran, canvas.height);
+  if (p < 1) requestAnimationFrame(oynatmaCizgisi);
+  else g.putImageData(canvas._resim, 0, 0);
+}
+
+function sureYazi(notalar) {
+  const ms = notalar.reduce((a, n) => a + n[1], 0);
+  return ms >= 10000 ? Math.round(ms / 1000) + ' sn' : (ms / 1000).toFixed(1).replace('.', ',') + ' sn';
+}
+
+function satirYap(liste, baslik, ne, notalar, secenek = {}) {
+  const s = document.createElement('div');
+  s.className = 'satir';
+  s.innerHTML = '<button class="cal" type="button" aria-label="Çal">' + OYNAT + '</button>' +
+    '<div><div class="ad"></div><div class="ne"></div></div><canvas></canvas><div class="sure"></div>';
+  s.querySelector('.ad').textContent = baslik;
+  if (secenek.etiket) s.querySelector('.ad').insertAdjacentHTML('beforeend', '<span class="etiket">' + secenek.etiket + '</span>');
+  s.querySelector('.ne').textContent = ne;
+  s.querySelector('.sure').textContent = secenek.basili ? 'basılı' : sureYazi(notalar);
+  liste.appendChild(s);
+  const dugme = s.querySelector('.cal');
+  if (secenek.basili) {
+    dugme.setAttribute('aria-label', 'Basılı tut');
+    const birak = () => { if (simdiki && simdiki.satir === s) durdur(); };
+    dugme.addEventListener('pointerdown', e => { e.preventDefault(); dugme.setPointerCapture(e.pointerId); cal(s, notalar, false, true); });
+    dugme.addEventListener('pointerup', birak);
+    dugme.addEventListener('pointercancel', birak);
+    serit(s.querySelector('canvas'), notalar.slice(0, secenek.seritNota || 1));
+  } else {
+    dugme.addEventListener('click', () => {
+      if (simdiki && simdiki.satir === s) durdur();
+      else cal(s, notalar, !!secenek.melodi, false);
+    });
+    serit(s.querySelector('canvas'), notalar);
+  }
+}
+
+function bolum(baslik, aciklama) {
+  const b = document.createElement('section');
+  b.innerHTML = '<h2></h2><div class="liste"></div>';
+  b.querySelector('h2').textContent = baslik;
+  if (aciklama) b.querySelector('h2').insertAdjacentHTML('beforeend', '<span></span>');
+  if (aciklama) b.querySelector('h2 span').textContent = aciklama;
+  document.getElementById('icerik').appendChild(b);
+  return b.querySelector('.liste');
+}
+
+const ef = bolum('Efektler', 'durumlara göre kendiliğinden çalar');
+for (const e of VERI.efektler) satirYap(ef, e.baslik, e.ne, e.notalar);
+const geri = [];
+for (let i = 0; i < 4; i++) geri.push([1100, 450], [0, 450]);
+satirYap(ef, VERI.geriBip.baslik, VERI.geriBip.ne, geri);
+
+const ko = bolum('Kornalar', 'basılı tuttukça öter: düğmeye basılı tut');
+const kornaNe = ['Tek ton, 440 Hz', 'Tek ton, 330 Hz (piezoda kısık)', 'Tek ton, 660 Hz',
+                 'İki ton hızla değişir (420 / 500 Hz)', 'Kesik iki öttürme, tekrar eder'];
+for (const k of VERI.kornalar)
+  satirYap(ko, k.baslik, kornaNe[k.stil], kornaDeseni(k.stil), { basili: true, seritNota: k.stil === 3 ? 60 : k.stil === 4 ? 8 : 1 });
+
+const ez = bolum('Ezgili kornalar', 'kornaya basınca bir kez çalar');
+for (const e of VERI.ezgili) satirYap(ez, e.baslik, 'Menü › Korna sesinden seçilir', e.notalar, { etiket: e.ad === 'E_NURI' ? 'yeni notalar' : '' });
+
+let grup = null, sl = null;
+for (const s of VERI.sarkilar) {
+  if (s.grup !== grup) { grup = s.grup; sl = bolum('Şarkılar · ' + grup, 'teypten seçilir'); }
+  satirYap(sl, s.baslik, '', s.notalar, { melodi: true, etiket: s.ad === 'M_GOREV' ? 'yeni' : '' });
+}
+</script>
+</body>
+</html>

@@ -22,6 +22,18 @@ def sus(ms):
     return [0, ms]
 
 
+NOTA = {"C": 523, "D": 587, "E": 659, "F": 698, "G": 784, "A": 880, "B": 988}
+
+
+def dizi_cal(notalar, ms, son_ms):
+    """"F G G F ..." (5. oktav): her nota ms çalar, 25 ms susar (aynı nota art arda ayrı duyulsun); sonuncusu son_ms."""
+    adlar = notalar.split()
+    out = []
+    for i, ad in enumerate(adlar):
+        out += nota(NOTA[ad], son_ms if i == len(adlar) - 1 else ms) + sus(25)
+    return out
+
+
 E = {
     # açılış: yükselen akor + sonda parlayan kayış ("ta-da-dam-viiin")
     "E_ACILIS": nota(784, 110) + nota(988, 110) + nota(1175, 110) + kay(1175, 1568, 120) + nota(1568, 260),
@@ -50,9 +62,9 @@ E = {
     # Baba (The Godfather aşk teması): sol do mib re do mib do re do lab sib sol
     "E_BABA": nota(784, 180) + nota(1047, 180) + nota(1245, 180) + nota(1175, 180) + nota(1047, 520) + nota(1245, 180)
               + nota(1047, 180) + nota(1175, 180) + nota(1047, 180) + nota(831, 180) + nota(932, 180) + nota(784, 800),
-    # Nuri Alço kornası (John Carpenter, "The End" / Assault on Precinct 13 riffi; kulaktan yaklaşık)
-    "E_NURI": (nota(784, 140) + sus(20) + nota(784, 140) + sus(20) + nota(784, 140) + nota(698, 140) + nota(784, 280)
-               + nota(932, 140) + nota(784, 140) + nota(698, 140) + nota(587, 300) + sus(60)) * 2,
+    # Nuri Alço kornası (kullanıcının yazdığı notalar):
+    # fa sol sol fa mi re fa mi re re re  ·  la sol la fa sol fa mi re fa mi re re
+    "E_NURI": dizi_cal("F G G F E D F E D D D", 150, 360) + sus(120) + dizi_cal("A G A F G F E D F E D D", 150, 420),
     # Ta-ta-ra-ta-ta ... ta-ta (shave and a haircut)
     "E_TRAS": nota(1047, 260) + sus(20) + nota(784, 120) + sus(15) + nota(784, 120) + nota(880, 260) + sus(20)
               + nota(784, 260) + sus(280) + nota(988, 260) + sus(20) + nota(1047, 300),

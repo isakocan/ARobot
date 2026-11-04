@@ -8,7 +8,9 @@ Tarayıcı / telefon  <-- HTTP + WebSocket :8080 -->  bu program  <-- seri 11520
 
 Görüntü: GStreamer kameranın JPEG karelerini ikiye ayırır (tee):
   - JPEG kolu: kareler çözülmeden aktarılır (/goruntu.mjpg, /kare.jpg). Yedek yol; ~20-50 Mbit/s.
-  - H.264 kolu: Jetson'un donanım kodlayıcısı sıkıştırır (/goruntu-h264, WebSocket). ~4 Mbit/s.
+  - H.264 kolu: Jetson'un donanım kodlayıcısı sıkıştırır (/goruntu-h264, WebSocket). Aynı görüntü üç bit
+    hızında birden kodlanır (yüksek 4, orta 2,5, düşük 1,2 Mbit/s); her izleyiciye ağının taşıyabildiği gider
+    (uyarlanabilir görüntü, ayrıntı: H264Abone). Geçiş tam karede olur, görüntü kesilmez.
   Kamera yalnızca izleyen biri varken açılır.
 
 Sürüş (/kontrol, WebSocket): sayfa basılı tuş varken ~60 ms'de bir {"t":"surus"} gönderir.
@@ -49,7 +51,10 @@ KAMERA_AYARI = os.path.expanduser("~/.config/robot/kamera_ayari.json")
 KAMERA_BOSTA_KAPAT = 10     # sn: izleyen kalmayınca kamerayı kapat
 VARSAYILAN_FPS = 15
 AKIS_TAMPONU = 128 * 1024   # bayt; ağ yavaşsa kareler kuyrukta birikmesin (~1 kare)
-H264_BIT_HIZI = 4000000     # bit/sn
+H264_SEVIYELER = (4000000, 2500000, 1200000)   # bit/sn: yüksek, orta, düşük (her biri ayrı kodlayıcı)
+SEVIYE_ADLARI = ("yuksek", "orta", "dusuk")
+YUKSELT_BEKLE = 8           # sn: bu kadar sıkışmasız geçerse bir üst kaliteye çıkılır (başarısız denemede ikiye katlanır)
+YUKSELT_BEKLE_EN_COK = 30   # sn
 H264_BEKCI = 5              # sn: JPEG gelirken H.264 bu kadar kare vermezse kamera hattı yeniden başlatılır
 ISI_ALARMI = 80             # °C: Jetson bunu geçince bir kez alarm sesi (75'in altına inince yeniden kurulur)
 ANAHTAR_ARALIGI = 15        # kare; 15 fps'te saniyede bir tam kare (yeni izleyen en geç 1 sn bekler)
@@ -178,19 +183,76 @@ def anahtar_kare_mi(au):
 
 
 class H264Abone:
-    """Bir izleyicinin kare kuyruğu. Ağ yetişmezse biriktirmez: kuyruğu boşaltıp sonraki
-    tam kareden devam eder (ara kareler öncekilere dayandığı için tek tek atılamaz)."""
+    """Bir izleyicinin kare kuyruğu ve kalitesi.
 
-    def __init__(self):
+    Ağ yetişmezse biriktirmez: kuyruğu boşaltıp sonraki tam kareden devam eder (ara kareler öncekilere
+    dayandığı için tek tek atılamaz). Kalite (uyarlanabilir): kuyrukta kare birikmesi ağın o bit hızını
+    taşıyamadığını gösterir. Taşma olursa, 2 sn içinde 3 kez 2 kare birikirse ya da son 30 karenin çoğu gelirken
+    önceki kare hâlâ gönderilmeyi bekliyorsa (ağın sınırında, gecikme artıyor) bir alt kaliteye geçilir;
+    YUKSELT_BEKLE sn sıkışmasız geçerse bir üstü denenir. Üste çıkınca 6 sn içinde yine sıkışırsa bekleme ikiye
+    katlanır (sınırda gidip gelmesin). Geçiş, istenen kalitenin tam karesi gelince olur.
+    """
+
+    def __init__(self, seviye_sayisi, sabit=None):
         self.kosul = threading.Condition()
         self.kuyruk = collections.deque()
         self.anahtar_bekle = True
+        self.seviye_sayisi = seviye_sayisi
+        self.sabit = sabit                 # None: otomatik; 0/1/2: hep o kalite
+        self.seviye = self.istenen = sabit if sabit is not None and sabit < seviye_sayisi else 0
+        simdi = time.time()
+        self.son_degisim = self.temiz_beri = simdi
+        self.son_yukselis = -1e9
+        self.yukselt_bekle = YUKSELT_BEKLE
+        self.birikmeler = collections.deque()
+        self.dolu = collections.deque(maxlen=30)   # son karelerde kuyruk boş değil miydi
 
-    def ekle(self, au, anahtar):
+    def _sikisti(self, simdi):
+        self.temiz_beri = simdi
+        if self.sabit is not None or self.istenen >= self.seviye_sayisi - 1 or simdi - self.son_degisim < 1.5:
+            return
+        if simdi - self.son_yukselis < 6:   # az önce çıkmıştık: o kalite taşınmıyor, sonraki denemeyi geciktir
+            self.yukselt_bekle = min(YUKSELT_BEKLE_EN_COK, self.yukselt_bekle * 2)
+        self.istenen += 1
+        self.son_degisim = simdi
+
+    def _rahat_mi(self, simdi):
+        if self.sabit is not None or self.istenen == 0:
+            return
+        if simdi - self.temiz_beri > self.yukselt_bekle and simdi - self.son_degisim > self.yukselt_bekle:
+            self.istenen -= 1
+            self.son_degisim = self.son_yukselis = self.temiz_beri = simdi
+        elif simdi - self.temiz_beri > 120:
+            self.yukselt_bekle = YUKSELT_BEKLE   # uzun süre sorunsuz: yeniden çabuk dene
+
+    def ekle(self, au, anahtar, seviye=0):
         with self.kosul:
+            if seviye != self.seviye:
+                # başka kalitenin karesi: yalnızca istenen kalitenin tam karesinde geçiş yap
+                if seviye != self.istenen or not anahtar:
+                    return
+                self.seviye = seviye
+                self.kuyruk.clear()
+                self.dolu.clear()
+                self.anahtar_bekle = False
+            simdi = time.time()
+            self.dolu.append(len(self.kuyruk) > 0)
+            if len(self.dolu) == self.dolu.maxlen and sum(self.dolu) > 18:
+                self.dolu.clear()
+                self._sikisti(simdi)
             if len(self.kuyruk) >= 3:
                 self.kuyruk.clear()
                 self.anahtar_bekle = True
+                self._sikisti(simdi)
+            elif len(self.kuyruk) >= 2:
+                self.birikmeler.append(simdi)
+                while self.birikmeler and simdi - self.birikmeler[0] > 2:
+                    self.birikmeler.popleft()
+                if len(self.birikmeler) >= 3:
+                    self.birikmeler.clear()
+                    self._sikisti(simdi)
+            else:
+                self._rahat_mi(simdi)
             if self.anahtar_bekle and not anahtar:
                 return
             self.anahtar_bekle = False
@@ -221,6 +283,9 @@ class Kamera:
         self.aboneler = set()
         self.gonderilen = 0        # izleyicilere giden bayt (veri hızı için)
         self.veri_kbps = 0
+        self.seviye_sayisi = len(H264_SEVIYELER)   # çoklu kodlayıcı açılamazsa 1
+        self.h264_calisti = False  # çoklu kodlayıcı en az bir kez kare verdi mi
+        self.izleyici_kbps = {}    # izleyicinin IP'si → ona giden kalitenin bit hızı (durum paketinde gösterilir)
         threading.Thread(target=self._dongu, daemon=True).start()
         threading.Thread(target=self._hiz_olc, daemon=True).start()
 
@@ -254,34 +319,37 @@ class Kamera:
                 self.h264_destek = False
             time.sleep(1)
 
-    def _komut(self, h264_fd):
+    def _komut(self, h264_fdler):
         komut = ["gst-launch-1.0", "-q", "v4l2src", "device=" + self.aygit, "!",
                  "image/jpeg,width=1280,height=720", "!", "tee", "name=t",
                  "t.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!",
                  "multipartmux", "boundary=kare", "!", "fdsink", "fd=1"]
-        if h264_fd is not None:
-            komut += ["t.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!",
-                      "jpegdec", "!", "nvvidconv", "!", "video/x-raw(memory:NVMM),format=NV12", "!",
-                      "nvv4l2h264enc", "bitrate={}".format(H264_BIT_HIZI),
-                      # idrinterval da şart: yalnız iframeinterval verilirse ara tam kareler IDR
-                      # olmaz ve yeni bağlanan tarayıcı çözmeye başlayamaz
-                      "iframeinterval={}".format(ANAHTAR_ARALIGI), "idrinterval={}".format(ANAHTAR_ARALIGI),
-                      "insert-sps-pps=true",
-                      "insert-aud=true", "maxperf-enable=true", "preset-level=1", "!",
-                      "h264parse", "!", "video/x-h264,stream-format=byte-stream", "!",
-                      "fdsink", "fd={}".format(h264_fd)]
+        if h264_fdler:
+            # JPEG bir kez çözülür, her kalite kendi dönüştürücü + kodlayıcısıyla (Nano'nun kodlayıcısı birden çok
+            # 720p oturumu kaldırır; yük CPU'da değil)
+            komut += ["t.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!", "jpegdec", "!", "tee", "name=c"]
+            for bit, fd in zip(H264_SEVIYELER, h264_fdler):
+                komut += ["c.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!",
+                          "nvvidconv", "!", "video/x-raw(memory:NVMM),format=NV12", "!",
+                          "nvv4l2h264enc", "bitrate={}".format(bit),
+                          # idrinterval da şart: yalnız iframeinterval verilirse ara tam kareler IDR
+                          # olmaz ve yeni bağlanan tarayıcı çözmeye başlayamaz
+                          "iframeinterval={}".format(ANAHTAR_ARALIGI), "idrinterval={}".format(ANAHTAR_ARALIGI),
+                          "insert-sps-pps=true",
+                          "insert-aud=true", "maxperf-enable=true", "preset-level=1", "!",
+                          "h264parse", "!", "video/x-h264,stream-format=byte-stream", "!",
+                          "fdsink", "fd={}".format(fd)]
         return komut
 
     def _yayinla(self):
-        h264_oku = h264_yaz = None
-        if self.h264_destek:
-            h264_oku, h264_yaz = os.pipe()
-        log("kamera açılıyor", "(JPEG + H.264)" if h264_yaz else "(JPEG)")
+        borular = [os.pipe() for _ in range(self.seviye_sayisi)] if self.h264_destek else []
+        h264_yaz = [y for _, y in borular]
+        log("kamera açılıyor", "(JPEG + H.264 x%d)" % len(borular) if borular else "(JPEG)")
         p = subprocess.Popen(self._komut(h264_yaz), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                             bufsize=0, pass_fds=(h264_yaz,) if h264_yaz else ())
-        if h264_yaz:
-            os.close(h264_yaz)
-            threading.Thread(target=self._h264_oku, args=(h264_oku,), daemon=True).start()
+                             bufsize=0, pass_fds=tuple(h264_yaz))
+        for seviye, (oku, yaz) in enumerate(borular):
+            os.close(yaz)
+            threading.Thread(target=self._h264_oku, args=(oku, seviye), daemon=True).start()
         akis = p.stdout
         sayac_bas, zaman_bas = 0, time.time()
         kare_geldi = False
@@ -294,6 +362,11 @@ class Kamera:
                 # JPEG gelirken H.264 kolu durduysa (ör. kamera çıkarılıp takıldı, kodlayıcı takıldı) hattı yeniden
                 # başlat; üç kez üst üste olursa yalnızca JPEG'e geç (uygulama da kendiliğinden JPEG'e geçer)
                 if h264_yaz and kare_geldi and self.aboneler and time.time() - max(self.son_h264, baslangic) > H264_BEKCI:
+                    if self.seviye_sayisi > 1 and not self.h264_calisti:
+                        # çoklu kodlayıcı hiç kare vermediyse tek kaliteye dön (eski düzen)
+                        self.seviye_sayisi = 1
+                        log("çoklu H.264 kodlayıcı kare vermedi; tek kaliteyle devam")
+                        break
                     self.h264_takilma += 1
                     log("H.264 kolu kare vermiyor, kamera hattı yeniden başlatılıyor (%d)" % self.h264_takilma)
                     if self.h264_takilma >= 3:
@@ -332,8 +405,8 @@ class Kamera:
             log("kamera kapandı")
         return kare_geldi
 
-    def _h264_oku(self, fd):
-        """Kodlayıcı çıktısını erişim birimlerine (bir kare) böler: her kare AUD ile başlar."""
+    def _h264_oku(self, fd, seviye):
+        """Bir kalitenin kodlayıcı çıktısını erişim birimlerine (bir kare) böler: her kare AUD ile başlar."""
         AUD = b"\x00\x00\x00\x01\x09"
         tampon = b""
         with os.fdopen(fd, "rb", 0) as f:
@@ -351,9 +424,10 @@ class Kamera:
                     tampon = tampon[son:]
                     self.son_h264 = time.time()
                     self.h264_takilma = 0
+                    self.h264_calisti = True
                     anahtar = anahtar_kare_mi(au)
                     for a in list(self.aboneler):
-                        a.ekle(au, anahtar)
+                        a.ekle(au, anahtar, seviye)
 
     def sonraki_kare(self, son_sayac, sure=2.0):
         with self.kosul:
@@ -619,7 +693,9 @@ class Istek(BaseHTTPRequestHandler):
         if not ws:
             return
         self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, AKIS_TAMPONU)
-        abone = H264Abone()
+        kalite = parse_qs(urlsplit(self.path).query).get("kalite", [""])[0]
+        abone = H264Abone(KAM.seviye_sayisi, SEVIYE_ADLARI.index(kalite) if kalite in SEVIYE_ADLARI else None)
+        ip = self.client_address[0]
         KAM.aboneler.add(abone)
         KAM.izle(+1)
         # Okuyan iş parçacığı: tarayıcı kapatınca ya da ping atınca haberimiz olsun
@@ -630,6 +706,7 @@ class Istek(BaseHTTPRequestHandler):
                 if not oge:
                     continue
                 au, anahtar = oge
+                KAM.izleyici_kbps[ip] = H264_SEVIYELER[abone.seviye] // 1000
                 ws.ikili((b"\x01" if anahtar else b"\x00") + au)
                 KAM.gonderilen += len(au)
         except websoket.Kapandi:
@@ -637,6 +714,7 @@ class Istek(BaseHTTPRequestHandler):
         finally:
             ws.acik = False
             KAM.aboneler.discard(abone)
+            KAM.izleyici_kbps.pop(ip, None)
             KAM.izle(-1)
 
     @staticmethod
@@ -697,7 +775,7 @@ class UdpKanal:
     Uygulama 50 ms'de bir, ayrıca bir şey değişince hemen, tüm "istenen durumu" yollar:
       {"t":"d", "n":sıra, "z":uygulamanın saati (ms), "sol":-255..255, "sag":..,
        "led":0/1, "dortlu":0/1, "motor_sesi":0/1, "geri_bip":0/1,
-       "k":korna basılı 0/1, "ks":korna sesi 0-5, "fs":selektör sayacı, "mi":melodi sayacı, "mn":melodi no,
+       "k":korna basılı 0/1, "ks":korna sesi (0-4 basılı, 5+ ezgili), "fs":selektör sayacı, "mi":melodi sayacı, "mn":melodi no,
        "ef":efekt sayacı, "en":efekt no, "efekt":kendiliğinden efektler 0/1}
     - Paket kaybolursa sonraki paket aynı durumu taşıdığı için "aldım" (ack) gerekmez.
     - Tek seferlik işler (selektör, melodi başlatma) sayaçla gelir: sayaç değişince bir kez yapılır;
@@ -796,12 +874,12 @@ class UdpKanal:
                 ARDUINO.gonder("K 1")                  # bırakıldı: hemen sus
         if taze and m.get("k") and simdi - ist["korna"] > KORNA_YENILEME:
             ist["korna"] = simdi
-            ARDUINO.gonder("K 250 {}".format(max(0, min(5, int(m.get("ks", 0))))))
+            ARDUINO.gonder("K 250 {}".format(max(0, min(15, int(m.get("ks", 0))))))   # Arduino kendi sınırına kırpar
         if taze:
             ist["onceki"] = m
 
         d = durum()
-        d.update(t="s", n=n, z=m.get("z"), atilan=ist["atilan"])
+        d.update(t="s", n=n, z=m.get("z"), atilan=ist["atilan"], hedef_kbps=KAM.izleyici_kbps.get(adres[0], 0))
         self._cevap(adres, d)
 
     def _bekci(self):
