@@ -22,7 +22,9 @@ namespace ARaki.Drive
         public WheelSide Wheel = WheelSide.Left;
         public SpeedUnit Unit = SpeedUnit.KilometersPerHour;
         public bool Effects;                // uygulamanın istediği kısa sesler (vites, foto, kayıt); varsayılan kapalı
-        public int HornStyle;               // 0 düz, 1 kalın, 2 tiz, 3 titrek iki ton
+        public int HornStyle;               // HornNames sırası; 5 ve üstü basınca bir kez çalan ezgili kornalar
+        public static readonly string[] HornNames = { "Düz", "Kalın", "Tiz", "Titrek", "Dü-düt",
+                                                      "La Cucaracha", "Dixie", "Baba", "Nuri Alço", "Ta-ta-ra-ta-ta" };
         public int Video;                   // 0 otomatik (H.264, olmazsa JPEG), 1 H.264, 2 JPEG
         public float PowerLimit = 0.6f;     // en yüksek güç (0.2..1)
         public float WheelDiameterCm = 6.5f;

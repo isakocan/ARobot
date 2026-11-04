@@ -38,11 +38,13 @@ namespace ARaki.Drive
         public int InputForward { get; private set; }
         public int InputTurn { get; private set; }
 
-        public bool MusicMenuOpen, SettingsOpen;
+        public bool MusicMenuOpen, SettingsOpen, HornMenuOpen;
         public string Toast { get; private set; } = "";
         public float ToastUntil { get; private set; }
         /// <summary>Arduino'nun bildirdiği gerçek ileri güç (-1..1), rampa dahil.</summary>
         public float MotorPower { get; private set; }
+        /// <summary>Göstergedeki güç: iki tekerden büyüğü (0..1); yerinde dönerken de görünür.</summary>
+        public float MotorLoad { get; private set; }
         public float Rpm { get; private set; } = DriveModel.IdleRpm;
         public float SpeedMs { get; private set; }
 
@@ -175,9 +177,9 @@ namespace ARaki.Drive
                 if (kb.lKey.wasPressedThisFrame) ToggleLight();
                 if (kb.fKey.wasPressedThisFrame) Flash();
                 if (kb.hKey.wasPressedThisFrame) ToggleHazard();
-                if (kb.nKey.wasPressedThisFrame) { MusicMenuOpen = !MusicMenuOpen; SettingsOpen = false; }
-                if (kb.oKey.wasPressedThisFrame) { SettingsOpen = !SettingsOpen; MusicMenuOpen = false; }
-                if (kb.escapeKey.wasPressedThisFrame) { SettingsOpen = MusicMenuOpen = false; }
+                if (kb.nKey.wasPressedThisFrame) { MusicMenuOpen = !MusicMenuOpen; SettingsOpen = HornMenuOpen = false; }
+                if (kb.oKey.wasPressedThisFrame) { SettingsOpen = !SettingsOpen; MusicMenuOpen = HornMenuOpen = false; }
+                if (kb.escapeKey.wasPressedThisFrame) { SettingsOpen = MusicMenuOpen = HornMenuOpen = false; }
                 if (kb.rKey.wasPressedThisFrame) viewer.LookFront();
                 if (kb.bKey.wasPressedThisFrame) viewer.LookBack();
                 if (kb.mKey.wasPressedThisFrame) ToggleRearMirror();
@@ -241,7 +243,8 @@ namespace ARaki.Drive
             }
             link.State.EngineSound = false;   // motor sesi kaldırıldı (Arduino'da komutu duruyor)
             link.State.AutoEffects = Settings.Effects;
-            MotorPower = m != null ? (m.sol + m.sag) / 2f / 255f : 0f;   // yerinde dönerken sıfır
+            MotorPower = m != null ? (m.sol + m.sag) / 2f / 255f : 0f;   // ileri hız için (yerinde dönerken sıfır)
+            MotorLoad = m != null ? Mathf.Max(Mathf.Abs(m.sol), Mathf.Abs(m.sag)) / 255f : 0f;
             float k = Mathf.Min(1f, Time.unscaledDeltaTime * 5f);   // ibreler yumuşak
             SpeedMs += (Settings.SpeedMs(MotorPower) - SpeedMs) * k;
             Rpm += (Model.Rpm(Settings.Gearbox) + Mathf.Sin(Time.unscaledTime * 11f) * 12f - Rpm) * k;

@@ -23,7 +23,7 @@ namespace ARaki.Net
         public int Left, Right;             // -255..255
         public bool Led, Hazard, EngineSound, ReverseBeep;
         public bool Horn;                   // basılı tutuldukça
-        public int HornStyle;               // 0 düz, 1 kalın, 2 tiz, 3 titrek iki ton, 4 dü-düt, 5 La Cucaracha
+        public int HornStyle;               // 0 düz, 1 kalın, 2 tiz, 3 titrek iki ton, 4 dü-düt, 5+ ezgili (DriveSettings.HornNames)
         public int FlashCount;              // selektör: her basışta bir artar
         public int MelodyCount, Melody;     // melodi: her istekte sayaç artar; 0 = sustur
         public int EffectCount, Effect;     // kısa ses efekti (vites, foto, kayıt): her istekte sayaç artar

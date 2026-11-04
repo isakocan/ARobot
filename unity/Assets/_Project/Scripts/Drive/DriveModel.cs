@@ -16,9 +16,9 @@ namespace ARaki.Drive
     /// işareti yanar. Büyük viteste düşük hızdan kalkış güçsüzdür, küçük vitese inince araç motorla yavaşlar.
     /// Duruştan gaza basınca 1. vites, fren basılı tutunca geri vites kendiliğinden takılır.
     ///
-    /// Direksiyon: tuş dijital (-1/0/1) ama direksiyon yavaşça hızlanarak döner, sona yaklaşınca yavaşlar
-    /// (yumuşak başlangıç ve bitiş); tam kırmaya ~1,2 sn, bırakınca ~0,8 sn'de ortalanır. Dönüşün keskinliği de
-    /// bununla birlikte artar.
+    /// Direksiyon: tuş dijital (-1/0/1). İlk %30'u hemen (~75 ms) kırılır, böylece kısa basış da aracı döndürür;
+    /// sonrası yavaşça hızlanarak döner, sona yaklaşınca yavaşlar. Tam kırmaya ~1,2 sn; bırakınca yavaşça %30'a,
+    /// oradan hemen ortaya döner. Dönüşün keskinliği de bununla birlikte artar.
     ///
     /// Geri vites: 1. vitesin gücüyle başlar, 3,5 sn basılı tutunca 2. vitesin gücüne çıkar.
     /// </summary>
@@ -33,6 +33,7 @@ namespace ARaki.Drive
         public const float Brake = 2.5f;    // ters yöne basınca
         public const float ClutchTime = 0.22f, ClutchDip = 0.6f;
         public const float SteerRate = 1.1f, SteerReturn = 1.6f, SteerAccel = 4f;   // en yüksek hız (1/sn), ivme (1/sn²)
+        public const float SteerBite = 0.3f, BiteRate = 4f;   // direksiyonun ilk %30'u ~75 ms'de (kısa basış da döndürür)
         public const float ReverseSecondAfter = 3.5f;
         // Dönüş: kızaklı şasi ancak tekerler arasında büyük fark olunca döner. Hareket halinde dış teker en az
         // bu kadar güçle, iç teker ters yönde dışın çeyreği kadar döner. Geri giderken de aynı (araba gibi).
@@ -63,12 +64,7 @@ namespace ARaki.Drive
         {
             time += dt;
             // yumuşak direksiyon: hedefe yaklaştıkça yavaşlayan hız, o hıza da ivmeyle varılır
-            bool returning = turn == 0 || (Steer != 0f && Mathf.Sign(turn) != Mathf.Sign(Steer));
-            float maxRate = returning ? SteerReturn : SteerRate;
-            float wanted = Mathf.Clamp((turn - Steer) * 3f, -maxRate, maxRate);
-            steerVelocity = Mathf.MoveTowards(steerVelocity, wanted, SteerAccel * dt);
-            Steer = Mathf.Clamp(Steer + steerVelocity * dt, -1f, 1f);
-            if (Mathf.Abs(turn - Steer) < 0.002f && Mathf.Abs(steerVelocity) < 0.05f) { Steer = turn; steerVelocity = 0f; }
+            UpdateSteer(dt, turn);
             float before = Output;
             bool gears = mode != GearMode.Fixed;
             if (!gears)
@@ -123,6 +119,34 @@ namespace ARaki.Drive
             Output = Speed * (gears && time < clutchUntil ? ClutchDip : 1f);
             Acceleration += ((Output - before) / Mathf.Max(dt, 0.004f) - Acceleration) * Mathf.Min(1f, dt * 4f);
             return Mix(Output, Steer);
+        }
+
+        void UpdateSteer(float dt, int turn)
+        {
+            // ilk kısım (SteerBite) hızlı: kısa basışta da araç hemen döner; sonrası yavaş ve kademeli
+            float along = turn != 0 ? turn * Steer : 0f;
+            if (turn != 0 && along >= -0.001f && along < SteerBite)
+            {
+                Steer = Mathf.MoveTowards(Steer, turn * SteerBite, BiteRate * dt);
+                steerVelocity = turn * SteerRate * 0.4f;   // eşikten sonra yavaşa yumuşak geçiş
+                return;
+            }
+            if (turn == 0 && Mathf.Abs(Steer) <= SteerBite + 0.001f)
+            {
+                Steer = Mathf.MoveTowards(Steer, 0f, BiteRate * dt);
+                steerVelocity = 0f;
+                return;
+            }
+            bool returning = turn == 0 || (Steer != 0f && Mathf.Sign(turn) != Mathf.Sign(Steer));
+            float maxRate = returning ? SteerReturn : SteerRate;
+            float target = turn != 0 ? turn : Mathf.Sign(Steer) * SteerBite;   // bırakınca eşiğe kadar yavaş, sonra hızlı
+            float wanted = Mathf.Clamp((target - Steer) * 3f, -maxRate, maxRate);
+            if (turn == 0) wanted = Mathf.Sign(wanted) * Mathf.Max(Mathf.Abs(wanted), 0.6f);
+            steerVelocity = Mathf.MoveTowards(steerVelocity, wanted, SteerAccel * dt);
+            float before = Steer;
+            Steer = Mathf.Clamp(Steer + steerVelocity * dt, -1f, 1f);
+            if (turn == 0 && Mathf.Sign(before) * Steer < SteerBite) Steer = Mathf.Sign(before) * SteerBite;   // eşikte hızlıya devret
+            if (turn != 0 && Mathf.Abs(turn - Steer) < 0.002f && Mathf.Abs(steerVelocity) < 0.05f) { Steer = turn; steerVelocity = 0f; }
         }
 
         /// <summary>Geri viteste o anki güç sınırı: önce 1. vites gücü, uzun basınca 2. vites gücü.</summary>

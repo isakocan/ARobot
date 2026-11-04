@@ -27,7 +27,7 @@ namespace ARaki.Drive
 
         const float H = 720f;
         static readonly Color Text = Hex("#ECEAE6"), Dim = Hex("#8E949B"), Accent = Hex("#F08A45"),
-            Red = Hex("#E5533D"), Green = Hex("#5CC28B"), Amber = Hex("#F2B33D"), Glass = new Color(0.05f, 0.055f, 0.065f, 0.95f);
+            Red = Hex("#E5533D"), Green = Hex("#5CC28B"), Amber = Hex("#F2B33D"), Glass = new Color(0.05f, 0.055f, 0.065f, 1f);
         static readonly Color ButtonOff = new Color(0.03f, 0.035f, 0.04f, 0.72f);
         static readonly Color ButtonOn = new Color(Accent.r * 0.42f, Accent.g * 0.42f, Accent.b * 0.42f, 0.86f);
 
@@ -68,7 +68,7 @@ namespace ARaki.Drive
         string layoutKey = "";
         DPad dpad;
 
-        RectTransform dash, rearRoot, wheelRt, hubRt, tachNeedle, speedNeedle, menuRoot, settingsRoot, musicRoot;
+        RectTransform dash, rearRoot, wheelRt, hubRt, tachNeedle, speedNeedle, menuRoot, settingsRoot, musicRoot, hornRoot;
         VectorShape hubSeam, hubIcon;
         float speedMax;
         bool menuOpen;
@@ -289,9 +289,9 @@ namespace ARaki.Drive
             menuBg.RoundRect(new Rect(0, 0, mw, mh), 16f, new Color(0.03f, 0.035f, 0.04f, 0.82f));
             string[] names = { "MÜZİK", "FOTO", "VİDEO", "DİKİZ", "AYARLAR" };
             string[] icons = { "muzik", "foto", "video", "dikiz", "ayar" };
-            Action[] acts = { () => { drive.MusicMenuOpen = !drive.MusicMenuOpen; drive.SettingsOpen = false; menuOpen = false; },
+            Action[] acts = { () => { drive.MusicMenuOpen = !drive.MusicMenuOpen; drive.SettingsOpen = drive.HornMenuOpen = false; menuOpen = false; },
                               drive.Photo, drive.Video, drive.ToggleRearMirror,
-                              () => { drive.SettingsOpen = !drive.SettingsOpen; drive.MusicMenuOpen = false; menuOpen = false; } };
+                              () => { drive.SettingsOpen = !drive.SettingsOpen; drive.MusicMenuOpen = drive.HornMenuOpen = false; menuOpen = false; } };
             Func<bool>[] lits = { () => drive.MusicMenuOpen, null, () => drive.Recorder.Recording,
                                   () => drive.Settings.RearMirror, () => drive.SettingsOpen };
             for (int i = 0; i < names.Length; i++)
@@ -323,6 +323,7 @@ namespace ARaki.Drive
 
             menuRoot.SetAsLastSibling();   // menü açılınca aynaların ve düğmelerin üstünde kalsın
             BuildMusicMenu();
+            BuildHornMenu();
             BuildSettings();
             layoutKey = Key();
             dirty = false;
@@ -406,14 +407,14 @@ namespace ARaki.Drive
             var top = new List<Vector2>();
             for (float x = x0; x < x1; x += 6f) top.Add(V(x, Top(x)));
             top.Add(V(x1, Top(x1)));
-            b.Band(top, 0f, new Color(0.11f, 0.115f, 0.125f, 0.96f), new Color(0.02f, 0.022f, 0.025f, 0.98f));
+            b.Band(top, 0f, new Color(0.11f, 0.115f, 0.125f, 1f), new Color(0.02f, 0.022f, 0.025f, 1f));
             for (int i = 0; i < top.Count - 1; i++)
                 if (top[i].y > 2f) b.Line(top[i], top[i + 1], 1.6f, new Color(1f, 1f, 1f, 0.15f));
             // saatlerin çukuru ve düğme yuvası
             b.RoundRect(new Rect(cx - 158f, 6f, 316f, 118f), 22f, new Color(0f, 0f, 0f, 0.55f));
-            b.RoundRect(new Rect(cx - 156f, 8f, 312f, 114f), 20f, new Color(0.012f, 0.014f, 0.016f, 0.92f));
+            b.RoundRect(new Rect(cx - 156f, 8f, 312f, 114f), 20f, new Color(0.012f, 0.014f, 0.016f, 1f));
             b.RoundRect(new Rect(swFrom, 10f, swTo - swFrom, 84f), 14f, new Color(0f, 0f, 0f, 0.5f));
-            b.RoundRect(new Rect(swFrom + 2f, 12f, swTo - swFrom - 4f, 80f), 12f, new Color(0.015f, 0.017f, 0.02f, 0.9f));
+            b.RoundRect(new Rect(swFrom + 2f, 12f, swTo - swFrom - 4f, 80f), 12f, new Color(0.015f, 0.017f, 0.02f, 1f));
         }
 
         /// <summary>Spor direksiyon: deri simit (yanlarda dikişli tutamaklar), üç kollu gövde. Göbek ayrı çizilir.</summary>
@@ -601,6 +602,30 @@ namespace ARaki.Drive
             Button("DURDUR", new Rect(pr.xMax - 196f, pr.y + ph - 40f, 92f, 28f), drive.StopMelody, null, null, 14, TextAnchor.MiddleCenter, musicRoot);
         }
 
+        /// <summary>Korna seçimi: müzik paneli gibi liste; seçince bir kez çalar, panel KAPAT'a kadar açık kalır.</summary>
+        void BuildHornMenu()
+        {
+            var names = DriveSettings.HornNames;
+            const float pw = 560f, rowH = 30f;
+            int perColumn = Mathf.CeilToInt(names.Length / 2f);
+            float ph = 96f + perColumn * rowH;
+            var pr = new Rect(W / 2f - pw / 2f, Mathf.Max(12f, H / 2f - ph / 2f + 40f), pw, ph);
+            hornRoot = Panel("Korna", pr);
+            Label(hornRoot, "KORNA SESİ  ·  dene ve seç", font, 16, Text, TextAnchor.MiddleLeft, V(180f, ph - 24f), V(330, 22));
+            for (int i = 0; i < names.Length; i++)
+            {
+                int k = i, col = i / perColumn, row = i % perColumn;
+                string tag = i >= 5 ? "ezgi" : "basılı tut";
+                Button(names[i], new Rect(pr.x + 16f + col * 268f, pr.y + ph - 82f - row * rowH, 258f, rowH - 4f),
+                       () => { drive.Settings.HornStyle = k; drive.ApplySettings(); drive.TestHorn(); }, null,
+                       () => drive.Settings.HornStyle == k, 15, TextAnchor.MiddleLeft, hornRoot);
+                Label(hornRoot, tag, font, 11, Dim, TextAnchor.MiddleRight,
+                      V(16f + col * 268f + 258f - 50f, ph - 82f - row * rowH + (rowH - 4f) / 2f), V(84, 16));
+            }
+            Label(hornRoot, "Düz…Dü-düt: basılı tuttukça öter  ·  ezgiler: basınca bir kez çalar", font, 12, Dim, TextAnchor.MiddleCenter,
+                  V(pw / 2f, 18f), V(pw - 30f, 16));
+        }
+
         void BuildSettings()
         {
             var s = drive.Settings;
@@ -647,7 +672,10 @@ namespace ARaki.Drive
             Choice("Direksiyon", new[] { "Solda", "Ortada", "Sağda" }, () => (int)s.Wheel, v => s.Wheel = (WheelSide)v);
             Choice("Hız birimi", new[] { "km/sa", "m/sn" }, () => (int)s.Unit, v => s.Unit = (SpeedUnit)v);
             Choice("Görüntü", new[] { "Otomatik", "H.264", "JPEG" }, () => s.Video, v => s.Video = v);
-            Choice("Korna sesi", new[] { "Düz", "Kalın", "Tiz", "Titrek", "Dü-düt", "Kukaraça" }, () => s.HornStyle, v => { s.HornStyle = v; drive.ApplySettings(); drive.TestHorn(); });
+            Label(settingsRoot, "Korna sesi", font, 16, Text, TextAnchor.MiddleLeft, V(170f + 20f, y - r.y + 14f), V(340, 22));
+            Button("", new Rect(r.xMax - 236f, y, 216f, 28f), () => { drive.HornMenuOpen = true; drive.SettingsOpen = false; }, null, null, 14,
+                   TextAnchor.MiddleCenter, settingsRoot, () => DriveSettings.HornNames[Mathf.Clamp(s.HornStyle, 0, DriveSettings.HornNames.Length - 1)] + "   ›");
+            y -= 32f;
             Stepper("Tekerlek çapı", () => s.WheelDiameterCm.ToString("0.0").Replace('.', ',') + " cm",
                     () => s.WheelDiameterCm = Mathf.Max(2f, s.WheelDiameterCm - 0.5f), () => s.WheelDiameterCm = Mathf.Min(20f, s.WheelDiameterCm + 0.5f));
             Stepper("En yüksek güç", () => "%" + Mathf.RoundToInt(s.PowerLimit * 100f), () => drive.ChangePower(-0.05f), () => drive.ChangePower(0.05f));
@@ -667,7 +695,7 @@ namespace ARaki.Drive
             var rt = Rt(name, content, r.position, r.size);
             var bg = Shape("Zemin", rt);
             bg.RoundRect(new Rect(0, 0, r.width, r.height), 16f, Glass);
-            Button("KAPAT", new Rect(r.xMax - 96f, r.yMax - 40f, 84f, 28f), () => drive.SettingsOpen = drive.MusicMenuOpen = false,
+            Button("KAPAT", new Rect(r.xMax - 96f, r.yMax - 40f, 84f, 28f), () => drive.SettingsOpen = drive.MusicMenuOpen = drive.HornMenuOpen = false,
                    null, null, 14, TextAnchor.MiddleCenter, rt);
             rt.gameObject.SetActive(false);
             return rt;
@@ -705,7 +733,7 @@ namespace ARaki.Drive
             speedNeedle.localRotation = Quaternion.Euler(0f, 0f, -Angle(shown, speedMax));
             menuRoot.gameObject.SetActive(menuOpen);
             speedText.text = s.FormatSpeed(drive.SpeedMs, out _);
-            powerText.text = "%" + Mathf.RoundToInt(Mathf.Abs(drive.MotorPower) * 100f);
+            powerText.text = "%" + Mathf.RoundToInt(drive.MotorLoad * 100f);
             gearText.text = model.Gear < 0 ? "R" : model.Gear == 0 ? "N" : s.Gearbox == GearMode.Fixed ? "D" : model.Gear.ToString();
             bool hint = s.Gearbox == GearMode.Manual && model.ShiftHint && (int)(Time.unscaledTime / 0.25f) % 2 == 0;
             gearText.color = model.Gear < 0 ? Red : hint ? Accent : Text;
@@ -741,7 +769,7 @@ namespace ARaki.Drive
             }
             // güç: motora o an giden pay (Arduino'nun bildirdiği, rampa dahil); vites atınca artışı görünür
             infoText.text = $"{Mathf.RoundToInt(video.Fps)} fps" + (st != null && st.veri_kbps > 0 ? $"  ·  {st.veri_kbps / 1000f:0.0} Mbit/s" : "") +
-                            $"  ·  güç %{Mathf.RoundToInt(Mathf.Abs(drive.MotorPower) * 100f)}" +
+                            $"  ·  güç %{Mathf.RoundToInt(drive.MotorLoad * 100f)}" +
                             (st != null && st.sicaklik > 0f ? $"  ·  {st.sicaklik:0}°C" : "") + $"  ·  {DateTime.Now:HH:mm}";
             statusText.color = !link.Demo && (link.IsWeak || !link.IsConnected) ? Red : Text;
             infoText.color = st != null && st.sicaklik >= 75f ? Amber : Text;
@@ -758,8 +786,9 @@ namespace ARaki.Drive
                               !link.IsConnected ? (string.IsNullOrEmpty(link.SearchText) ? "Robota bağlanılıyor" : Capital(link.SearchText)) : "Görüntü bekleniyor";
 
             musicRoot.gameObject.SetActive(drive.MusicMenuOpen);
+            hornRoot.gameObject.SetActive(drive.HornMenuOpen);
             settingsRoot.gameObject.SetActive(drive.SettingsOpen);
-            if (rearRoot != null) rearRoot.gameObject.SetActive(!drive.SettingsOpen);
+            if (rearRoot != null) rearRoot.gameObject.SetActive(!drive.SettingsOpen && !drive.HornMenuOpen);
             if (drive.SettingsOpen)
                 settingsInfo.text = link.Demo ? "Robotsuz demo: kayıtlı 360° görüntü, sesler bu cihazdan çalar." :
                     $"adres {link.Host ?? "-"}   gidip gelme {link.RoundTripMs:0} ms   kayıp %{link.Loss * 100f:0}\n" +
@@ -842,7 +871,9 @@ namespace ARaki.Drive
         void UpdateMirrors()
         {
             rearCam.enabled = drive.Settings.Cockpit && drive.Settings.RearMirror;
-            rearCam.transform.localRotation = Quaternion.Euler(3f, drive.Viewer.Yaw + 180f, 0f);
+            // arkaya bakış, bakışın eğimini de izler (öne bakışta hafif aşağı = 3°)
+            float pitch = drive.Viewer.Pitch - drive.Viewer.DefaultPitch + 3f;
+            rearCam.transform.localRotation = Quaternion.Euler(pitch, drive.Viewer.Yaw + 180f, 0f);
         }
 
         // ---------------------------------------------------------------- dokunma / fare
@@ -890,7 +921,7 @@ namespace ARaki.Drive
                 foreach (var b in buttons)
                 {
                     if (!b.Rt.gameObject.activeInHierarchy || !Contains(b.Rt, p)) continue;
-                    bool overlay = b.Rt.IsChildOf(menuRoot) || b.Rt.IsChildOf(settingsRoot) || b.Rt.IsChildOf(musicRoot);
+                    bool overlay = b.Rt.IsChildOf(menuRoot) || b.Rt.IsChildOf(settingsRoot) || b.Rt.IsChildOf(musicRoot) || b.Rt.IsChildOf(hornRoot);
                     if (overlay || !hitOverlay) { hit = b; hitOverlay = overlay; }
                 }
                 bool onPad = dpad != null && (p - dpad.Center).magnitude < dpad.Radius + 12f;
@@ -906,6 +937,7 @@ namespace ARaki.Drive
                     hit.Hold?.Invoke(true);
                 }
                 else if (drive.MusicMenuOpen && Contains(musicRoot, p)) { }   // panelin boş yeri: bir şey yapma
+                else if (drive.HornMenuOpen && Contains(hornRoot, p)) { }
                 else if (drive.SettingsOpen) { if (!Contains(settingsRoot, p)) drive.SettingsOpen = false; }   // dışına dokununca kapan
                 else if (menuOpen && !Contains(menuRoot, p)) menuOpen = false;
                 else if (p.y > 130f) looking[kv.Key] = p;

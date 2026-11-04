@@ -98,7 +98,7 @@ namespace ARaki.Tests
             drive.StopMelody();
             yield return new WaitForSecondsRealtime(0.2f);
             Assert.AreEqual(0, buzzer.Melody);
-            Assert.AreEqual(13, drive.Firmware.Songs.Count);
+            Assert.AreEqual(14, drive.Firmware.Songs.Count);
         }
 
         [UnityTest]
@@ -169,6 +169,11 @@ namespace ARaki.Tests
             drive.MusicMenuOpen = true;
             yield return new WaitForSecondsRealtime(0.3f);
             yield return Shot(Path.Combine(dir, "muzik.png"));
+            drive.MusicMenuOpen = false;
+            drive.HornMenuOpen = true;
+            yield return new WaitForSecondsRealtime(0.3f);
+            yield return Shot(Path.Combine(dir, "korna.png"));
+            drive.HornMenuOpen = false;
         }
 
         static IEnumerator Shot(string path)

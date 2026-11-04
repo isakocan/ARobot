@@ -8,7 +8,8 @@
 //   H <0|1>         dörtlüler: ışık kapatılana kadar yanıp söner (L komutu da kapatır)
 //   R <0|1>         ikinci röle (pin 5, şimdilik boşta)
 //   K <ms> [ses]    korna, ms boyunca; ses: 0 düz (varsayılan), 1 kalın, 2 tiz, 3 titrek iki ton,
-//                   4 dü-düt (kesik iki öttürme), 5 La Cucaracha (basınca bir kez çalar)
+//                   4 dü-düt (kesik iki öttürme); 5 ve üstü ezgili kornalar (basınca bir kez çalar):
+//                   5 La Cucaracha, 6 Dixie, 7 Baba, 8 Nuri Alço, 9 Ta-ta-ra-ta-ta (KORNA_EZGI)
 //   B <hz> <ms>     tek ton bip
 //   C <n>           n. melodiyi çal (1..MELODI_SAYISI), C 0 = sustur
 //   X <n>           kısa ses efekti (EFEKTLER; EF_ sabitleri): vites, foto, kayıt, kapanış...
@@ -141,6 +142,12 @@ const uint16_t M_NOKIA[] PROGMEM = {         // Gran Vals (Tárrega), Nokia zil 
   N_E6, 120, N_D6, 120, N_FS5, 240, N_GS5, 240, N_CS6, 120, N_B5, 120, N_D5, 240, N_E5, 240,
   N_B5, 120, N_A5, 120, N_CS5, 240, N_E5, 240, N_A5, 600, 0, 0 };
 
+const uint16_t M_GOREV[] PROGMEM = {         // Görevimiz Tehlike (Mission: Impossible), 5/4
+  N_G5, 420, 0, 30, N_G5, 420, 0, 30, N_AS5, 300, N_C6, 300, N_G5, 420, 0, 30, N_G5, 420, 0, 30, N_F5, 300, N_FS5, 300,
+  N_G5, 420, 0, 30, N_G5, 420, 0, 30, N_AS5, 300, N_C6, 300, N_G5, 420, 0, 30, N_G5, 420, 0, 30, N_F5, 300, N_FS5, 300,
+  N_AS5, 110, N_G5, 110, N_D5, 1280, N_AS5, 110, N_G5, 110, N_CS5, 1280,
+  N_AS5, 110, N_G5, 110, N_C5, 1280, N_AS4, 150, N_C5, 900, 0, 0 };
+
 const uint16_t M_SIREN[] PROGMEM = {
   650, 300, 950, 300, 650, 300, 950, 300, 650, 300, 950, 300, 650, 300, 950, 300, 0, 0 };
 
@@ -160,6 +167,7 @@ const uint16_t *const MELODILER[] = {
   M_HEDWIG,        // Film / dizi|Hedwig (Harry Potter)
   M_PEMBE_PANTER,  // Film / dizi|Pembe Panter
   M_KORSAN,        // Film / dizi|He's a Pirate (Karayip Korsanları)
+  M_GOREV,         // Film / dizi|Görevimiz Tehlike
   M_TAKEONME,      // Pop|Take On Me
   M_RICK,          // Pop|Never Gonna Give You Up
   M_NOKIA,         // Pop|Nokia
@@ -168,6 +176,8 @@ const uint16_t *const MELODILER[] = {
 const uint8_t MELODI_SAYISI = sizeof(MELODILER) / sizeof(MELODILER[0]);
 
 // Kısa ses efektleri (şarkı listesinde görünmez). Biçim melodilerle aynı: hz, ms çiftleri; hz 0 = sessizlik.
+// Piezo kalın seste cılız, çok kısa seste anlaşılmaz: efektler 500-2200 Hz'te, kayan tonlar 12 ms'lik adımlarla.
+// tools/efekt_tasarim.py ile üretildi.
 // Piezo kalın seste cılız, çok kısa seste anlaşılmaz: efektler 500-2200 Hz'te, kayan tonlar 12 ms'lik adımlarla.
 // tools/efekt_tasarim.py ile üretildi.
 const uint16_t E_ACILIS[] PROGMEM = { 784, 110, 988, 110, 1175, 110, 1175, 12, 1213, 12, 1253, 12, 1294, 12, 1336, 12, 1379, 12, 1424, 12, 1471, 12, 1519, 12, 1568, 12, 1568, 260, 0, 0 };
@@ -180,11 +190,20 @@ const uint16_t E_FOTO[] PROGMEM = { 2200, 18, 0, 45, 1500, 35, 0, 0 };
 const uint16_t E_KAYIT_BASLA[] PROGMEM = { 988, 110, 0, 25, 1480, 170, 0, 0 };
 const uint16_t E_KAYIT_BITTI[] PROGMEM = { 1480, 110, 0, 25, 988, 170, 0, 0 };
 const uint16_t E_CUCARACHA[] PROGMEM = { 784, 120, 0, 25, 784, 120, 0, 25, 784, 120, 0, 25, 1047, 260, 0, 30, 1319, 360, 0, 120, 784, 120, 0, 25, 784, 120, 0, 25, 784, 120, 0, 25, 1047, 260, 0, 30, 1319, 360, 0, 120, 0, 0 };
+const uint16_t E_DIXIE[] PROGMEM = { 784, 160, 659, 80, 523, 280, 0, 20, 523, 130, 0, 15, 523, 80, 587, 80, 659, 80, 698, 80, 784, 260, 0, 20, 784, 260, 0, 20, 784, 160, 659, 420, 0, 0 };
+const uint16_t E_BABA[] PROGMEM = { 784, 180, 1047, 180, 1245, 180, 1175, 180, 1047, 520, 1245, 180, 1047, 180, 1175, 180, 1047, 180, 831, 180, 932, 180, 784, 800, 0, 0 };
+const uint16_t E_NURI[] PROGMEM = { 784, 140, 0, 20, 784, 140, 0, 20, 784, 140, 698, 140, 784, 280, 932, 140, 784, 140, 698, 140, 587, 300, 0, 60, 784, 140, 0, 20, 784, 140, 0, 20, 784, 140, 698, 140, 784, 280, 932, 140, 784, 140, 698, 140, 587, 300, 0, 60, 0, 0 };
+const uint16_t E_TRAS[] PROGMEM = { 1047, 260, 0, 20, 784, 120, 0, 15, 784, 120, 880, 260, 0, 20, 784, 260, 0, 280, 988, 260, 0, 20, 1047, 300, 0, 0 };
 const uint16_t *const EFEKTLER[] = {
   E_ACILIS, E_BAGLANDI, E_KOPTU, E_KAPANIS, E_VITES, E_ALARM, E_FOTO, E_KAYIT_BASLA, E_KAYIT_BITTI, E_CUCARACHA,
+  E_DIXIE, E_BABA, E_NURI, E_TRAS,
 };
 const uint8_t EF_ACILIS = 1, EF_BAGLANDI = 2, EF_KOPTU = 3, EF_KAPANIS = 4, EF_VITES = 5, EF_ALARM = 6,
-              EF_FOTO = 7, EF_KAYIT_BASLA = 8, EF_KAYIT_BITTI = 9, EF_CUCARACHA = 10;
+              EF_FOTO = 7, EF_KAYIT_BASLA = 8, EF_KAYIT_BITTI = 9, EF_CUCARACHA = 10,
+              EF_DIXIE = 11, EF_BABA = 12, EF_NURI = 13, EF_TRAS = 14;
+// ezgili kornalar: korna sesi 5, 6, ... sırasıyla bu efektleri bir kez çalar
+const uint8_t KORNA_EZGI[] = { EF_CUCARACHA, EF_DIXIE, EF_BABA, EF_NURI, EF_TRAS };
+const uint8_t KORNA_SESI_SAYISI = 5 + sizeof(KORNA_EZGI);
 const uint8_t EFEKT_SAYISI = sizeof(EFEKTLER) / sizeof(EFEKTLER[0]);
 
 const uint16_t *efekt = 0;        // çalan efekt, 0 = yok
@@ -263,7 +282,7 @@ void sesGuncelle(unsigned long simdi) {
   uint16_t hz = 0;
   if (bipBitis && (long)(simdi - bipBitis) < 0) {
     hz = bipHz;
-  } else if (kornaBitis && (long)(simdi - kornaBitis) < 0 && kornaSesi != 5) {
+  } else if (kornaBitis && (long)(simdi - kornaBitis) < 0 && kornaSesi < 5) {
     if (kornaSesi == 4) {
       unsigned long t = (simdi - kornaBaslangic) % 520;
       hz = t < 170 || (t >= 230 && t < 400) ? DUDUT_HZ : 0;
@@ -427,10 +446,10 @@ void komutuIsle(char *k) {
       if (n >= 1 && a > 0) {
         bool yeni = !kornaBitis || (long)(simdi - kornaBitis) >= 0;   // basılı tutarken gelen yenileme değil
         kornaBitis = simdi + constrain(a, 1, 2000);
-        kornaSesi = n == 2 ? constrain(b, 0, 5) : 0;
+        kornaSesi = n == 2 ? constrain(b, 0, KORNA_SESI_SAYISI - 1) : 0;
         if (yeni) {
           kornaBaslangic = simdi;
-          if (kornaSesi == 5) efektCal(EF_CUCARACHA);
+          if (kornaSesi >= 5) efektCal(KORNA_EZGI[kornaSesi - 5]);
         }
       }
       break;

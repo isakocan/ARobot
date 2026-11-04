@@ -43,6 +43,19 @@ E = {
     # La Cucaracha kornası (sol sol sol do mi, iki kez)
     "E_CUCARACHA": (nota(784, 120) + sus(25) + nota(784, 120) + sus(25) + nota(784, 120) + sus(25) + nota(1047, 260)
                     + sus(30) + nota(1319, 360) + sus(120)) * 2,
+    # Dixie (General Lee kornası): sol mi do do do re mi fa sol sol sol mi
+    "E_DIXIE": nota(784, 160) + nota(659, 80) + nota(523, 280) + sus(20) + nota(523, 130) + sus(15) + nota(523, 80)
+               + nota(587, 80) + nota(659, 80) + nota(698, 80) + nota(784, 260) + sus(20) + nota(784, 260) + sus(20)
+               + nota(784, 160) + nota(659, 420),
+    # Baba (The Godfather aşk teması): sol do mib re do mib do re do lab sib sol
+    "E_BABA": nota(784, 180) + nota(1047, 180) + nota(1245, 180) + nota(1175, 180) + nota(1047, 520) + nota(1245, 180)
+              + nota(1047, 180) + nota(1175, 180) + nota(1047, 180) + nota(831, 180) + nota(932, 180) + nota(784, 800),
+    # Nuri Alço kornası (John Carpenter, "The End" / Assault on Precinct 13 riffi; kulaktan yaklaşık)
+    "E_NURI": (nota(784, 140) + sus(20) + nota(784, 140) + sus(20) + nota(784, 140) + nota(698, 140) + nota(784, 280)
+               + nota(932, 140) + nota(784, 140) + nota(698, 140) + nota(587, 300) + sus(60)) * 2,
+    # Ta-ta-ra-ta-ta ... ta-ta (shave and a haircut)
+    "E_TRAS": nota(1047, 260) + sus(20) + nota(784, 120) + sus(15) + nota(784, 120) + nota(880, 260) + sus(20)
+              + nota(784, 260) + sus(280) + nota(988, 260) + sus(20) + nota(1047, 300),
 }
 
 s = open(ino, encoding="utf-8").read()
