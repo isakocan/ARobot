@@ -435,30 +435,31 @@ Projenin yapılabilirliği yazılım, donanım ve zaman açısından değerlendi
 
 \subsubsection{Yazılım Fizibilitesi / Software Feasibility}
 \label{subsubsec:yazilim_fizibilitesi}
-Kullanılan yazılım araçları Tablo~\ref{tab:yazilim_araclari}'te verilmiştir. Hepsi ücretsizdir ve çoğu açık kaynaklıdır.
+Kullanılan yazılımlar Tablo~\ref{tab:yazilim_araclari}'te verilmiştir. Hepsi ücretsizdir ve çoğu açık kaynaklıdır.
 
 \begin{table}[H]
 \centering
-\caption{Projede kullanılan yazılım araçları}
+\caption{Projede kullanılan yazılımlar}
 \label{tab:yazilim_araclari}
 \small
-\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{4.2cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{2.6cm}}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.9cm} >{\raggedright\arraybackslash}p{5cm} >{\raggedright\arraybackslash}X}
 \toprule
-\textbf{Araç} & \textbf{Kullanım amacı} & \textbf{Lisans} \\
+\textbf{Amaç} & \textbf{Araç} & \textbf{Gerekçe} \\
 \midrule
-Unity 6.3 LTS, AR Foundation / ARKit & Oyun uygulaması, oda taraması ve AR & Ücretsiz \\
-OpenH264, GStreamer, JetPack 4.6, Python 3, Arduino IDE & Robot bilgisayarı ve mikrodenetleyici yazılımı, 360° görüntünün sıkıştırılması ve çözülmesi & Açık kaynak \\
-PyTorch, PICCOLO / CPO kodları & Konum belirleme yöntemlerinin denenmesi & Açık kaynak \\
-Xcode & iOS derlemesi (yalnızca macOS) & Ücretsiz \\
+Oyun ve AR & Unity 6.3 LTS, AR Foundation & Tek kod tabanından Android ve iOS derlemesi, robotlu AR uygulamalarında yaygın kullanım \cite{coronado2023integrating} \\
+Oda taraması & ARKit \cite{apple2026arkit}, çift kamera derinliği \cite{zhang2020dunet} & LiDAR'lı ve LiDAR'sız cihazlarda tarama \\
+Konum belirleme & PICCOLO, CPO \cite{kim2021piccolo,kim2022cpo}, PyTorch & Panorama görüntüsünden konum bulan, grafik işlemcide çalışan açık kaynaklı kodlar \\
+Zemin ve nesne algılama & Depth Anything \cite{yang2024depthanything}, Segment Anything \cite{kirillov2023sam} & Tek kameradan derinlik tahmini ve bölütleme, en küçük sürüm yaklaşık 24,8 milyon parametreli \\
+Robot ve derleme & JetPack 4.6, GStreamer, Python 3, Arduino IDE, Xcode & Görüntü aktarımı, robot denetimi ve iOS derlemesi \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-Oyun uygulaması için Unity seçildi, çünkü ayrı yerel uygulamalar iki kod tabanı gerektirirken Unity tek kod tabanından hem Android hem iOS için derlenebilir ve robotlu AR uygulamalarında da yaygın kullanılır \cite{coronado2023integrating}. Oda taraması LiDAR'lı cihazda ARKit verisiyle \cite{apple2026arkit}, LiDAR'sız cihazda çift kamera tabanlı derinlikle \cite{zhang2020dunet} yapılacak, robotun 360° kamerası ek veri kaynağı olacaktır. Konum belirleme için grafik işlemcide çalışan açık kaynaklı PICCOLO ve CPO kodları \cite{kim2021piccolo,kim2022cpo} denenecektir. Görüntü işlemenin muhtemelen robot bilgisayarında, AR çiziminin ise telefonda yapılması planlanmıştır, bu ayrım ilk denemelerle ölçülecektir ve projenin en yüksek teknik riskidir. Sanal nesnelerin zemine ve eşyalara oturması için tek kameradan derinlik tahmini yapan Depth Anything \cite{yang2024depthanything} ve Segment Anything bölütleme modeli \cite{kirillov2023sam} değerlendirilecektir. Depth Anything'in en küçük sürümü yaklaşık 24,8 milyon parametreli olduğundan \cite{yang2024depthanything} ağırlıkları yaklaşık 100~MB yer kaplar ve robot bilgisayarının 4~GB belleğine rahatlıkla sığar, işlem hızı ise ilk denemelerle ölçülecektir. Sürüş, görüntü aktarımı ve oyun prototipi çalıştığı için projeyi yazılım açısından yapılabilir buluyoruz.
+Görüntü işlemenin muhtemelen robot bilgisayarında, AR çiziminin ise telefonda yapılması planlanmıştır. Bu ayrım ilk denemelerle ölçülecektir ve projenin en yüksek teknik riskidir. Depth Anything'in en küçük sürümünün ağırlıkları yaklaşık 100~MB yer kapladığından robot bilgisayarının 4~GB belleğine rahatlıkla sığar, işlem hızı ise ilk denemelerle ölçülecektir. Sürüş, görüntü aktarımı ve oyun prototipi çalıştığı için projeyi yazılım açısından yapılabilir buluyoruz.
 
 \subsubsection{Donanım Fizibilitesi / Hardware Feasibility}
 \label{subsubsec:donanim_fizibilitesi}
-Robotun tüm parçaları danışmanımız Dr. Öğr. Üyesi Furkan Çakmak tarafından temin edilmiş ve montajı onun bilgi ve tecrübesi doğrultusunda gerçekleştirilmiştir. Kendisine bir kez daha çok teşekkür ederiz. Parçalar ve tahmini fiyatları Tablo~\ref{tab:donanim_maliyet}'te verilmiştir.
+Robotun parçaları ve tahmini fiyatları Tablo~\ref{tab:donanim_maliyet}'te verilmiştir.
 
 \begin{table}[H]
 \centering
@@ -484,7 +485,7 @@ Apple iPhone 14 Pro, oda taraması ve oyun & 1 & 999 \\
 {\footnotesize Fiyatlar ABD doları (United States dollar, USD) cinsinden yaklaşık değerlerdir.}
 \end{table}
 
-Motorlar, motor sürücüsü, mikrodenetleyici, robot bilgisayarı, 360° kamera, LED ve buzzer arasındaki bağlantılar kurulmuş, sürüş, ışık, ses ve görüntü aktarımı çalışır durumda test edilmiştir. Görüntü aktarımının kararlılığı kablosuz bağlantı kalitesine bağlıdır ve anten yerleşimi ile 2,4~GHz bandı denenerek iyileştirilecektir. Bu nedenle projeyi donanım açısından da yapılabilir buluyoruz.
+Motorlar, motor sürücüsü, mikrodenetleyici, robot bilgisayarı, 360° kamera, LED ve buzzer arasındaki bağlantılar kurulmuş, sürüş, ışık, ses ve görüntü aktarımı çalışır durumda test edilmiştir. Bu nedenle projeyi donanım açısından da yapılabilir buluyoruz.
 
 \subsubsection{Zaman Fizibilitesi (Gantt) / Time Feasibility (Gantt)}
 \label{subsubsec:zaman_fizibilitesi}
@@ -510,7 +511,6 @@ Proje 28 Eylül 2026 ile 28 Aralık 2026 arasında yaklaşık 13 haftalık bir d
 Planlama, tasarım ve literatür taraması & \ganttG & \ganttG & \ganttG & \ganttG & \ganttG & \ganttG & \ganttP & \ganttP &  &  &  &  &  \\
 Oyun prototipi (simülasyon) &  & \ganttG & \ganttG & \ganttG & \ganttG &  &  &  &  &  &  &  &  \\
 Robot donanımı, sürüş ve görüntü aktarımı &  &  &  & \ganttG & \ganttG & \ganttG & \ganttP &  &  &  &  &  &  \\
-Birinci ara rapor &  &  &  &  &  & \ganttG &  &  &  &  &  &  &  \\
 Oda taraması ve konum belirleme &  &  &  &  &  &  & \ganttP & \ganttP & \ganttP & \ganttP & \ganttP &  &  \\
 Oyun bölümleri ve AR öğeleri &  &  &  &  &  &  &  &  & \ganttP & \ganttP & \ganttP & \ganttP &  \\
 Testler ve ölçümler &  &  &  &  &  &  &  &  &  & \ganttP & \ganttP & \ganttP &  \\
