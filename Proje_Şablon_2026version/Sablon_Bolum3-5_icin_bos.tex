@@ -1,0 +1,369 @@
+\documentclass[11pt,a4paper]{article}
+
+% =====================================================================
+%   PAKETLER (Önce paketler yüklenmelidir)
+% =====================================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,left=2.7cm,right=2.7cm,top=2.8cm,bottom=2.8cm,headsep=12pt,headheight=14pt]{geometry}
+\IfFileExists{lmodern.sty}{\usepackage{lmodern}}{}
+\IfFileExists{lmodern.sty}{\usepackage{microtype}}{\usepackage[expansion=false]{microtype}}
+
+\usepackage{etoolbox}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{titling}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{amsmath,amssymb}
+\usepackage{listings}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage[hidelinks]{hyperref}
+\usepackage[capitalise]{cleveref}
+\usepackage{csquotes}
+\usepackage{setspace}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage[numbers,sort&compress]{natbib}
+
+\usepackage[turkish,english]{babel}
+
+% =====================================================================
+%   KONTROL BAYRAĞI / CONTROL FLAG
+% =====================================================================
+%   DİL VE DERS BAYRAĞI:
+%     1 = Türkçe kapak / üst bilgi / başlıklar ve BLM3010 -- Bilgisayar Projesi
+%     0 = İngilizce kapak / üst bilgi / başlıklar ve BLM9000 -- Bitirme Çalışması
+%    Aşağıdaki DILBAYRAGI{1} kısmını dersinize göre 0 ya da 1 olarak derse göre seçiniz
+% -------------------------------------------------------------
+\def\DILBAYRAGI{1}
+
+\newtoggle{TURKCE}
+\newtoggle{BLMUC}
+
+\ifnum\DILBAYRAGI=1
+  \toggletrue{TURKCE}
+  \toggletrue{BLMUC}
+  \selectlanguage{turkish}
+\else
+  \togglefalse{TURKCE}
+  \togglefalse{BLMUC}
+  \selectlanguage{english}
+\fi
+
+% --- Dil bayrağına göre İçindekiler / Şekil / Tablo başlıkları ---
+\iftoggle{TURKCE}{
+  \renewcommand{\contentsname}{İçindekiler}
+  \renewcommand{\listfigurename}{Şekiller}
+  \renewcommand{\listtablename}{Tablolar}
+  \renewcommand{\figurename}{Şekil}
+  \renewcommand{\tablename}{Tablo}
+}{
+  \renewcommand{\contentsname}{Contents}
+  \renewcommand{\listfigurename}{List of Figures}
+  \renewcommand{\listtablename}{List of Tables}
+  \renewcommand{\figurename}{Figure}
+  \renewcommand{\tablename}{Table}
+}
+
+% =====================================================================
+%   RENK PALETİ
+% =====================================================================
+\definecolor{anacolor}{RGB}{0,0,0}
+\definecolor{vurgucolor}{RGB}{0,0,0}
+\definecolor{acikgri}{RGB}{245,245,245}
+\definecolor{kodgri}{RGB}{250,250,250}
+\definecolor{cizgi}{RGB}{0,0,0}
+
+% =====================================================================
+%   BAŞLIK BİÇİMLERİ
+% =====================================================================
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{anacolor}}
+  {\thesection}{0.6em}{}
+  [\vspace{-2pt}{\color{cizgi}\titlerule[1.1pt]}]
+
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{anacolor!85!black}}
+  {\thesubsection}{0.6em}{}
+
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries\color{vurgucolor}}
+  {\thesubsubsection}{0.6em}{}
+
+\titlespacing*{\section}{0pt}{22pt}{12pt}
+\titlespacing*{\subsection}{0pt}{14pt}{8pt}
+\titlespacing*{\subsubsection}{0pt}{10pt}{6pt}
+
+% =====================================================================
+%   ÜST / ALT BİLGİ (HEADER / FOOTER)
+% =====================================================================
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.6pt}
+\renewcommand{\footrulewidth}{0.3pt}
+\fancyhead[L]{\small\color{gray}\projebasligikisa}
+\fancyhead[R]{\small\color{gray}\nouppercase{\leftmark}}
+\fancyfoot[C]{\small\color{gray}\thepage}
+
+\fancypagestyle{ilksayfa}{
+  \fancyhf{}
+  \fancyfoot[C]{\small\color{gray}\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+  \renewcommand{\footrulewidth}{0.3pt}
+}
+
+% =====================================================================
+%   KOD BLOKLARI (listings)
+% =====================================================================
+\lstdefinestyle{kodstil}{
+  backgroundcolor=\color{kodgri},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{anacolor}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{vurgucolor},
+  numberstyle=\tiny\color{gray},
+  numbers=left,
+  numbersep=8pt,
+  frame=single,
+  rulecolor=\color{cizgi},
+  framesep=6pt,
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=2,
+  captionpos=b
+}
+\lstset{style=kodstil}
+
+% =====================================================================
+%   BİLGİ KUTUSU
+% =====================================================================
+\newtcolorbox{bilgikutu}[1][]{
+  colback=acikgri, colframe=anacolor,
+  boxrule=0.6pt, arc=2pt, left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\color{white}, colbacktitle=anacolor,
+  #1
+}
+
+% =====================================================================
+%   KAPAK SAYFASI METİNLERİ / COVER PAGE TEXT
+% =====================================================================
+\newcommand{\txtUniversite}{\iftoggle{TURKCE}{YILDIZ TEKNİK ÜNİVERSİTESİ}{YILDIZ TECHNICAL UNIVERSITY}}
+\newcommand{\txtFakulte}{\iftoggle{TURKCE}{ELEKTRİK-ELEKTRONİK FAKÜLTESİ}{Faculty of Electrical and Electronics}}
+\newcommand{\txtBolum}{\iftoggle{TURKCE}{Bilgisayar Mühendisliği Bölümü}{Department of Computer Engineering}}
+
+\newcommand{\txtRaporTuru}{%
+  \iftoggle{BLMUC}{%
+    \iftoggle{TURKCE}{BLM3010 -- Bilgisayar Projesi}{BLM3010 -- Computer Project}%
+  }{%
+    \iftoggle{TURKCE}{BLM9000 -- Bitirme Çalışması}{BLM9000 -- Graduation Thesis}%
+  }%
+}
+
+\newcommand{\txtOgrenciNo}{\iftoggle{TURKCE}{Öğrenci No}{Student ID}}
+\newcommand{\txtDanismanEt}{\iftoggle{TURKCE}{Danışman}{Advisor}}
+\newcommand{\txtAyYil}{\iftoggle{TURKCE}{Aralık 2026}{December 2026}}
+
+% =====================================================================
+%   BAŞLIK / YAZAR BİLGİLERİ
+% =====================================================================
+\newcommand{\projebasligikisa}{\txtRaporTuru}
+
+\title{\vspace{-1.2cm}
+  {\color{anacolor}\rule{\linewidth}{1.3pt}}\\[10pt]
+  {\Huge\bfseries\color{anacolor} PROJE BAŞLIĞINI BURAYA YAZINIZ}\\[6pt]
+  {\large\color{vurgucolor} Alt Başlık / İngilizce Başlık (isteğe bağlı)}\\[10pt]
+  {\color{anacolor}\rule{\linewidth}{1.3pt}}\\[4pt]
+  {\normalsize \txtBolum\ -- \txtRaporTuru}
+}
+
+\author{
+  \large \textbf{Ali Berkay GÜVEN} \\[2pt]
+  \small \txtOgrenciNo: 000000000\\[10pt]
+  \large \textbf{\txtDanismanEt:} Dr. Ahmet ELBİR \\[14pt]
+  \normalsize \txtUniversite \\
+  \normalsize \txtFakulte\ -- \txtBolum
+}
+
+\date{\normalsize \txtAyYil}
+
+% =====================================================================
+%   BELGE BAŞLANGICI
+% =====================================================================
+\begin{document}
+
+\pagenumbering{gobble}
+
+\begin{titlepage}
+\thispagestyle{empty}
+\begin{center}
+\vspace*{0.5cm}
+
+\resizebox{5cm}{!}{\includegraphics{assets/logo.png}}\\[1cm]
+
+{\large \txtUniversite}\\[2pt]
+{\large \txtFakulte}\\[2pt]
+{\large \txtBolum}\\[2.2cm]
+
+{\color{anacolor}\rule{0.85\linewidth}{1.4pt}}\\[14pt]
+{\Huge\bfseries\color{anacolor} PROJE BAŞLIĞINI\\[4pt] BURAYA YAZINIZ}\\[14pt]
+{\color{anacolor}\rule{0.85\linewidth}{1.4pt}}\\[1.6cm]
+
+{\Large \txtRaporTuru}\\[2.2cm]
+
+\begin{tabular}{c}
+\large \textbf{Ali Berkay GÜVEN} \\
+\small \txtOgrenciNo: 000000000
+\end{tabular}\\[1.4cm]
+
+\begin{tabular}{c}
+\large \textbf{\txtDanismanEt} \\
+Dr. Ahmet ELBİR
+\end{tabular}
+
+\vfill
+
+{\normalsize \txtAyYil}\\[0.6cm]
+
+\end{center}
+\end{titlepage}
+
+\pagenumbering{roman}
+\setcounter{page}{2}
+
+% ---------------- ÖZET VE ABSTRACT ----------------
+\section*{Özet}
+\addcontentsline{toc}{section}{Özet}
+Bu bölüme projenin amacını, kullanılan yöntemi ve elde edilen temel sonuçları özetleyen 150--250 kelimelik Türkçe metni yazınız. Yapılan çalışmanın katkısı somut veriler ve mümkünse sayısal başarım ölçütleri ile ifade edilmelidir. Bu bölüm final veya bütünleme öncesi yazılmalıdır, ara raporlarda yazılmayacaktır. 
+
+\vspace{6pt}
+\noindent\textbf{Anahtar Kelimeler:} Anahtar kelime 1, Anahtar kelime 2, Anahtar kelime 3
+
+\vspace{1cm}
+
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+In this section, write a 150–250-word text in Turkish summarizing the project’s objective, the method used, and the key findings. The contribution of the study should be expressed using concrete data and, if possible, quantitative performance metrics. This section must be written before the final or make-up exam; it should not be included in interim reports.
+
+\vspace{6pt}
+\noindent\textbf{Keywords:} Keyword 1, Keyword 2, Keyword 3
+
+\newpage
+% ---------------- İÇİNDEKİLER ----------------
+\selectlanguage{turkish}
+\tableofcontents
+\newpage
+\listoffigures
+\listoftables
+\newpage
+
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+% =====================================================================
+%   BÖLÜM-1: GİRİŞ
+% =====================================================================
+\section{Giriş / Introduction}
+\label{sec:giris}
+
+\subsection{Amaç ve Kapsam / Aim and Scope}
+\label{subsec:amac_kapsam}
+Projenin amacını, hedeflerini ve kapsamını burada açıklayınız.
+
+\subsection{Literatür Analizi / Literature Review}
+\label{subsec:literatur}
+Bu alt bölümde, projenizle ilgili yapılmış önceki çalışmalar incelenir ve projenizin bu çalışmalar arasındaki konumu belirtilir \cite{ornek2023}.
+
+% =====================================================================
+%   BÖLÜM-2: SİSTEM ANALİZİ VE FİZİBİLİTE
+% =====================================================================
+\newpage
+\section{Sistem Analizi ve Fizibilite / System Analysis and Feasibility}
+\label{sec:analiz_fizibilite}
+
+\subsection{Sistem Analizi / System Analysis}
+\label{subsec:sistem_analizi}
+Bu bölümde geliştirilecek sistemin gereksinimleri, kısıtları ve girdi/çıktı tanımları yer alır.
+
+\subsection{Fizibilite / Feasibility}
+\label{subsec:fizibilite}
+Projenin gerçekleştirilebilirliğine yönelik fizibilite değerlendirmeleri alt başlıklar halinde aşağıda sunulmuştur.
+
+\subsubsection{Yazılım Fizibilitesi / Software Feasibility}
+\label{subsubsec:yazilim_fizibilitesi}
+Projede kullanılacak yazılım dilleri, kütüphaneler, çerçeveler ve araçların yeterliliği burada incelenir.
+
+\subsubsection{Donanım Fizibilitesi / Hardware Feasibility}
+\label{subsubsec:donanim_fizibilitesi}
+Projenin geliştirilmesi ve çalıştırılması için gereken donanım ve bulut kaynaklarının mevcudiyeti açıklanır.
+
+\subsubsection{Zaman Fizibilitesi (Gantt) / Time Feasibility (Gantt)}
+\label{subsubsec:zaman_fizibilitesi}
+Proje adımlarının zaman planı ve Gantt diyagramı bu bölümde yer alır.
+
+% =====================================================================
+%   BÖLÜM-3: SİSTEM TASARIMI
+% =====================================================================
+\newpage
+\section{Sistem Tasarımı / System Design}
+\label{sec:tasarim}
+
+\subsection{Sistemin Genel Görünümü ve Önerilen Metot / Overview of the System and Proposed Method}
+\label{subsec:onerilen_metot}
+Sistemin önerilen metodolojisi ve verinin sistem içindeki akışını gösteren blok diyagramlar bu bölümde açıklanır.
+
+\subsection{Materyal ve Veri Kümesi / Material and Dataset}
+\label{subsec:materyal_veri}
+Kullanılan veri kümesinin kaynağı, boyutu, öznitelikleri ve ön işleme adımları burada açıklanır.
+
+\subsection{Kullanılan Yöntemler / Methods Used}
+\label{subsec:kullanilan_yontemler}
+Projede kullanılan yapay zekâ modelleri, algoritmalar ve matematiksel modeller detaylı olarak anlatılır.
+
+% =====================================================================
+%   BÖLÜM-4: DENEYSEL SONUÇLAR
+% =====================================================================
+\newpage
+\section{Deneysel Sonuçlar / Experimental Results}
+\label{sec:sonuclar}
+
+\subsection{Performans Analizi / Performance Analysis}
+\label{subsec:performans_analizi}
+Gerçekleştirilen deneyler, kullanılan değerlendirme ölçütleri (doğruluk, F1 skoru vb.) ve elde edilen sonuçlar yorumlanır.
+
+\subsection{Karşılaştırmalı Analiz / Comparative Analysis}
+\label{subsec:karsilastirmali_analiz}
+Elde edilen sonuçlar literatürdeki diğer çalışmalar veya temel (baseline) modeller ile karşılaştırılır.
+
+% =====================================================================
+%   BÖLÜM-5: SONUÇ VE TARTIŞMA
+% =====================================================================
+\newpage
+\section{Sonuç ve Tartışma / Conclusion and Discussion}
+\label{sec:sonuc_tartisma}
+Bu bölümde projenin genel bir değerlendirmesi yapılır, sağlanan katkılar, karşılaşılan kısıtlar ve gelecekte yapılabilecek çalışmalar özetlenir.
+
+% =====================================================================
+%   KAYNAKÇA
+% =====================================================================
+\newpage
+\renewcommand{\bibname}{References / Kaynakça}
+\bibliographystyle{unsrtnat}
+\bibliography{kaynaklar}
+
+% =====================================================================
+%   EKLER (İsteğe bağlı)
+% =====================================================================
+\newpage
+\appendix
+\section{Ekler/ Appendices}
+Çalışmanın GitHub Reposu, Video Linki/QR Kodu : GitHub Repository, Video Link/QR Code
+
+\end{document}
