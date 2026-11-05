@@ -459,30 +459,27 @@ Görüntü işlemenin muhtemelen robot bilgisayarında, AR çiziminin ise telefo
 
 \subsubsection{Donanım Fizibilitesi / Hardware Feasibility}
 \label{subsubsec:donanim_fizibilitesi}
-Robotun parçaları ve tahmini fiyatları Tablo~\ref{tab:donanim_maliyet}'te verilmiştir.
+Robotun parçaları Tablo~\ref{tab:donanim_maliyet}'te verilmiştir.
 
 \begin{table}[H]
 \centering
-\caption{Robot ve tarama donanımı ile tahmini maliyetleri}
+\caption{Robot ve tarama donanımı}
 \label{tab:donanim_maliyet}
 \small
-\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.6cm} >{\raggedright\arraybackslash}p{4.3cm} >{\raggedright\arraybackslash}X >{\raggedleft\arraybackslash}p{1.9cm}}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.6cm} >{\raggedright\arraybackslash}p{4.3cm} >{\raggedright\arraybackslash}X}
 \toprule
-\textbf{Amaç} & \textbf{Bileşen} & \textbf{Gerekçe} & \textbf{Tahmini fiyat (USD)} \\
+\textbf{Amaç} & \textbf{Bileşen} & \textbf{Gerekçe} \\
 \midrule
-Robot bilgisayarı & NVIDIA Jetson Nano (4~GB) & Görüntü aktarımı ve işlenmesi için robot üzerinde çalışan küçük bilgisayar & 99 \\
-Motor, ışık ve ses denetimi & Arduino Uno Rev3 & Motor sürücüyü, LED'i ve buzzer'ı robot bilgisayarından gelen komutlarla denetler & 25--30 \\
-Motor sürüşü & Pololu Dual VNH5019 & Doğru akım motorlarının yönünü ve hızını ayarlar & 70 \\
-360° görüntü & Ricoh Theta S & Tek kamerayla robotun çevresinin tamamını görüntüler & 349 \\
-Tahrik & Hsiang Neng HN-GH12-2217Y motor (12~V, 50:1), 4 adet & Dört tekerlekli kızaklı sürüş sağlar, robot olduğu yerde dönebilir & 23 (adet başı) \\
-Enerji & 4S lityum polimer (lithium polymer, LiPo) batarya (14,8~V, 5200~mAh) & Robotun enerji kaynağıdır & 56--68 \\
-Gövde ve çıkışlar & Şasi, tekerlekler, röle, buzzer, LED, kablolama & Mekanik yapıyı ve ışık-ses çıkışlarını oluşturur & 120--170 \\
-Tarama ve oyun & Apple iPhone 14 Pro & LiDAR ile odayı tarar ve oyun uygulamasını çalıştırır & 999 \\
+Robot bilgisayarı & NVIDIA Jetson Nano (4~GB) & Görüntü aktarımı ve işlenmesi için robot üzerinde çalışan küçük bilgisayar \\
+Motor, ışık ve ses denetimi & Arduino Uno Rev3 & Motor sürücüyü, LED'i ve buzzer'ı robot bilgisayarından gelen komutlarla denetler \\
+Motor sürüşü & Pololu Dual VNH5019 & Doğru akım motorlarının yönünü ve hızını ayarlar \\
+360° görüntü & Ricoh Theta S & Tek kamerayla robotun çevresinin tamamını görüntüler \\
+Tahrik & Hsiang Neng HN-GH12-2217Y motor (12~V, 50:1), 4 adet & Dört tekerlekli kızaklı sürüş sağlar, robot olduğu yerde dönebilir \\
+Enerji & 4S lityum polimer (lithium polymer, LiPo) batarya (14,8~V, 5200~mAh) & Robotun enerji kaynağıdır \\
+Gövde ve çıkışlar & Şasi, tekerlekler, röle, buzzer, LED, kablolama & Mekanik yapıyı ve ışık-ses çıkışlarını oluşturur \\
+Tarama ve oyun & Apple iPhone 14 Pro & LiDAR ile odayı tarar ve oyun uygulamasını çalıştırır \\
 \bottomrule
 \end{tabularx}
-
-\vspace{2pt}
-{\footnotesize Fiyatlar ABD doları (United States dollar, USD) cinsinden yaklaşık değerlerdir.}
 \end{table}
 
 Motorlar, motor sürücüsü, mikrodenetleyici, robot bilgisayarı, 360° kamera, LED ve buzzer arasındaki bağlantılar kurulmuş, sürüş, ışık, ses ve görüntü aktarımı çalışır durumda test edilmiştir. Bu nedenle projeyi donanım açısından da yapılabilir buluyoruz.

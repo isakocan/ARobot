@@ -459,30 +459,27 @@ Image processing is likely to run on the robot computer and AR drawing on the ph
 
 \subsubsection{Hardware Feasibility}
 \label{subsubsec:donanim_fizibilitesi}
-The parts of the robot and their estimated prices are in Table~\ref{tab:donanim_maliyet}.
+The parts of the robot are given in Table~\ref{tab:donanim_maliyet}.
 
 \begin{table}[H]
 \centering
-\caption{Robot and scanning hardware with estimated costs}
+\caption{Robot and scanning hardware}
 \label{tab:donanim_maliyet}
 \small
-\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.6cm} >{\raggedright\arraybackslash}p{4.3cm} >{\raggedright\arraybackslash}X >{\raggedleft\arraybackslash}p{1.9cm}}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.6cm} >{\raggedright\arraybackslash}p{4.3cm} >{\raggedright\arraybackslash}X}
 \toprule
-\textbf{Purpose} & \textbf{Component} & \textbf{Rationale} & \textbf{Estimated price (USD)} \\
+\textbf{Purpose} & \textbf{Component} & \textbf{Rationale} \\
 \midrule
-Robot computer & NVIDIA Jetson Nano (4~GB) & Small computer on the robot for forwarding and processing the video & 99 \\
-Motor, light and sound control & Arduino Uno Rev3 & Controls the motor driver, the LED and the buzzer with commands from the robot computer & 25--30 \\
-Motor driving & Pololu Dual VNH5019 & Sets the direction and speed of the direct current motors & 70 \\
-360° video & Ricoh Theta S & Captures the entire surroundings of the robot with a single camera & 349 \\
-Drive & Hsiang Neng HN-GH12-2217Y motor (12~V, 50:1), 4 units & Provides four-wheel skid-steer driving, and the robot can turn on the spot & 23 (each) \\
-Energy & 4S lithium polymer (LiPo) battery (14.8~V, 5200~mAh) & Is the energy source of the robot & 56--68 \\
-Body and outputs & Chassis, wheels, relay, buzzer, LED, wiring & Forms the mechanical structure and the light and sound outputs & 120--170 \\
-Scanning and game & Apple iPhone 14 Pro & Scans the room with LiDAR and runs the game application & 999 \\
+Robot computer & NVIDIA Jetson Nano (4~GB) & Small computer on the robot for forwarding and processing the video \\
+Motor, light and sound control & Arduino Uno Rev3 & Controls the motor driver, the LED and the buzzer with commands from the robot computer \\
+Motor driving & Pololu Dual VNH5019 & Sets the direction and speed of the direct current motors \\
+360° video & Ricoh Theta S & Captures the entire surroundings of the robot with a single camera \\
+Drive & Hsiang Neng HN-GH12-2217Y motor (12~V, 50:1), 4 units & Provides four-wheel skid-steer driving, and the robot can turn on the spot \\
+Energy & 4S lithium polymer (LiPo) battery (14.8~V, 5200~mAh) & Is the energy source of the robot \\
+Body and outputs & Chassis, wheels, relay, buzzer, LED, wiring & Forms the mechanical structure and the light and sound outputs \\
+Scanning and game & Apple iPhone 14 Pro & Scans the room with LiDAR and runs the game application \\
 \bottomrule
 \end{tabularx}
-
-\vspace{2pt}
-{\footnotesize Prices are approximate values in United States dollars (USD).}
 \end{table}
 
 The connections between the motors, the motor driver, the microcontroller, the robot computer, the 360° camera, the LED and the buzzer have been made, and driving, light, sound and video streaming have been tested and work. We therefore find the project feasible in terms of hardware as well.
