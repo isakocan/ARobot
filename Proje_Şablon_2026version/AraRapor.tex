@@ -248,7 +248,7 @@ Dr. Öğr. Üyesi Furkan Çakmak
 % ---------------- ÖNSÖZ ----------------
 \section*{Önsöz}
 \addcontentsline{toc}{section}{Önsöz}
-Yapay zekâ, görüntü işleme ve artırılmış gerçeklik gibi alanlar günlük hayatımıza hızla girerken, gerçek dünya ile dijital dünyayı birleştiren sistemler hem bilimsel hem de eğlence açısından büyük ilgi görmektedir. Bu çalışma, fiziksel bir robotu telefondan sürerken robotun gördüğü ortamı sanal nesnelerle zenginleştiren bir oyun fikrinden doğmuştur. Amacımız, bir sistemi donanımdan yazılıma, görüntü aktarımından robotun konumunu bulmaya kadar baştan sona kurmak ve bunu herkesin kolayca oynayabileceği bir deneyime dönüştürmekti. Çalışma; yapay zekâ ve görüntü işleme, gömülü sistemler, haberleşme ve oyun geliştirme gibi birbirinden farklı alanları tek bir sistemde bir araya getirmektedir.
+Yapay zekâ, görüntü işleme ve artırılmış gerçeklik gibi alanlar günlük hayatımıza hızla girerken, gerçek dünya ile dijital dünyayı birleştiren sistemler hem bilimsel hem de eğlence açısından büyük ilgi görmektedir. Bu çalışma, fiziksel bir robotu telefondan sürerken robotun gördüğü ortamı sanal nesnelerle zenginleştiren bir oyun fikrinden doğmuştur. Amacımız, bir sistemi donanımdan yazılıma, görüntü aktarımından robotun konumunu bulmaya kadar baştan sona kurmak ve bunu herkesin kolayca oynayabileceği bir deneyime dönüştürmekti. Çalışma yapay zekâ ve görüntü işleme, gömülü sistemler, haberleşme ve oyun geliştirme gibi birbirinden farklı alanları tek bir sistemde bir araya getirmektedir.
 
 Çalışma boyunca birçok alanda yeni şeyler öğrendik. Robotun mekanik ve elektronik yapısıyla uğraşırken donanımın gerçek dünyadaki sınırlarıyla karşılaştık. Düşük gecikmeli görüntü aktarımı, kablosuz haberleşme ve güvenli sürüş gibi konularda deneyim kazandık. Yapay zekâ ile görüntü işleme, konum belirleme ve oyun geliştirme üzerine okuduğumuz çalışmalar bize yeni bakış açıları kazandırdı. Bunların yanında bir ekip olarak iş bölümü yapmayı, farklı fikirleri bir araya getirmeyi ve ortak bir hedefe doğru ilerlemeyi öğrendik.
 
@@ -446,7 +446,7 @@ Kullanılan yazılımlar Tablo~\ref{tab:yazilim_araclari}'te verilmiştir. Hepsi
 \toprule
 \textbf{Amaç} & \textbf{Araç} & \textbf{Gerekçe} \\
 \midrule
-Oyun ve AR & Unity 6.3 LTS, AR Foundation & Tek kod tabanından Android ve iOS derlemesi, robotlu AR uygulamalarında yaygın kullanım \cite{coronado2023integrating} \\
+Oyun ve AR & Unity 6.3, AR Foundation & Tek kod tabanından Android ve iOS derlemesi, robotlu AR uygulamalarında yaygın kullanım \cite{coronado2023integrating} \\
 Oda taraması & ARKit \cite{apple2026arkit}, çift kamera derinliği \cite{zhang2020dunet} & LiDAR'lı ve LiDAR'sız cihazlarda tarama \\
 Konum belirleme & PICCOLO, CPO \cite{kim2021piccolo,kim2022cpo}, PyTorch & Panorama görüntüsünden konum bulan, grafik işlemcide çalışan açık kaynaklı kodlar \\
 Zemin ve nesne algılama & Depth Anything \cite{yang2024depthanything}, Segment Anything \cite{kirillov2023sam} & Tek kameradan derinlik tahmini ve bölütleme, en küçük sürüm yaklaşık 24,8 milyon parametreli \\
@@ -457,6 +457,7 @@ Robot ve derleme & JetPack 4.6, GStreamer, Python 3, Arduino IDE, Xcode & Görü
 
 Görüntü işlemenin muhtemelen robot bilgisayarında, AR çiziminin ise telefonda yapılması planlanmıştır. Bu ayrım ilk denemelerle ölçülecektir ve projenin en yüksek teknik riskidir. Depth Anything'in en küçük sürümünün ağırlıkları yaklaşık 100~MB yer kapladığından robot bilgisayarının 4~GB belleğine rahatlıkla sığar, işlem hızı ise ilk denemelerle ölçülecektir. Sürüş, görüntü aktarımı ve oyun prototipi çalıştığı için projeyi yazılım açısından yapılabilir buluyoruz.
 
+\newpage
 \subsubsection{Donanım Fizibilitesi / Hardware Feasibility}
 \label{subsubsec:donanim_fizibilitesi}
 Robotun parçaları Tablo~\ref{tab:donanim_maliyet}'te verilmiştir.
@@ -517,7 +518,7 @@ Final raporu ve sunum &  &  &  &  &  &  &  &  &  &  &  & \ganttP & \ganttP \\
 
 \vspace{2pt}
 {\footnotesize \ganttG[0.45cm]~Gerçekleşen \qquad \ganttP[0.45cm]~Planlanan \qquad
-Hafta 1: 28 Eylül -- 4 Ekim 2026; Hafta 13: 21 -- 28 Aralık 2026}
+Hafta 1: 28 Eylül -- 4 Ekim 2026, Hafta 13: 21 -- 28 Aralık 2026}
 \end{table}
 
 % Bölüm 3-5 (Sistem Tasarımı, Deneysel Sonuçlar, Sonuç ve Tartışma) Ara Rapor-2 ve final

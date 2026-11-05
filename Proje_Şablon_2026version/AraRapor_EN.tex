@@ -446,7 +446,7 @@ The software used is given in Table~\ref{tab:yazilim_araclari}. All of it is fre
 \toprule
 \textbf{Purpose} & \textbf{Tool} & \textbf{Rationale} \\
 \midrule
-Game and AR & Unity 6.3 LTS, AR Foundation & Builds for Android and iOS from a single code base, widely used in robot-based AR applications \cite{coronado2023integrating} \\
+Game and AR & Unity 6.3, AR Foundation & Builds for Android and iOS from a single code base, widely used in robot-based AR applications \cite{coronado2023integrating} \\
 Room scanning & ARKit \cite{apple2026arkit}, dual-camera depth \cite{zhang2020dunet} & Scanning on devices with and without LiDAR \\
 Localization & PICCOLO, CPO \cite{kim2021piccolo,kim2022cpo}, PyTorch & Open-source code that finds the position from a panorama and runs on a graphics processor \\
 Floor and object detection & Depth Anything \cite{yang2024depthanything}, Segment Anything \cite{kirillov2023sam} & Single-camera depth estimation and segmentation, the smallest version has about 24.8 million parameters \\
@@ -457,6 +457,7 @@ Robot and build & JetPack 4.6, GStreamer, Python 3, Arduino IDE, Xcode & Video s
 
 Image processing is likely to run on the robot computer and AR drawing on the phone. This split will be measured in the first experiments and is the highest technical risk of the project. The weights of the smallest Depth Anything version take up roughly 100~MB and fit easily into the 4~GB memory of the robot computer, and its speed will be measured in the first experiments. Because driving, video streaming and the game prototype already work, we find the project feasible in terms of software.
 
+\newpage
 \subsubsection{Hardware Feasibility}
 \label{subsubsec:donanim_fizibilitesi}
 The parts of the robot are given in Table~\ref{tab:donanim_maliyet}.
