@@ -406,7 +406,10 @@ The system consists of a Unity game application running on the phone and a 360°
 \paragraph{Requirements and constraints.}
 The functional (FR) and non-functional (NFR) requirements are given in Table~\ref{tab:gereksinimler}. The robot has no position sensor, and because the wheels slip in skid-steer driving, its position must be found from the camera. The height difference between the room scan and the robot camera may make matching harder, and LiDAR exists only on some devices and has a limited range \cite{luetzenburg2021iphone}.
 
-\begin{table}[!ht]
+\paragraph{Inputs, outputs and metrics.}
+The inputs are driving commands, depth data and the 360° video, and the outputs are the room map, the robot's position, the AR view and the commands sent to the robot. Performance will be measured by the position error (cm), the video latency (ms), the number of connection drops and the play time on a full battery (minutes), and the game experience will also be evaluated by letting participants play the game and collecting ratings from them on a scale of 10.
+
+\begin{table}[H]
 \centering
 \caption{Requirements of the system}
 \label{tab:gereksinimler}
@@ -425,9 +428,6 @@ NFR-3 & The application must not require technical knowledge and must run on And
 \bottomrule
 \end{tabularx}
 \end{table}
-
-\paragraph{Inputs, outputs and metrics.}
-The inputs are driving commands, depth data and the 360° video, and the outputs are the room map, the robot's position, the AR view and the commands sent to the robot. Performance will be measured by the position error (cm), the video latency (ms), the number of connection drops and the play time on a full battery (minutes), and the game experience will also be evaluated by letting participants play the game and collecting ratings from them on a scale of 10.
 
 \subsection{Feasibility}
 \label{subsec:fizibilite}
@@ -466,18 +466,18 @@ The parts of the robot and their estimated prices are in Table~\ref{tab:donanim_
 \caption{Robot and scanning hardware with estimated costs}
 \label{tab:donanim_maliyet}
 \small
-\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}X c r}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.6cm} >{\raggedright\arraybackslash}p{4.3cm} >{\raggedright\arraybackslash}X >{\raggedleft\arraybackslash}p{1.9cm}}
 \toprule
-\textbf{Component} & \textbf{Qty} & \textbf{Estimated price (USD)} \\
+\textbf{Purpose} & \textbf{Component} & \textbf{Rationale} & \textbf{Estimated price (USD)} \\
 \midrule
-NVIDIA Jetson Nano (4~GB), robot computer & 1 & 99 \\
-Arduino Uno Rev3, microcontroller & 1 & 25--30 \\
-Pololu Dual VNH5019, DC motor driver & 1 & 70 \\
-Ricoh Theta S, 360° camera & 1 & 349 \\
-Hsiang Neng HN-GH12-2217Y motor (12~V, 50:1) & 4 & 23 (each) \\
-4S lithium polymer (LiPo) battery (14.8~V, 5200~mAh) & 1 & 56--68 \\
-Chassis, wheels, relay, buzzer, LED, wiring & -- & 120--170 \\
-Apple iPhone 14 Pro, room scanning and game & 1 & 999 \\
+Robot computer & NVIDIA Jetson Nano (4~GB) & Small computer on the robot for forwarding and processing the video & 99 \\
+Motor, light and sound control & Arduino Uno Rev3 & Controls the motor driver, the LED and the buzzer with commands from the robot computer & 25--30 \\
+Motor driving & Pololu Dual VNH5019 & Sets the direction and speed of the direct current motors & 70 \\
+360° video & Ricoh Theta S & Captures the entire surroundings of the robot with a single camera & 349 \\
+Drive & Hsiang Neng HN-GH12-2217Y motor (12~V, 50:1), 4 units & Provides four-wheel skid-steer driving, and the robot can turn on the spot & 23 (each) \\
+Energy & 4S lithium polymer (LiPo) battery (14.8~V, 5200~mAh) & Is the energy source of the robot & 56--68 \\
+Body and outputs & Chassis, wheels, relay, buzzer, LED, wiring & Forms the mechanical structure and the light and sound outputs & 120--170 \\
+Scanning and game & Apple iPhone 14 Pro & Scans the room with LiDAR and runs the game application & 999 \\
 \bottomrule
 \end{tabularx}
 
