@@ -223,7 +223,7 @@ for (const k of VERI.kornalar)
   satirYap(ko, k.baslik, kornaNe[k.stil], kornaDeseni(k.stil), { basili: true, seritNota: k.stil === 3 ? 60 : k.stil === 4 ? 8 : 1 });
 
 const ez = bolum('Ezgili kornalar', 'kornaya basınca bir kez çalar');
-for (const e of VERI.ezgili) satirYap(ez, e.baslik, 'Menü › Korna sesinden seçilir', e.notalar, { etiket: e.ad === 'E_NURI' ? 'yeni notalar' : '' });
+for (const e of VERI.ezgili) satirYap(ez, e.baslik, 'Menü › Korna sesinden seçilir', e.notalar, { etiket: e.ad === 'E_HAVALI' ? 'yeni' : '' });
 
 let grup = null, sl = null;
 for (const s of VERI.sarkilar) {

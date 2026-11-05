@@ -314,14 +314,14 @@ namespace ARaki.Drive
             var menuBg = Shape("Zemin", menuRoot);
             menuBg.RoundRect(new Rect(0, 0, mw, mh), 16f, new Color(0.03f, 0.035f, 0.04f, 0.82f));
             Action Open(Func<bool> isOpen, Action open) => () => { bool was = isOpen(); drive.CloseMenus(); if (!was) open(); menuOpen = false; };
-            string[] names = { "MÜZİK", "KORNA", "FOTO", "VİDEO", "DİKİZ", "ROBOT", "AYARLAR" };
-            string[] icons = { "muzik", "korna", "foto", "video", "dikiz", "robot", "ayar" };
-            Action[] acts = { Open(() => drive.MusicMenuOpen, () => drive.MusicMenuOpen = true),
+            string[] names = { "KAYITLAR", "KORNA", "FOTO", "VİDEO", "DİKİZ", "ROBOT", "AYARLAR" };   // şarkılar teypte
+            string[] icons = { "kayit", "korna", "foto", "video", "dikiz", "robot", "ayar" };
+            Action[] acts = { Open(() => drive.RecordsOpen, () => { drive.RecordsOpen = true; recordsListedAt = -100f; selectedRecord = null; }),
                               Open(() => drive.HornMenuOpen, () => drive.HornMenuOpen = true),
                               drive.Photo, drive.Video, drive.ToggleRearMirror,
                               Open(() => drive.RobotPanelOpen, OpenRobotPanel),
                               Open(() => drive.SettingsOpen, () => drive.SettingsOpen = true) };
-            Func<bool>[] lits = { () => drive.MusicMenuOpen, () => drive.HornMenuOpen, null, () => drive.Recorder.Recording,
+            Func<bool>[] lits = { () => drive.RecordsOpen, () => drive.HornMenuOpen, null, () => drive.Recorder.Recording,
                                   () => drive.Settings.RearMirror, () => drive.RobotPanelOpen, () => drive.SettingsOpen };
             for (int i = 0; i < names.Length; i++)
             {
@@ -353,6 +353,7 @@ namespace ARaki.Drive
             BuildMusicMenu();
             BuildHornMenu();
             BuildRobotPanel();
+            BuildRecordsPanel();
             BuildSettings();
             layoutKey = Key();
             dirty = false;
@@ -776,6 +777,7 @@ namespace ARaki.Drive
             UpdateChassis(mm, dt);
             UpdateDeck(dt);
             UpdateRobotPanel();
+            UpdateRecordsPanel();
             if (!link.IsConnected || link.Demo) connectedAt = Time.unscaledTime;
             bool cameraFault = !link.Demo && link.IsConnected &&
                                (link.Status?.kamera == "yok" || !video.HasFrame && Time.unscaledTime - connectedAt > 8f);
@@ -819,7 +821,7 @@ namespace ARaki.Drive
             hornRoot.gameObject.SetActive(drive.HornMenuOpen);
             robotRoot.gameObject.SetActive(drive.RobotPanelOpen);
             settingsRoot.gameObject.SetActive(drive.SettingsOpen);
-            if (rearRoot != null) rearRoot.gameObject.SetActive(!drive.SettingsOpen && !drive.HornMenuOpen && !drive.RobotPanelOpen);
+            if (rearRoot != null) rearRoot.gameObject.SetActive(!drive.SettingsOpen && !drive.HornMenuOpen && !drive.RobotPanelOpen && !drive.RecordsOpen);
             if (drive.SettingsOpen)
                 settingsInfo.text = link.Demo ? "Robotsuz demo: kayıtlı 360° görüntü, sesler bu cihazdan çalar." :
                     $"adres {link.Host ?? "-"}   gidip gelme {link.RoundTripMs:0} ms   kayıp %{link.Loss * 100f:0}\n" +
@@ -955,7 +957,7 @@ namespace ARaki.Drive
                 {
                     if (!b.Rt.gameObject.activeInHierarchy || !Contains(b.Rt, p)) continue;
                     bool overlay = b.Rt.IsChildOf(menuRoot) || b.Rt.IsChildOf(settingsRoot) || b.Rt.IsChildOf(musicRoot) ||
-                                   b.Rt.IsChildOf(hornRoot) || b.Rt.IsChildOf(robotRoot);
+                                   b.Rt.IsChildOf(hornRoot) || b.Rt.IsChildOf(robotRoot) || b.Rt.IsChildOf(recordsRoot);
                     if (overlay || !hitOverlay) { hit = b; hitOverlay = overlay; }
                 }
                 bool onPad = dpad != null && (p - dpad.Center).magnitude < dpad.Radius + 12f;
@@ -973,6 +975,7 @@ namespace ARaki.Drive
                 else if (drive.MusicMenuOpen && Contains(musicRoot, p)) { }   // panelin boş yeri: bir şey yapma
                 else if (drive.HornMenuOpen && Contains(hornRoot, p)) { }
                 else if (drive.RobotPanelOpen && Contains(robotRoot, p)) { }
+                else if (drive.RecordsOpen && Contains(recordsRoot, p)) { }
                 else if (TryGrabWheel(kv.Key, p)) { }
                 else if (drive.SettingsOpen) { if (!Contains(settingsRoot, p)) drive.SettingsOpen = false; }   // dışına dokununca kapan
                 else if (menuOpen && !Contains(menuRoot, p)) menuOpen = false;
@@ -1222,6 +1225,12 @@ namespace ARaki.Drive
                         foreach (float wy in new[] { -0.55f, 0.55f })
                             s.Polygon(new[] { c + V(wx * r - r * 0.17f, wy * r - r * 0.3f), c + V(wx * r + r * 0.17f, wy * r - r * 0.3f),
                                               c + V(wx * r + r * 0.17f, wy * r + r * 0.3f), c + V(wx * r - r * 0.17f, wy * r + r * 0.3f) }, w);
+                    break;
+                case "kayit":   // üst üste iki fotoğraf karesi
+                    s.Line(c + V(-r * 0.9f, -r * 0.7f), c + V(r * 0.5f, -r * 0.7f), t, w); s.Line(c + V(r * 0.5f, -r * 0.7f), c + V(r * 0.5f, r * 0.35f), t, w);
+                    s.Line(c + V(r * 0.5f, r * 0.35f), c + V(-r * 0.9f, r * 0.35f), t, w); s.Line(c + V(-r * 0.9f, r * 0.35f), c + V(-r * 0.9f, -r * 0.7f), t, w);
+                    s.Line(c + V(-r * 0.5f, r * 0.7f), c + V(r * 0.9f, r * 0.7f), t, w); s.Line(c + V(r * 0.9f, r * 0.7f), c + V(r * 0.9f, -r * 0.35f), t, w);
+                    s.Polygon(new[] { c + V(-r * 0.7f, -r * 0.5f), c + V(-r * 0.3f, -r * 0.05f), c + V(0.05f * r, -r * 0.5f) }, w);
                     break;
                 case "menu":
                     for (int i = -1; i <= 1; i++) s.Line(c + V(-r * 0.8f, i * r * 0.5f), c + V(r * 0.8f, i * r * 0.5f), t, w);

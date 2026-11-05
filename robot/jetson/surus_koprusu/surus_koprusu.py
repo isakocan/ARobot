@@ -284,6 +284,7 @@ class Kamera:
         self.gonderilen = 0        # izleyicilere giden bayt (veri hızı için)
         self.veri_kbps = 0
         self.seviye_sayisi = len(H264_SEVIYELER)   # çoklu kodlayıcı açılamazsa 1
+        self.donanim_cozucu = True # JPEG'i Jetson'un donanım çözücüsü (nvv4l2decoder mjpeg=1) çözer; olmazsa jpegdec
         self.h264_calisti = False  # çoklu kodlayıcı en az bir kez kare verdi mi
         self.izleyici_kbps = {}    # izleyicinin IP'si → ona giden kalitenin bit hızı (durum paketinde gösterilir)
         threading.Thread(target=self._dongu, daemon=True).start()
@@ -325,9 +326,10 @@ class Kamera:
                  "t.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!",
                  "multipartmux", "boundary=kare", "!", "fdsink", "fd=1"]
         if h264_fdler:
-            # JPEG bir kez çözülür, her kalite kendi dönüştürücü + kodlayıcısıyla (Nano'nun kodlayıcısı birden çok
-            # 720p oturumu kaldırır; yük CPU'da değil)
-            komut += ["t.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!", "jpegdec", "!", "tee", "name=c"]
+            # JPEG bir kez çözülür (Jetson'un donanım çözücüsüyle: CPU %38 → %4; olmazsa yazılımla), her kalite kendi
+            # dönüştürücü + kodlayıcısıyla (donanım kodlayıcı birden çok 720p oturumu kaldırır; yük CPU'da değil)
+            cozucu = ["nvv4l2decoder", "mjpeg=1"] if self.donanim_cozucu else ["jpegdec"]
+            komut += ["t.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!"] + cozucu + ["!", "tee", "name=c"]
             for bit, fd in zip(H264_SEVIYELER, h264_fdler):
                 komut += ["c.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!",
                           "nvvidconv", "!", "video/x-raw(memory:NVMM),format=NV12", "!",
@@ -344,7 +346,8 @@ class Kamera:
     def _yayinla(self):
         borular = [os.pipe() for _ in range(self.seviye_sayisi)] if self.h264_destek else []
         h264_yaz = [y for _, y in borular]
-        log("kamera açılıyor", "(JPEG + H.264 x%d)" % len(borular) if borular else "(JPEG)")
+        log("kamera açılıyor", "(JPEG + H.264 x%d, %s çözücü)" % (len(borular), "donanım" if self.donanim_cozucu else "yazılım")
+            if borular else "(JPEG)")
         p = subprocess.Popen(self._komut(h264_yaz), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                              bufsize=0, pass_fds=tuple(h264_yaz))
         for seviye, (oku, yaz) in enumerate(borular):
@@ -362,6 +365,10 @@ class Kamera:
                 # JPEG gelirken H.264 kolu durduysa (ör. kamera çıkarılıp takıldı, kodlayıcı takıldı) hattı yeniden
                 # başlat; üç kez üst üste olursa yalnızca JPEG'e geç (uygulama da kendiliğinden JPEG'e geçer)
                 if h264_yaz and kare_geldi and self.aboneler and time.time() - max(self.son_h264, baslangic) > H264_BEKCI:
+                    if self.donanim_cozucu and not self.h264_calisti:
+                        self.donanim_cozucu = False
+                        log("donanım JPEG çözücü kare vermedi; yazılım çözücüyle devam")
+                        break
                     if self.seviye_sayisi > 1 and not self.h264_calisti:
                         # çoklu kodlayıcı hiç kare vermediyse tek kaliteye dön (eski düzen)
                         self.seviye_sayisi = 1

@@ -25,6 +25,16 @@ def sus(ms):
 NOTA = {"C": 523, "D": 587, "E": 659, "F": 698, "G": 784, "A": 880, "B": 988}
 
 
+def havali(ms):
+    out = []
+    t = 0
+    while t < ms:
+        bas = t < 40   # açılırken biraz alçaktan
+        out += [415 if bas else 440, 4, 523 if bas else 554, 4]
+        t += 8
+    return out
+
+
 def dizi_cal(notalar, ms, son_ms):
     """"F G G F ..." (5. oktav): her nota ms çalar, 25 ms susar (aynı nota art arda ayrı duyulsun); sonuncusu son_ms."""
     adlar = notalar.split()
@@ -43,12 +53,12 @@ E = {
     "E_KOPTU": kay(1400, 520, 360) + sus(30) + nota(520, 160),
     # kapanış: inen akor, sonda sönen kayış
     "E_KAPANIS": nota(1568, 140) + nota(1175, 140) + nota(988, 140) + kay(988, 494, 260),
-    # vites: tok çift tık ("tı-tık")
-    "E_VITES": nota(1300, 22) + sus(18) + nota(900, 30),
+    # vites: kalın, tok, arka planda kalan tek "tok" (kavrama oturuyor gibi kısa kalın ses + daha kalın vuruş)
+    "E_VITES": nota(392, 18) + nota(262, 34),
     # alarm: iki tonlu acil uyarı, 3 kez
     "E_ALARM": (nota(1760, 140) + nota(1175, 140)) * 3,
-    # foto: deklanşör ("çık-çak")
-    "E_FOTO": nota(2200, 18) + sus(45) + nota(1500, 35),
+    # foto: yumuşak deklanşör: perde açılır (kısa orta ses), kapanır (kalın, sönen)
+    "E_FOTO": nota(880, 12) + sus(70) + nota(523, 20) + kay(523, 330, 60),
     # kayıt başladı / bitti: iki ton yukarı / aşağı
     "E_KAYIT_BASLA": nota(988, 110) + sus(25) + nota(1480, 170),
     "E_KAYIT_BITTI": nota(1480, 110) + sus(25) + nota(988, 170),
@@ -62,9 +72,9 @@ E = {
     # Baba (The Godfather aşk teması): sol do mib re do mib do re do lab sib sol
     "E_BABA": nota(784, 180) + nota(1047, 180) + nota(1245, 180) + nota(1175, 180) + nota(1047, 520) + nota(1245, 180)
               + nota(1047, 180) + nota(1175, 180) + nota(1047, 180) + nota(831, 180) + nota(932, 180) + nota(784, 800),
-    # Nuri Alço kornası (kullanıcının yazdığı notalar):
-    # fa sol sol fa mi re fa mi re re re  ·  la sol la fa sol fa mi re fa mi re re
-    "E_NURI": dizi_cal("F G G F E D F E D D D", 150, 360) + sus(120) + dizi_cal("A G A F G F E D F E D D", 150, 420),
+    # Havalı korna (tır kornası): iki ton (la + do diyez) 4 ms'de bir değişerek akor gibi duyulur; ilk 40 ms'de
+    # hava basıncı gibi hafifçe yükselir. Kısa, kısa, uzun: "BAAP BAAP BAAAAAP"
+    "E_HAVALI": havali(260) + sus(90) + havali(260) + sus(90) + havali(900),
     # Ta-ta-ra-ta-ta ... ta-ta (shave and a haircut)
     "E_TRAS": nota(1047, 260) + sus(20) + nota(784, 120) + sus(15) + nota(784, 120) + nota(880, 260) + sus(20)
               + nota(784, 260) + sus(280) + nota(988, 260) + sus(20) + nota(1047, 300),

@@ -24,7 +24,7 @@ EFEKTLER = [
 ]
 KORNALAR = [("Düz", 0), ("Kalın", 1), ("Tiz", 2), ("Titrek", 3), ("Dü-düt", 4)]
 EZGILI = [("E_CUCARACHA", "La Cucaracha"), ("E_DIXIE", "Dixie"), ("E_BABA", "Baba"),
-          ("E_NURI", "Nuri Alço"), ("E_TRAS", "Ta-ta-ra-ta-ta")]
+          ("E_HAVALI", "Havalı korna"), ("E_TRAS", "Ta-ta-ra-ta-ta")]
 
 
 def sarkilar(kaynak):

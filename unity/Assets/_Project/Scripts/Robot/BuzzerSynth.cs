@@ -38,7 +38,7 @@ namespace ARaki.Robot
         public int Melody { get { lock (gate) return melody; } }
 
         /// <summary>Ezgili kornalar (korna sesi 5, 6, ...): Arduino'daki KORNA_EZGI ile aynı sıra.</summary>
-        public static readonly string[] MelodicHorns = { "EF_CUCARACHA", "EF_DIXIE", "EF_BABA", "EF_NURI", "EF_TRAS" };
+        public static readonly string[] MelodicHorns = { "EF_CUCARACHA", "EF_DIXIE", "EF_BABA", "EF_HAVALI", "EF_TRAS" };
 
         void Awake()
         {

@@ -35,6 +35,9 @@ namespace ARaki.Video
         public string ActivePath { get; private set; } = "";
         public int FramesDecoded { get; private set; }
         public float Fps { get; private set; }
+        /// <summary>Son karenin çözünürlüğü (0: kare yok).</summary>
+        public int Width => ActivePath == "H.264" ? yuvW : jpegTexture != null && HasFrame ? jpegTexture.width : 0;
+        public int Height => ActivePath == "H.264" ? yuvH : jpegTexture != null && HasFrame ? jpegTexture.height : 0;
         public string LastError { get; private set; } = "";
         /// <summary>Son 3 sn içinde kare geldi mi (kamera kapanınca ya da akış durunca false olur).</summary>
         public bool HasFrame => lastFrame >= 0f && Time.unscaledTime - lastFrame < 3f;
@@ -104,14 +107,15 @@ namespace ARaki.Video
             }
             if (host == null) jpegFallback = false;
 
-            // Otomatik modda H.264 6 sn kare vermezse (hiç gelmedi ya da kesildi) JPEG'e geç; 45 sn sonra H.264'ü yeniden dene
-            if (Mode == VideoMode.Auto && ActivePath == "H.264" && Time.unscaledTime - Mathf.Max(pathStarted, lastFrame) > 6f)
+            // Otomatik modda H.264 10 sn kare vermezse (hiç gelmedi ya da kesildi) JPEG'e geç; 15 sn sonra H.264'ü yeniden dene.
+            // JPEG ~40 Mbit/s ister (H.264'ün 10 katı): Wi-Fi'ı boğduğu için yalnızca kısa bir yedek olmalı.
+            if (Mode == VideoMode.Auto && ActivePath == "H.264" && Time.unscaledTime - Mathf.Max(pathStarted, lastFrame) > 10f)
             {
                 Debug.LogWarning("[Görüntü] H.264'ten kare gelmiyor, JPEG'e geçiliyor. " + LastError);
                 jpegFallback = true;
                 fallbackAt = Time.unscaledTime;
             }
-            else if (jpegFallback && !h264Broken && Mode == VideoMode.Auto && Time.unscaledTime - fallbackAt > 45f)
+            else if (jpegFallback && !h264Broken && Mode == VideoMode.Auto && Time.unscaledTime - fallbackAt > 15f)
                 jpegFallback = false;
 
             if (demo) DemoFrame();

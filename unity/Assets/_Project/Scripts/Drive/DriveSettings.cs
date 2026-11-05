@@ -26,7 +26,7 @@ namespace ARaki.Drive
         public bool GearSound = true;       // vites geçişinde "tı-tık" (Effects açıkken)
         public int HornStyle;               // HornNames sırası; 5 ve üstü basınca bir kez çalan ezgili kornalar
         public static readonly string[] HornNames = { "Düz", "Kalın", "Tiz", "Titrek", "Dü-düt",
-                                                      "La Cucaracha", "Dixie", "Baba", "Nuri Alço", "Ta-ta-ra-ta-ta" };
+                                                      "La Cucaracha", "Dixie", "Baba", "Havalı korna", "Ta-ta-ra-ta-ta" };
         public int Video;                   // 0 otomatik (H.264, olmazsa JPEG), 1 H.264, 2 JPEG
         public float PowerLimit = 0.6f;     // en yüksek güç (0.2..1)
         public float WheelDiameterCm = 6.5f;

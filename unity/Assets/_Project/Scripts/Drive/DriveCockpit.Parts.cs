@@ -126,17 +126,18 @@ namespace ARaki.Drive
         /// <summary>Üst satır için kısa kalite adı: köprü bit hızını ağa göre düşürüp yükseltir (uyarlanabilir görüntü).</summary>
         string VideoQuality(RobotStatus st)
         {
-            if (drive.Link.Demo) return "görüntü demo";
-            if (video.ActivePath == "JPEG") return "görüntü JPEG";
-            if (st == null || !video.HasFrame) return "görüntü yok";
-            if (st.hedef_kbps <= 0) return "görüntü H.264";
+            string size = video.Width > 0 ? $"  ·  {video.Width}x{video.Height}" : "";
+            if (drive.Link.Demo) return "görüntü demo" + size;
+            if (!video.HasFrame) return "görüntü yok";
+            if (video.ActivePath == "JPEG") return "görüntü JPEG (yedek)" + size;
+            if (st == null || st.hedef_kbps <= 0) return "görüntü H.264" + size;
             string level = st.hedef_kbps >= 3500 ? "yüksek" : st.hedef_kbps >= 2200 ? "orta" : "düşük";
-            return "görüntü " + level;
+            return "görüntü " + level + size;
         }
 
         // ---------------------------------------------------------------- dokunmatik direksiyon
 
-        bool AnyPanelOpen => menuOpen || drive.SettingsOpen || drive.MusicMenuOpen || drive.HornMenuOpen || drive.RobotPanelOpen;
+        bool AnyPanelOpen => menuOpen || drive.SettingsOpen || drive.MusicMenuOpen || drive.HornMenuOpen || drive.RobotPanelOpen || drive.RecordsOpen;
 
         Vector2 WheelCenter() => root.InverseTransformPoint(wheelRt.position);
 

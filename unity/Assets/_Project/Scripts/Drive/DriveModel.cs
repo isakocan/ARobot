@@ -17,7 +17,7 @@ namespace ARaki.Drive
     /// Duruştan gaza basınca 1. vites, fren basılı tutunca geri vites kendiliğinden takılır.
     ///
     /// Direksiyon: tuş dijital (-1/0/1). İlk %30'u hemen (~75 ms) kırılır, böylece kısa basış da aracı döndürür;
-    /// sonrası yavaşça hızlanarak döner, sona yaklaşınca yavaşlar. Tam kırmaya ~1,2 sn; bırakınca yavaşça %30'a,
+    /// sonrası yavaşça hızlanarak döner, sona yaklaşınca yavaşlar. Tam kırmaya ~2 sn; bırakınca yavaşça %30'a,
     /// oradan hemen ortaya döner. Dönüşün keskinliği de bununla birlikte artar.
     ///
     /// Dokunmatik direksiyon (AnalogSteer): parmağın çevirdiği açı doğrudan direksiyon olur; yalnızca parmağın
@@ -35,7 +35,7 @@ namespace ARaki.Drive
         public const float Coast = 1.2f;    // tuş bırakınca saniyede yavaşlama
         public const float Brake = 2.5f;    // ters yöne basınca
         public const float ClutchTime = 0.22f, ClutchDip = 0.6f;
-        public const float SteerRate = 1.1f, SteerReturn = 1.6f, SteerAccel = 4f;   // en yüksek hız (1/sn), ivme (1/sn²)
+        public const float SteerRate = 0.6f, SteerReturn = 1.6f, SteerAccel = 2.5f;   // en yüksek hız (1/sn), ivme (1/sn²)
         public const float SteerBite = 0.3f, BiteRate = 4f;   // direksiyonun ilk %30'u ~75 ms'de (kısa basış da döndürür)
         public const float ReverseSecondAfter = 3.5f;
         // Dönüş: kızaklı şasi ancak tekerler arasında büyük fark olunca döner. Hareket halinde dış teker en az
@@ -130,6 +130,10 @@ namespace ARaki.Drive
             ShiftHint = mode == GearMode.Manual && AtRedline && Gear < TopGear;
             Output = Speed * (gears && time < clutchUntil ? ClutchDip : 1f);
             Acceleration += ((Output - before) / Mathf.Max(dt, 0.004f) - Acceleration) * Mathf.Min(1f, dt * 4f);
+            // Dönüş tuşu bırakıldıysa direksiyon ortaya dönerken tekerlere ek güç verilmez: yalnızca hız varken ve hızla
+            // orantılı döner (yoksa bırakınca araç yavaşlarken iç teker tersine dönüp son anda fazladan döner).
+            bool steering = turn != 0 || AnalogSteer.HasValue;
+            if (!steering) return Mix(Output, Steer * Mathf.Clamp01(Mathf.Abs(Output) / 0.25f), coasting: true);
             return Mix(Output, Steer);
         }
 
@@ -189,10 +193,15 @@ namespace ARaki.Drive
         /// farkta hiç dönmeyip eşik aşılınca birden döner. Bu yüzden direksiyon kırılmaya başlar başlamaz eşiğe
         /// (TurnStart) atlanır, sonrası direksiyonla doğrusal artar; dönüş hızı direksiyonla kademeli büyür.
         /// </summary>
-        public static (float, float) Mix(float f, float t)
+        public static (float, float) Mix(float f, float t, bool coasting = false)
         {
             float a = Mathf.Abs(t);
             if (a < 0.02f) return (f, f);
+            if (coasting)   // tuş bırakıldı: hız artmaz, iç teker yavaşlar ama tersine dönmez, yerinde dönüş yok
+            {
+                float inner = f * (1f - a);
+                return t > 0f ? (f, inner) : (inner, f);
+            }
             float k = TurnStart + (1f - TurnStart) * a;
             if (f != 0f)
             {

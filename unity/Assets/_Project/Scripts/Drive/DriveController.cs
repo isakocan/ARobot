@@ -42,8 +42,8 @@ namespace ARaki.Drive
         public int InputForward { get; private set; }
         public int InputTurn { get; private set; }
 
-        public bool MusicMenuOpen, SettingsOpen, HornMenuOpen, RobotPanelOpen;
-        public void CloseMenus() => MusicMenuOpen = SettingsOpen = HornMenuOpen = RobotPanelOpen = false;
+        public bool MusicMenuOpen, SettingsOpen, HornMenuOpen, RobotPanelOpen, RecordsOpen;
+        public void CloseMenus() => MusicMenuOpen = SettingsOpen = HornMenuOpen = RobotPanelOpen = RecordsOpen = false;
         public string Toast { get; private set; } = "";
         public float ToastUntil { get; private set; }
         /// <summary>Arduino'nun bildirdiği gerçek ileri güç (-1..1), rampa dahil.</summary>
@@ -69,7 +69,8 @@ namespace ARaki.Drive
             link.PwmLimit = Settings.PowerLimit;
             link.State.ReverseBeep = Settings.ReverseBeep;
             link.State.HornStyle = Settings.HornStyle;
-            recorder.Saved += path => ShowToast("Kaydedildi: " + System.IO.Path.GetFileName(path));
+            // telefonda galeriye de kopyalanır (uygulamanın klasörü galeride görünmez)
+            recorder.Saved += path => ShowToast(Gallery.Publish(path) ? "Galeriye kaydedildi: " + Gallery.Album : "Kaydedildi: " + System.IO.Path.GetFileName(path));
         }
 
         public void ShowToast(string text, float seconds = 2.5f)

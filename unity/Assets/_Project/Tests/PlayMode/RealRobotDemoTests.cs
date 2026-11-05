@@ -92,13 +92,13 @@ namespace ARaki.Tests
         [UnityTest]
         public IEnumerator HornAndMelodyPlayOnBuzzer()
         {
-            drive.PlayMelody(2);
+            drive.PlayMelody(1);
             yield return new WaitForSecondsRealtime(0.5f);
-            Assert.AreEqual(2, buzzer.Melody, "Megalovania çalmalı");
+            Assert.AreEqual(1, buzzer.Melody, "Megalovania çalmalı");
             drive.StopMelody();
             yield return new WaitForSecondsRealtime(0.2f);
             Assert.AreEqual(0, buzzer.Melody);
-            Assert.AreEqual(14, drive.Firmware.Songs.Count);
+            Assert.AreEqual(13, drive.Firmware.Songs.Count);
         }
 
         [UnityTest]
@@ -175,7 +175,7 @@ namespace ARaki.Tests
             yield return null;
             yield return null;
             drive.TouchSteer = 0.7f;
-            drive.PlayMelody(10);
+            drive.PlayMelody(9);
             yield return new WaitForSecondsRealtime(1.2f);
             yield return Shot(Path.Combine(dir, "dokunmatik_direksiyon.png"));
             drive.TouchSteer = null;
@@ -208,6 +208,15 @@ namespace ARaki.Tests
             yield return new WaitForSecondsRealtime(0.3f);
             yield return Shot(Path.Combine(dir, "robot_paneli.png"));
             drive.RobotPanelOpen = false;
+            string photo = null;
+            drive.Recorder.Saved += p => photo = p;
+            drive.Photo();
+            yield return new WaitForSecondsRealtime(0.6f);
+            drive.RecordsOpen = true;
+            yield return new WaitForSecondsRealtime(0.4f);
+            yield return Shot(Path.Combine(dir, "kayitlar.png"));
+            drive.RecordsOpen = false;
+            if (photo != null) File.Delete(photo);
         }
 
         static IEnumerator Shot(string path)
