@@ -123,16 +123,11 @@ namespace ARaki.Drive
 
         // ---------------------------------------------------------------- görüntü kalitesi
 
-        /// <summary>Üst satır için kısa kalite adı: köprü bit hızını ağa göre düşürüp yükseltir (uyarlanabilir görüntü).</summary>
+        /// <summary>Üst satırdaki görüntü bilgisi: yalnızca çözünürlük.</summary>
         string VideoQuality(RobotStatus st)
         {
-            string size = video.Width > 0 ? $"  ·  {video.Width}x{video.Height}" : "";
-            if (drive.Link.Demo) return "görüntü demo" + size;
-            if (!video.HasFrame) return "görüntü yok";
-            if (video.ActivePath == "JPEG") return "görüntü JPEG (yedek)" + size;
-            if (st == null || st.hedef_kbps <= 0) return "görüntü H.264" + size;
-            string level = st.hedef_kbps >= 3500 ? "yüksek" : st.hedef_kbps >= 2200 ? "orta" : "düşük";
-            return "görüntü " + level + size;
+            if (!video.HasFrame || video.Width <= 0) return "görüntü yok";
+            return $"{video.Width}x{video.Height}";
         }
 
         // ---------------------------------------------------------------- dokunmatik direksiyon
