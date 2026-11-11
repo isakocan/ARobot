@@ -29,7 +29,7 @@ namespace ARaki.Drive
         public const int HeldHorns = 6;     // ilk 6 basılı tuttukça öter, sonrası ezgi
         public int Video;                   // 0 otomatik (H.264, olmazsa JPEG), 1 H.264, 2 JPEG, 3 görünen kısım (VideoMode)
         public float PowerLimit = 0.6f;     // en yüksek güç (0.2..1)
-        public float WheelDiameterCm = 6.5f;
+        public float WheelDiameterCm = 6.5f;   // ölçüldü; ayarlarda değil
         public float BatteryVolts = 14.8f;  // pil ölçümü gelene kadar 4S LiPo'nun ortalaması
 
         // Motor: Hsiang Neng HN-GH12-2217Y, 12 V'ta yüksüz 120 devir/dk, 50:1 dişli
@@ -53,7 +53,6 @@ namespace ARaki.Drive
             s.Effects = Get("effects2", s.Effects);   // eski "effects" kapalı başlıyordu; yeni varsayılan açık
             s.Video = PlayerPrefs.GetInt("video", s.Video);
             s.PowerLimit = PlayerPrefs.GetFloat("power", s.PowerLimit);
-            s.WheelDiameterCm = PlayerPrefs.GetFloat("wheelCm", s.WheelDiameterCm);
             return s;
         }
 
@@ -67,7 +66,6 @@ namespace ARaki.Drive
             Set("effects2", Effects);
             PlayerPrefs.SetInt("video", Video);
             PlayerPrefs.SetFloat("power", PowerLimit);
-            PlayerPrefs.SetFloat("wheelCm", WheelDiameterCm);
             PlayerPrefs.Save();
         }
 

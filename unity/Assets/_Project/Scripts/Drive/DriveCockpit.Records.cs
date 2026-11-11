@@ -35,14 +35,17 @@ namespace ARaki.Drive
             y -= 34f;
             float listW = 330f;
             float top = y;
+            float rowH = Touch ? 38f : 27f;
+            int rows = Touch ? 7 : RecordRows;   // telefonda satırlar yüksek, daha az satır sığar
             for (int i = 0; i < RecordRows; i++)
             {
                 int k = i;
-                recordButtons[i] = Button("", new Rect(r.x + L, r.y + y, listW, 27f), () => ChooseRecord(k), null,
+                if (i >= rows) { recordButtons[i] = null; recordTags[i] = null; continue; }
+                recordButtons[i] = Button("", new Rect(r.x + L, r.y + y - (rowH - 27f), listW, rowH), () => ChooseRecord(k), null,
                                           () => k < recordFiles.Length && recordFiles[k].FullName == selectedRecord, 14, TextAnchor.MiddleLeft,
                                           recordsRoot, () => k < recordFiles.Length ? RecordTitle(recordFiles[k]) : "");
-                recordTags[i] = Label(recordsRoot, "", mono, 11, Dim, TextAnchor.MiddleRight, V(L + listW - 70f - 10f, y + 13.5f), V(140, 14));
-                y -= 30f;
+                recordTags[i] = Label(recordsRoot, "", mono, 11, Dim, TextAnchor.MiddleRight, V(L + listW - 70f - 10f, y + 13.5f - (rowH - 27f) / 2f), V(140, 14));
+                y -= rowH + 3f;
             }
             // önizleme: sağda 16:9 çerçeve
             float px = L + listW + 20f, pw = r.width - px - L, ph = pw * 9f / 16f, py = top + 27f - ph;
@@ -71,7 +74,7 @@ namespace ARaki.Drive
 
         static string RecordTitle(FileInfo f)
         {
-            bool video = f.Extension.Equals(".avi", StringComparison.OrdinalIgnoreCase);
+            bool video = f.Extension.Equals(".avi", StringComparison.OrdinalIgnoreCase) || f.Extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase);
             var t = f.LastWriteTime;
             return (video ? "Video  " : "Foto   ") + t.Day + " " + Months[t.Month - 1].ToLowerInvariant() + "  " + t.ToString("HH:mm:ss");
         }
@@ -82,7 +85,7 @@ namespace ARaki.Drive
             try
             {
                 recordFiles = new DirectoryInfo(ScreenRecorder.Folder).GetFiles()
-                    .Where(f => f.Extension == ".png" || f.Extension == ".avi")
+                    .Where(f => f.Extension == ".png" || f.Extension == ".avi" || f.Extension == ".mp4")
                     .OrderByDescending(f => f.LastWriteTimeUtc).Take(RecordRows).ToArray();
             }
             catch (Exception) { recordFiles = new FileInfo[0]; }
@@ -109,7 +112,7 @@ namespace ARaki.Drive
                 catch (Exception) { }
             }
             previewImage.enabled = false;
-            previewText.text = f.Extension == ".avi"
+            previewText.text = f.Extension != ".png"
                 ? (Application.isMobilePlatform ? "Video galeride: Movies › " + Gallery.Album : "Video: DOSYAYI AÇ ile oynatılır") +
                   $"\n{f.Length / 1048576f:0.0} MB"
                 : "Önizleme açılamadı";
@@ -124,6 +127,7 @@ namespace ARaki.Drive
             recordsWhere.text = "Kayıt yeri: " + Gallery.WhereText;
             for (int i = 0; i < RecordRows; i++)
             {
+                if (recordButtons[i] == null) continue;
                 bool show = i < recordFiles.Length;
                 recordButtons[i].Rt.gameObject.SetActive(show);
                 recordTags[i].gameObject.SetActive(show);

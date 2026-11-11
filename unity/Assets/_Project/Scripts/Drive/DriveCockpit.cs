@@ -65,6 +65,10 @@ namespace ARaki.Drive
         readonly List<Btn> buttons = new List<Btn>();
         readonly Dictionary<int, Vector2> looking = new Dictionary<int, Vector2>();
         bool dirty = true;
+        /// <summary>Telefon düzeni (büyük dokunma alanları); testler bilgisayarda da zorlayabilir.</summary>
+        public static bool? ForceTouch;
+        bool Touch => ForceTouch ?? Application.isMobilePlatform;
+        const float TouchSlop = 12f;   // telefonda düğmenin görünenden bu kadar dışına dokunmak da sayılır
         string layoutKey = "";
         DPad dpad;
 
@@ -300,7 +304,7 @@ namespace ARaki.Drive
             }
 
             // 3) üst sıra: sol köşede ÖNE BAK, sağ köşede MENÜ; ortada dikiz aynası
-            const float bw = 100f, bh = 78f, gap = 8f, mb = 64f;
+            float bw = 100f, bh = 78f, gap = 8f, mb = Touch ? 80f : 64f;
             float mbX = W - 24f - mb, mbY = H - 24f - mb;
             Button("ÖNE", new Rect(24f, mbY, mb, mb), drive.LookFront, null,
                    () => Mathf.Abs(Mathf.DeltaAngle(drive.Viewer.Yaw, 0f)) > 12f || Mathf.Abs(drive.Viewer.Pitch - drive.Viewer.DefaultPitch) > 12f,
@@ -362,7 +366,7 @@ namespace ARaki.Drive
         string Key()
         {
             var s = drive.Settings;
-            return W + "|" + s.Wheel + s.Cockpit + s.RearMirror + s.Touch + s.Unit + s.Gearbox + s.TopSpeedShown.ToString("0.000");
+            return W + "|" + Touch + s.Wheel + s.Cockpit + s.RearMirror + s.Touch + s.Unit + s.Gearbox + s.TopSpeedShown.ToString("0.000");
         }
 
         /// <summary>Gösterge rakamları en çok 5 tane olsun (küçük kadranda sıkışmasın) diye adım.</summary>
@@ -599,13 +603,14 @@ namespace ARaki.Drive
         void BuildMusicMenu()
         {
             var songs = drive.Firmware.Songs;
-            const int perColumn = 14;
+            int perColumn = Touch ? 8 : 14;
+            float lh = Touch ? 40f : 25f;   // satır yüksekliği
             int lines = songs.Count;
             string g0 = null;
             foreach (var so in songs) if (so.Group != g0) { g0 = so.Group; if (!string.IsNullOrEmpty(g0)) lines++; }
-            int columns = Mathf.Max(2, Mathf.CeilToInt(lines / (float)perColumn));
-            float pw = 24f + columns * 260f, ph = 430f;
-            var pr = new Rect(W / 2f - pw / 2f, H / 2f - 200f, pw, ph);
+            int columns = Mathf.Max(2, Mathf.CeilToInt((lines + 1) / (float)perColumn));
+            float pw = 24f + columns * 260f, ph = 80f + perColumn * lh + 20f;
+            var pr = new Rect(W / 2f - pw / 2f, Mathf.Max(12f, H / 2f - ph / 2f - 10f), pw, ph);
             musicRoot = Panel("Müzik", pr);
             int line = 0, column = 0;
             string group = null;
@@ -619,26 +624,26 @@ namespace ARaki.Drive
                     {
                         if (line >= perColumn - 1) { line = 0; column++; }
                         Label(musicRoot, group.ToUpperInvariant(), font, 12, Dim, TextAnchor.MiddleLeft,
-                              V(24f + column * 260f + 110f, ph - 60f - line * 25f), V(220, 18));
+                              V(24f + column * 260f + 110f, ph - 60f - line * lh - (lh - 25f) / 2f), V(220, 18));
                         Next();
                     }
                 }
                 int n = i + 1;
-                Button(songs[i].Title, new Rect(pr.x + 16f + column * 260f, pr.y + ph - 72f - line * 25f, 250f, 23f),
+                Button(songs[i].Title, new Rect(pr.x + 16f + column * 260f, pr.y + ph - 72f - line * lh - (lh - 25f), 250f, lh - 2f),
                        () => drive.PlayMelody(n), null, () => drive.PlayingMelody == n, 15, TextAnchor.MiddleLeft, musicRoot);
                 Next();
             }
             Label(musicRoot, "ŞARKILAR  ·  buzzer'dan çalar", font, 16, Text, TextAnchor.MiddleLeft, V(180f, ph - 24f), V(330, 22));
-            Button("DURDUR", new Rect(pr.xMax - 196f, pr.y + ph - 40f, 92f, 28f), drive.StopMelody, null, null, 14, TextAnchor.MiddleCenter, musicRoot);
+            Button("DURDUR", Touch ? new Rect(pr.xMax - 248f, pr.y + ph - 50f, 110f, 40f) : new Rect(pr.xMax - 196f, pr.y + ph - 40f, 92f, 28f), drive.StopMelody, null, null, 14, TextAnchor.MiddleCenter, musicRoot);
         }
 
         /// <summary>Korna seçimi: müzik paneli gibi liste; seçince bir kez çalar, panel KAPAT'a kadar açık kalır.</summary>
         void BuildHornMenu()
         {
             var names = DriveSettings.HornNames;
-            const float pw = 560f, rowH = 30f;
+            float pw = 560f, rowH = Touch ? 46f : 30f;
             int perColumn = Mathf.CeilToInt(names.Length / 2f);
-            float ph = 96f + perColumn * rowH;
+            float ph = Mathf.Min(H - 24f, 96f + perColumn * rowH);
             var pr = new Rect(W / 2f - pw / 2f, Mathf.Max(12f, H / 2f - ph / 2f + 40f), pw, ph);
             hornRoot = Panel("Korna", pr);
             Label(hornRoot, "KORNA SESİ  ·  dene ve seç", font, 16, Text, TextAnchor.MiddleLeft, V(180f, ph - 24f), V(330, 22));
@@ -659,37 +664,54 @@ namespace ARaki.Drive
         void BuildSettings()
         {
             var s = drive.Settings;
-            var r = new Rect(W / 2f - 290f, 12f, 580f, Mathf.Min(640f, H - 12f - 80f));   // üstteki bilgi satırlarının altında
+            // telefonda (Touch) satırlar parmağa göre yüksek, ayarlar iki sütun (geniş ekrana yayılır, kaydırma gerekmez)
+            bool touch = Touch;
+            float rh = touch ? 40f : 28f, step = rh + (touch ? 8f : 4f), colW = 560f;
+            int columns = touch && W >= 2 * colW + 60f ? 2 : 1, perColumn = columns == 2 ? 6 : 99;
+            float pw = columns * colW + (columns - 1) * 20f + 20f;
+            float ph = Mathf.Min(H - 12f - 80f, 46f + 40f + Mathf.Min(12, perColumn) * step + 80f);
+            var r = new Rect(W / 2f - pw / 2f, 12f, pw, ph);   // üstteki bilgi satırlarının altında
             settingsRoot = Panel("Ayarlar", r);
-            float y = r.yMax - 46f;
-            Label(settingsRoot, "AYARLAR", font, 18, Text, TextAnchor.MiddleLeft, V(r.x + 20f + 150f - r.x, y + 14f - r.y), V(300, 24));
-            y -= 40f;
+            float top = r.yMax - 46f;
+            Label(settingsRoot, "AYARLAR", font, 18, Text, TextAnchor.MiddleLeft, V(20f + 150f, top + 14f - r.y), V(300, 24));
+            top -= 40f + (touch ? 8f : 0f);
+            float y = top, cx = r.x + 10f;   // cx: sütunun sol kenarı
+            int row = 0;
+            float Right() => cx + colW - 10f;
+            void Next()
+            {
+                y -= step;
+                if (++row % perColumn == 0) { y = top; cx += colW + 20f; }
+            }
+            void RowLabel(string label) =>
+                Label(settingsRoot, label, font, touch ? 17 : 16, Text, TextAnchor.MiddleLeft, V(cx - r.x + 10f + 170f, y - r.y + rh / 2f), V(340, 22));
             void Toggle(string label, Func<bool> get, Action<bool> set)
             {
-                Label(settingsRoot, label, font, 16, Text, TextAnchor.MiddleLeft, V(170f + 20f, y - r.y + 14f), V(340, 22));
-                Button("", new Rect(r.xMax - 110f, y, 90f, 28f), () => { set(!get()); drive.ApplySettings(); dirty = true; }, null, get, 14,
+                RowLabel(label);
+                Button("", new Rect(Right() - 100f, y, 100f, rh), () => { set(!get()); drive.ApplySettings(); dirty = true; }, null, get, 14,
                        TextAnchor.MiddleCenter, settingsRoot, () => get() ? "AÇIK" : "KAPALI");
-                y -= 32f;
+                Next();
             }
             void Choice(string label, string[] options, Func<int> get, Action<int> set)
             {
-                Label(settingsRoot, label, font, 16, Text, TextAnchor.MiddleLeft, V(170f + 20f, y - r.y + 14f), V(340, 22));
-                float w = Mathf.Min(78f, (r.width - 230f) / options.Length), x = r.xMax - 20f - options.Length * w;   // etiketle çakışmasın
+                RowLabel(label);
+                float w = Mathf.Min(touch ? 90f : 78f, (colW - 210f) / options.Length), x = Right() - options.Length * w;   // etiketle çakışmasın
                 for (int i = 0; i < options.Length; i++)
                 {
                     int k = i;
-                    Button(options[i], new Rect(x + i * w, y, w - 4f, 28f), () => { set(k); drive.ApplySettings(); dirty = true; }, null,
+                    Button(options[i], new Rect(x + i * w, y, w - 4f, rh), () => { set(k); drive.ApplySettings(); dirty = true; }, null,
                            () => get() == k, w < 70f || options[i].Length > 8 ? 12 : 14, TextAnchor.MiddleCenter, settingsRoot);
                 }
-                y -= 32f;
+                Next();
             }
             void Stepper(string label, Func<string> value, Action minus, Action plus)
             {
-                Label(settingsRoot, label, font, 16, Text, TextAnchor.MiddleLeft, V(170f + 20f, y - r.y + 14f), V(340, 22));
-                Button("-", new Rect(r.xMax - 176f, y, 40f, 28f), () => { minus(); drive.ApplySettings(); }, null, null, 18, TextAnchor.MiddleCenter, settingsRoot);
-                Button("", new Rect(r.xMax - 134f, y, 72f, 28f), null, null, null, 15, TextAnchor.MiddleCenter, settingsRoot, value);
-                Button("+", new Rect(r.xMax - 60f, y, 40f, 28f), () => { plus(); drive.ApplySettings(); }, null, null, 18, TextAnchor.MiddleCenter, settingsRoot);
-                y -= 32f;
+                RowLabel(label);
+                float bw = touch ? 56f : 40f;
+                Button("-", new Rect(Right() - 2 * bw - 80f, y, bw, rh), () => { minus(); drive.ApplySettings(); }, null, null, 18, TextAnchor.MiddleCenter, settingsRoot);
+                Button("", new Rect(Right() - bw - 76f, y, 72f, rh), null, null, null, 15, TextAnchor.MiddleCenter, settingsRoot, value);
+                Button("+", new Rect(Right() - bw, y, bw, rh), () => { plus(); drive.ApplySettings(); }, null, null, 18, TextAnchor.MiddleCenter, settingsRoot);
+                Next();
             }
 
             Choice("Vites", new[] { "Otomatik", "Manuel", "Vitessiz" }, () => (int)s.Gearbox, v => s.Gearbox = (GearMode)v);
@@ -702,18 +724,17 @@ namespace ARaki.Drive
             Choice("Direksiyon", new[] { "Solda", "Ortada", "Sağda" }, () => (int)s.Wheel, v => s.Wheel = (WheelSide)v);
             Choice("Hız birimi", new[] { "km/sa", "m/sn" }, () => (int)s.Unit, v => s.Unit = (SpeedUnit)v);
             Choice("Görüntü", new[] { "Otomatik", "H.264", "JPEG", "Görünen" }, () => s.Video, v => s.Video = v);   // Görünen: yalnızca bakılan lens keskin
-            Stepper("Tekerlek çapı", () => s.WheelDiameterCm.ToString("0.0").Replace('.', ',') + " cm",
-                    () => s.WheelDiameterCm = Mathf.Max(2f, s.WheelDiameterCm - 0.5f), () => s.WheelDiameterCm = Mathf.Min(20f, s.WheelDiameterCm + 0.5f));
             Stepper("En yüksek güç", () => "%" + Mathf.RoundToInt(s.PowerLimit * 100f), () => drive.ChangePower(-0.05f), () => drive.ChangePower(0.05f));
+            RowLabel("Bağlantı");
+            Button("ROBOTU BUL", new Rect(Right() - 226f, y, 120f, rh), () => drive.Link.FindRobot(), null, () => !drive.Link.Demo, 14, TextAnchor.MiddleCenter, settingsRoot);
+            Button("DEMO", new Rect(Right() - 100f, y, 100f, rh), () => drive.Link.UseDemo(), null, () => drive.Link.Demo, 14, TextAnchor.MiddleCenter, settingsRoot);
+            Next();
 
-            y -= 6f;
-            Label(settingsRoot, "Bağlantı", font, 16, Text, TextAnchor.MiddleLeft, V(170f + 20f, y - r.y + 14f), V(340, 22));
-            Button("ROBOTU BUL", new Rect(r.xMax - 236f, y, 120f, 28f), () => drive.Link.FindRobot(), null, () => !drive.Link.Demo, 14, TextAnchor.MiddleCenter, settingsRoot);
-            Button("DEMO", new Rect(r.xMax - 110f, y, 90f, 28f), () => drive.Link.UseDemo(), null, () => drive.Link.Demo, 14, TextAnchor.MiddleCenter, settingsRoot);
-            y -= 30f;
-            settingsInfo = Label(settingsRoot, "", mono, 13, Dim, TextAnchor.UpperLeft, V(260f + 20f, y - r.y - 20f), V(520, 70));
-            Label(settingsRoot, "W A S D sür · boşluk korna · E / Q vites · L ışık · F selektör · H dörtlü · N müzik · M dikiz · P foto · V video · O ayarlar",
-                  font, 12, Dim, TextAnchor.MiddleCenter, V(280f, 22f), V(540, 16));
+            float infoY = columns == 2 ? top - perColumn * step : y;
+            settingsInfo = Label(settingsRoot, "", mono, 13, Dim, TextAnchor.UpperLeft, V(20f + 260f, infoY - r.y - 20f), V(520, 70));
+            if (!touch)
+                Label(settingsRoot, "W A S D sür · boşluk korna · E / Q vites · L ışık · F selektör · H dörtlü · N müzik · M dikiz · P foto · V video · O ayarlar",
+                      font, 12, Dim, TextAnchor.MiddleCenter, V(pw / 2f, 22f), V(540, 16));
         }
 
         RectTransform Panel(string name, Rect r)
@@ -721,7 +742,8 @@ namespace ARaki.Drive
             var rt = Rt(name, content, r.position, r.size);
             var bg = Shape("Zemin", rt);
             bg.RoundRect(new Rect(0, 0, r.width, r.height), 16f, Glass);
-            Button("KAPAT", new Rect(r.xMax - 96f, r.yMax - 40f, 84f, 28f), drive.CloseMenus,
+            bool touch = Touch;
+            Button("KAPAT", touch ? new Rect(r.xMax - 128f, r.yMax - 50f, 116f, 40f) : new Rect(r.xMax - 96f, r.yMax - 40f, 84f, 28f), drive.CloseMenus,
                    null, null, 14, TextAnchor.MiddleCenter, rt);
             rt.gameObject.SetActive(false);
             return rt;
@@ -960,6 +982,20 @@ namespace ARaki.Drive
                                    b.Rt.IsChildOf(hornRoot) || b.Rt.IsChildOf(robotRoot) || b.Rt.IsChildOf(recordsRoot);
                     if (overlay || !hitOverlay) { hit = b; hitOverlay = overlay; }
                 }
+                // telefonda parmak düğmeyi biraz ıskalasa da sayılır: en yakın düğme (açık panel varsa yalnızca paneldekiler)
+                if (hit == null && Touch)
+                {
+                    float best = TouchSlop;
+                    foreach (var b in buttons)
+                    {
+                        if (!b.Rt.gameObject.activeInHierarchy || b.Style == ButtonStyle.Invisible) continue;
+                        bool overlay = b.Rt.IsChildOf(menuRoot) || b.Rt.IsChildOf(settingsRoot) || b.Rt.IsChildOf(musicRoot) ||
+                                       b.Rt.IsChildOf(hornRoot) || b.Rt.IsChildOf(robotRoot) || b.Rt.IsChildOf(recordsRoot);
+                        if (overlay != AnyPanelOpen) continue;
+                        float d = DistanceTo(b.Rt, p);
+                        if (d < best) { best = d; hit = b; hitOverlay = overlay; }
+                    }
+                }
                 bool onPad = dpad != null && (p - dpad.Center).magnitude < dpad.Radius + 12f;
                 if (onPad && !hitOverlay && !(drive.SettingsOpen && Contains(settingsRoot, p)) && !(menuOpen && Contains(menuRoot, p)))
                 {
@@ -988,6 +1024,16 @@ namespace ARaki.Drive
             if (ts == null) return false;
             foreach (var t in ts.touches) if (t.touchId.ReadValue() == id) return t.press.wasPressedThisFrame;
             return false;
+        }
+
+        /// <summary>Noktanın dikdörtgene uzaklığı (içindeyse 0).</summary>
+        float DistanceTo(RectTransform rt, Vector2 p)
+        {
+            var corners = new Vector3[4];
+            rt.GetWorldCorners(corners);
+            Vector2 a = root.InverseTransformPoint(corners[0]), b = root.InverseTransformPoint(corners[2]);
+            float dx = Mathf.Max(a.x - p.x, 0f, p.x - b.x), dy = Mathf.Max(a.y - p.y, 0f, p.y - b.y);
+            return Mathf.Sqrt(dx * dx + dy * dy);
         }
 
         bool Contains(RectTransform rt, Vector2 p)

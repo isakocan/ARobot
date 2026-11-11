@@ -146,11 +146,12 @@ namespace ARaki.Video
 
             // Otomatik modda H.264 10 sn kare vermezse (hiç gelmedi ya da kesildi) JPEG'e geç; 15 sn sonra H.264'ü yeniden dene.
             // JPEG ~40 Mbit/s ister (H.264'ün 10 katı): Wi-Fi'ı boğduğu için yalnızca kısa bir yedek olmalı.
-            if (Mode == VideoMode.Auto && ActivePath == "H.264" && Time.unscaledTime - Mathf.Max(pathStarted, lastFrame) > 10f)
+            // JPEG'e kendiliğinden geçilmez: ~40 Mbit/s ister, zayıf sinyalde Wi-Fi'ı tümden boğar, her kareyi ana
+            // iş parçacığında çözdüğü için uygulama da kasar (gaz tepkisi gecikir). H.264 kesilirse yeniden bağlanılır.
+            if (Mode == VideoMode.Auto && ActivePath == "H.264" && Time.unscaledTime - Mathf.Max(pathStarted, lastFrame) > 6f)
             {
-                Debug.LogWarning("[Görüntü] H.264'ten kare gelmiyor, JPEG'e geçiliyor. " + LastError);
-                jpegFallback = true;
-                fallbackAt = Time.unscaledTime;
+                Debug.LogWarning("[Görüntü] H.264'ten kare gelmiyor, yeniden bağlanılıyor. " + LastError);
+                StopReader();
             }
             else if (jpegFallback && !h264Broken && Mode == VideoMode.Auto && Time.unscaledTime - fallbackAt > 15f)
                 jpegFallback = false;

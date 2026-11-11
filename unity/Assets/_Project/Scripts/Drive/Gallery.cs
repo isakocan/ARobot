@@ -26,7 +26,8 @@ namespace ARaki.Drive
 #if UNITY_ANDROID && !UNITY_EDITOR
             try
             {
-                bool video = path.EndsWith(".avi", StringComparison.OrdinalIgnoreCase);
+                bool mp4 = path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase);
+                bool video = mp4 || path.EndsWith(".avi", StringComparison.OrdinalIgnoreCase);
                 using (var unity = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
                 using (var activity = unity.GetStatic<AndroidJavaObject>("currentActivity"))
                 using (var resolver = activity.Call<AndroidJavaObject>("getContentResolver"))
@@ -35,7 +36,7 @@ namespace ARaki.Drive
                 using (var values = new AndroidJavaObject("android.content.ContentValues"))
                 {
                     values.Call("put", "_display_name", Path.GetFileName(path));
-                    values.Call("put", "mime_type", video ? "video/x-msvideo" : "image/png");
+                    values.Call("put", "mime_type", mp4 ? "video/mp4" : video ? "video/x-msvideo" : "image/png");
                     values.Call("put", "relative_path", (video ? "Movies/" : "Pictures/") + Album);
                     using (var item = resolver.Call<AndroidJavaObject>("insert", collection, values))
                     {

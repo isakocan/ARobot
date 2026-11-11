@@ -137,7 +137,9 @@ namespace ARaki.Tests
             Debug.Log($"[Test] video {info.Length / 1024} KB: {saved}");
             Assert.Greater(info.Length, 50000);
             string shots = System.Environment.GetEnvironmentVariable("ARAKI_SHOT");
-            if (!string.IsNullOrEmpty(shots)) File.Copy(saved, Path.Combine(shots, "deneme_video.avi"), true);
+            if (Application.platform == RuntimePlatform.WindowsEditor)
+                StringAssert.EndsWith(".mp4", saved, "Windows'ta MP4 (Media Foundation) yazılmalı");
+            if (!string.IsNullOrEmpty(shots)) File.Copy(saved, Path.Combine(shots, "deneme_video" + Path.GetExtension(saved)), true);
             File.Delete(saved);
         }
 
@@ -217,6 +219,17 @@ namespace ARaki.Tests
             yield return Shot(Path.Combine(dir, "kayitlar.png"));
             drive.RecordsOpen = false;
             if (photo != null) File.Delete(photo);
+            // telefon düzeni (büyük dokunma alanları, iki sütunlu ayarlar)
+            DriveCockpit.ForceTouch = true;
+            drive.SettingsOpen = true;
+            yield return new WaitForSecondsRealtime(0.4f);
+            yield return Shot(Path.Combine(dir, "ayarlar_telefon.png"));
+            drive.SettingsOpen = false;
+            drive.RobotPanelOpen = true;
+            yield return new WaitForSecondsRealtime(0.3f);
+            yield return Shot(Path.Combine(dir, "robot_paneli_telefon.png"));
+            drive.RobotPanelOpen = false;
+            DriveCockpit.ForceTouch = null;
         }
 
         static IEnumerator Shot(string path)

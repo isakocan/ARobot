@@ -51,8 +51,7 @@ Kontrol listesi:
 ### A5. Theta S'in kendiliğinden kapanmasını engelle
 Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulamasında "Uyku modu" ve "Otomatik kapanma"yı kapat (kamera ayarları).
 
-### A6. Hız sabitleyici, kayıt ve tekrar (yazılım fikirleri)
-- **Hız sabitleyici:** C tuşu o anki hızı tutar, tuşa basmadan gider.
+### A6. Kayıt ve tekrar (yazılım fikirleri)
 - **Sürüşü kaydet ve tekrar oynat:** sayfa gönderdiği komutları zamanlarıyla saklar, "tekrar" deyince aynı yolu sürer. Encoder olmadığı için kayma birikir; kısa yollarda eğlenceli. Senaryolar:
   - **Üsse otomatik dönüş:** pil azalınca robot geldiği yolu tersten sürüp üsse döner. Kayma birikeceği için son metrelerde kamera üssü (ArUco işareti) görüp yerleşmeli.
   - **Devriye:** kaydedilen bir yolu robot tekrar tekrar sürer, sen kameradan izlersin (ev bekçisi).
@@ -60,7 +59,6 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
 - **Parti modu:** müzik + ışık ritimle (dörtlü melodinin vuruşuna göre). Röle yıpranmasına dikkat.
 - **Telefonla bakma:** telefonun jiroskopu ile telefonu çevirince 360° görüntüde etrafa bakılır; Cardboard ile VR gözlüğü.
 - **El hareketiyle kontrol:** kameraya el sallayınca robot gelir, avuç gösterince durur, işaret parmağıyla yön. Jetson'da el iskeleti modeli (ör. MediaPipe Hands / trt_pose_hand) 360° karenin ön parçasında çalışır.
-- **Telefonu direksiyon yapmak:** telefonu yatay tutup sağa sola eğerek dönme.
 - **360° fotoğraf:** düğmeyle o anki tam kareyi indir.
 
 ## B. Sensör gerektirenler
@@ -108,7 +106,7 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
   - Sonra %60'ta tekrarla.
 - **Kod:** akım sıkışma akımının ~%70'ini 800 ms aşarsa o motoru durdur, sayfada "teker sıkıştı" uyarısı. Kısa kalkış tepeleri (0,9 A) tetiklemesin diye süre şartı var.
 
-### B5. Işık sensörü (LDR) → otomatik far
+### B5. (YERİNE GÖRÜNTÜDEN) Işık sensörü (LDR) → otomatik far
 - **Parça:** LDR + 10 kΩ direnç, bir analog pine (A3).
 - **Davranış:** karanlık eşiğin altına inince ışık kendiliğinden yanar. Sayfada "otomatik far" seçeneği.
 
@@ -154,13 +152,14 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
 B ile arkaya bakınca W yine robotun önüne gider. İstenirse "kameraya göre sür" seçeneği: arkaya bakarken tuşlar ters çevrilir.
 
 ## D. Uygulama (Unity) tarafı
+
+- [ ] **Görüntüden otomatik far:** ışık sensörü yerine kameranın kendi görüntüsünün parlaklığı: ön lensin ortalama parlaklığı birkaç saniye eşiğin altında kalınca ışık yanar, aydınlanınca söner (iki eşik + bekleme: ışık yanınca görüntü de aydınlanacağı için gidip gelmesin). Jetson'da ucuz (küçük kare üstünden ortalama) ya da uygulamada.
+- [ ] **(Fikir) Nesne algılamayla otomatik fren:** ileride önündeki engeli / insanı görüntüden algılayıp robotu yavaşlatmak ya da durdurmak (Jetson'da küçük bir algılama modeli, ön lens).
 - [x] Sürüş Unity'de (3 Kasım): `Scenes/RealRobot.unity`, `Scripts/Drive`. UDP sürüş kanalı (köprü :8081), robotu otomatik bulma, kokpit (direksiyon sol/orta/sağ, iç ve yan aynalar, devir ve hız saatleri), vites, kamera hareketi, şarkı menüsü, foto/video, robotsuz demo (kayıtlı görüntü + buzzer kopyası). Tarayıcı sürüş sayfası artık yalnızca yedek.
-- [ ] **Unity'de H.264:** şu an görüntü JPEG akışından (20-50 Mbit/s). Telefonda Android'in donanım çözücüsü (MediaCodec) için küçük bir eklenti, PC'de FFmpeg. Wi-Fi menzili için en büyük kazanç bu.
 - [ ] **Titreşim:** telefonda titreşimle his: korna ve düğmelerde kısa tık, vites geçişinde hafif vuruş, çarpma / sert frende güçlü titreşim, sinyal zayıflayınca uyarı titreşimi.
 - [ ] **EDUROAM'a bağlanamama:** robot 11 Kasım'da EDUROAM'a bağlanmadı (sebep bakılacak: profil, giriş sayfası, kayıtlı giriş bilgisi). Not: okul ağı cihazlar arası UDP'yi kestiği için sürüşe zaten uygun değil; robota internet ya da panel erişimi için gerekli.
 - [ ] **Jiroskopla direksiyon:** telefonu direksiyon gibi sağa sola yatırarak dönme (ayarlardan seçilir); ortada ölü bölge, yatırma açısı direksiyon açısına yumuşak eşlenir, titreşimle orta noktası hissedilir.
 - [ ] **Düğmelerin soluklaşması:** 5 sn dokunulmayınca düğmeler ve bilgiler soluklaşsın, ekran görüntüye kalsın; dokununca ya da tuşa basınca geri gelsin.
-- [ ] **Telefona kurmak:** Unity Hub → 6000.3.26f1 → "Android Build Support" modülü (OpenJDK + SDK/NDK ile). Sonra telefonu kabloyla bağlayıp Build And Run.
 - **Görüntü:** H.264 Android'in donanım çözücüsü (MediaCodec) ile çözülür, 360° düzeltme aynı gölgelendirici mantığıyla Unity'de.
 - **Son kullanıcı arayüzü:** teşhis bilgileri (ms, dBm, Mbit/s, akım) gizli bir geliştirici ekranına taşınır; kullanıcı yalnızca basit durum görür.
 

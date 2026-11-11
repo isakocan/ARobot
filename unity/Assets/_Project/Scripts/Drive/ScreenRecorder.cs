@@ -11,9 +11,10 @@ using UnityEngine.Rendering;
 namespace ARaki.Drive
 {
     /// <summary>
-    /// Ekranda görüneni (kokpit dahil) kaydeder: fotoğraf (PNG) ve video (Motion-JPEG .avi, VLC ve Windows
-    /// oynatıcısı açar). Video kareleri ekran kartından eşzamansız okunur, JPEG'e arka planda çevrilip diske
-    /// yazılır; sürüşü yavaşlatmaz. Ses: cihazın mikrofonu (telefon / PC), 22 kHz mono, videoyla aynı dosyada;
+    /// Ekranda görüneni (kokpit dahil) kaydeder: fotoğraf (PNG) ve video (MP4: H.264 + AAC; telefonda Android'in,
+    /// bilgisayarda Windows'un kendi donanım kodlayıcısıyla; ikisi de açılamazsa yedek Motion-JPEG .avi). Video
+    /// kareleri ekran kartından eşzamansız okunur, arka planda kodlanır; sürüşü yavaşlatmaz. Ses: cihazın mikrofonu
+    /// (telefon / PC), 44,1 kHz mono, videoyla aynı dosyada;
     /// telefonda ilk kayıtta mikrofon izni istenir. Kayıt yeri: PC'de Resimler/Robot, telefonda uygulamanın klasörü.
     /// </summary>
     public class ScreenRecorder : MonoBehaviour
@@ -28,9 +29,10 @@ namespace ARaki.Drive
         /// <summary>Son kayıtta ses var mı (mikrofon yoksa ya da izin verilmediyse yok).</summary>
         public bool HasAudio { get; private set; }
 
-        const int MicRate = 22050;
+        const int MicRate = 44100;   // AAC kodlayıcılar 44,1 / 48 kHz ister
+        const int VideoBitrate = 6000000;   // bit/sn: 720p ekran kaydı (JPEG'li AVI'nin ~onda biri)
 
-        AviWriter writer;
+        IVideoWriter writer;
         AudioClip mic;
         int micPos;
         float[] micBuffer = new float[MicRate];
@@ -72,13 +74,32 @@ namespace ARaki.Drive
 
         public void StartVideo()
         {
-            int h = Mathf.Min(videoHeight, Screen.height);
+            int h = Mathf.Min(videoHeight, Screen.height) & ~1;   // H.264 çift boyut ister
             int w = Mathf.RoundToInt(h * Screen.width / (float)Screen.height) & ~1;
             mic = StartMic();
             HasAudio = mic != null;
-            writer = new AviWriter(Path.Combine(Folder, "video_" + Stamp() + ".avi"), w, h, videoFps, jpegQuality, HasAudio ? MicRate : 0);
+            writer = OpenWriter(Path.Combine(Folder, "video_" + Stamp()), w, h, HasAudio ? MicRate : 0);
             nextFrame = 0f;
             StartCoroutine(Capture());
+        }
+
+        /// <summary>MP4 dener (telefon: MediaCodec, Windows: Media Foundation); olmazsa AVI.</summary>
+        IVideoWriter OpenWriter(string pathNoExt, int w, int h, int audioRate)
+        {
+            try
+            {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                return new AndroidMp4Writer(pathNoExt + ".mp4", w, h, videoFps, VideoBitrate, audioRate);
+#elif UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
+                return new WindowsMp4Writer(pathNoExt + ".mp4", w, h, videoFps, VideoBitrate, audioRate);
+#endif
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[Kayıt] MP4 açılamadı, AVI'ye geçiliyor: " + e.GetType().Name + " " + e.Message);
+                try { File.Delete(pathNoExt + ".mp4"); } catch (Exception) { }
+            }
+            return new AviWriter(pathNoExt + ".avi", w, h, videoFps, jpegQuality, audioRate);
         }
 
         public void StopVideo()
@@ -91,10 +112,13 @@ namespace ARaki.Drive
             StartCoroutine(Finish(w));
         }
 
-        IEnumerator Finish(AviWriter w)
+        IEnumerator Finish(IVideoWriter w)
         {
             while (pendingReadbacks > 0) yield return null;   // yoldaki kareler de yazılsın
-            string path = w.Close();
+            string path = null;
+            var t = new System.Threading.Thread(() => path = w.Close()) { IsBackground = true };   // kapanış kodlayıcıyı bekler
+            t.Start();
+            while (t.IsAlive) yield return null;
             Saved?.Invoke(path);
         }
 
@@ -148,7 +172,7 @@ namespace ARaki.Drive
         }
 
         /// <summary>Mikrofonda biriken örnekleri videoya ekler (halka arabelleğin sonunda başa döner).</summary>
-        void PumpMic(AviWriter w)
+        void PumpMic(IVideoWriter w)
         {
             if (mic == null || w == null) return;
             int pos = Microphone.GetPosition(null);
@@ -182,7 +206,7 @@ namespace ARaki.Drive
         /// En basit video dosyası: AVI kabı içinde art arda JPEG kareler (MJPG). Kareler arka planda JPEG'e çevrilir.
         /// Dosya kapanırken başlıktaki sayılar ve kare dizini (idx1) yazılır.
         /// </summary>
-        class AviWriter
+        class AviWriter : IVideoWriter
         {
             public int Width { get; }
             public int Height { get; }

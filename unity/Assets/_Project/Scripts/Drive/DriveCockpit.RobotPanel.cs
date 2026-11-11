@@ -69,11 +69,12 @@ namespace ARaki.Drive
             for (int i = 0; i < NetRows; i++)
             {
                 int k = i;
-                netButtons[i] = Button("", new Rect(r.x + L, r.y + y, r.width - 2f * L, 27f), () => ChooseNetwork(k), null,
+                float nh = Touch ? 38f : 27f;   // telefonda parmağa göre
+                netButtons[i] = Button("", new Rect(r.x + L, r.y + y - (nh - 27f), r.width - 2f * L, nh), () => ChooseNetwork(k), null,
                                        () => NetworkAt(k)?.ssid != null && NetworkAt(k).ssid == panel.Status?.ag, 15, TextAnchor.MiddleLeft, robotRoot,
                                        () => NetworkAt(k)?.ssid ?? "");
-                netTags[i] = Label(robotRoot, "", mono, 12, Dim, TextAnchor.MiddleRight, V(r.width - L - 110f - 10f, y + 13.5f), V(220, 16));
-                y -= 30f;
+                netTags[i] = Label(robotRoot, "", mono, 12, Dim, TextAnchor.MiddleRight, V(r.width - L - 110f - 10f, y + 13.5f - (nh - 27f) / 2f), V(220, 16));
+                y -= nh + 3f;
             }
 
             // şifre / onay satırı (bir ağ seçilince)

@@ -37,9 +37,8 @@ SAYFA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "panel.html")
 PORTAL_IP = "10.42.0.1"
 PORT = 80
 
-BEKLEME = 90          # sn: bağlantı yoksa bu kadar bekleyip kurulum ağını aç (kısa kopmalarda açılmasın)
-BOS_AP_SURE = 60      # sn: kurulum ağında kimse yoksa kayıtlı ağları yeniden dene (eskiden 300: robot 5 dk
-                      # ulaşılamaz kalıyor, elektriği kesmeden geri gelmiyor gibi görünüyordu)
+BEKLEME = 20          # sn: bağlı ağ yoksa bu kadar sonra kurulum ağı açılır (kullanıcı hızlıca yeni ağ seçebilsin)
+BOS_AP_SURE = 60      # sn: kurulum ağında kimse yoksa kayıtlı ağları yeniden dene
 BAGLANMA_SURESI = 40  # sn: seçilen ağa bağlanma için üst sınır
 ONAY_SURESI = 300     # sn: yeni ağda bu sürede kimse panele ulaşmazsa önceki ağa dönülür
 INTERNET_ARALIGI = 10   # sn: internet varken kontrol aralığı
