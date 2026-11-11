@@ -38,7 +38,8 @@ namespace ARaki.Robot
         public int Melody { get { lock (gate) return melody; } }
 
         /// <summary>Ezgili kornalar (korna sesi 5, 6, ...): Arduino'daki KORNA_EZGI ile aynı sıra.</summary>
-        public static readonly string[] MelodicHorns = { "EF_CUCARACHA", "EF_DIXIE", "EF_BABA", "EF_HAVALI", "EF_TRAS" };
+        public static readonly string[] MelodicHorns = { "EF_CUCARACHA", "EF_DIXIE", "EF_BABA", "EF_TRAS" };
+        const int Held = 6;   // Arduino KORNA_BASILI
 
         void Awake()
         {
@@ -59,11 +60,11 @@ namespace ARaki.Robot
             {
                 bool fresh = clockMs >= hornEnd;   // basılı tutarken gelen yenileme değil
                 hornEnd = clockMs + Mathf.Clamp(ms, 1, 2000);
-                hornStyle = Mathf.Clamp(style, 0, 4 + MelodicHorns.Length);
+                hornStyle = Mathf.Clamp(style, 0, Held - 1 + MelodicHorns.Length);
                 if (fresh)
                 {
                     hornStart = clockMs;
-                    if (hornStyle >= 5) StartEffect(fw[MelodicHorns[hornStyle - 5]]);
+                    if (hornStyle >= Held) StartEffect(fw[MelodicHorns[hornStyle - Held]]);
                 }
             }
         }
@@ -132,9 +133,15 @@ namespace ARaki.Robot
 
             int hz = 0;
             playingWobble = false;
-            if (now < hornEnd && hornStyle < 5)
+            if (now < hornEnd && hornStyle < Held)
             {
-                if (hornStyle == 4)
+                if (hornStyle == 5)
+                {
+                    double t = now - hornStart;
+                    hz = t < fw["HAVALI_GIRIS"] ? fw["HAVALI_ALT"] + (int)(t * (fw["HAVALI_HZ_1"] - fw["HAVALI_ALT"]) / fw["HAVALI_GIRIS"])
+                                              : ((long)(now / fw["HAVALI_ADIMI"]) % 2) != 0 ? fw["HAVALI_HZ_1"] : fw["HAVALI_HZ_2"];
+                }
+                else if (hornStyle == 4)
                 {
                     double t = (now - hornStart) % 520;
                     hz = t < 170 || (t >= 230 && t < 400) ? fw["DUDUT_HZ"] : 0;

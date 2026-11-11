@@ -645,14 +645,14 @@ namespace ARaki.Drive
             for (int i = 0; i < names.Length; i++)
             {
                 int k = i, col = i / perColumn, row = i % perColumn;
-                string tag = i >= 5 ? "ezgi" : "basılı tut";
+                string tag = i >= DriveSettings.HeldHorns ? "ezgi" : "basılı tut";
                 Button(names[i], new Rect(pr.x + 16f + col * 268f, pr.y + ph - 82f - row * rowH, 258f, rowH - 4f),
                        () => { drive.Settings.HornStyle = k; drive.ApplySettings(); drive.TestHorn(); }, null,
                        () => drive.Settings.HornStyle == k, 15, TextAnchor.MiddleLeft, hornRoot);
                 Label(hornRoot, tag, font, 11, Dim, TextAnchor.MiddleRight,
                       V(16f + col * 268f + 258f - 50f, ph - 82f - row * rowH + (rowH - 4f) / 2f), V(84, 16));
             }
-            Label(hornRoot, "Düz…Dü-düt: basılı tuttukça öter  ·  ezgiler: basınca bir kez çalar", font, 12, Dim, TextAnchor.MiddleCenter,
+            Label(hornRoot, "Düz…Havalı: basılı tuttukça öter  ·  ezgiler: basınca bir kez çalar", font, 12, Dim, TextAnchor.MiddleCenter,
                   V(pw / 2f, 18f), V(pw - 30f, 16));
         }
 
@@ -695,14 +695,13 @@ namespace ARaki.Drive
             Choice("Vites", new[] { "Otomatik", "Manuel", "Vitessiz" }, () => (int)s.Gearbox, v => s.Gearbox = (GearMode)v);
             Toggle("Geri vites bipi", () => s.ReverseBeep, v => s.ReverseBeep = v);
             Toggle("Efekt sesleri", () => s.Effects, v => s.Effects = v);
-            Toggle("Vites sesi", () => s.GearSound, v => s.GearSound = v);
             Toggle("Kamera hareketi", () => s.CameraMotion, v => s.CameraMotion = v);
             Toggle("Kokpit", () => s.Cockpit, v => s.Cockpit = v);
             Toggle("Dikiz aynası", () => s.RearMirror, v => s.RearMirror = v);
             Choice("Dokunmatik sürüş", new[] { "Kapalı", "Yön tuşu", "Pedal", "Direksiyon" }, () => (int)s.Touch, v => s.Touch = (TouchMode)v);
             Choice("Direksiyon", new[] { "Solda", "Ortada", "Sağda" }, () => (int)s.Wheel, v => s.Wheel = (WheelSide)v);
             Choice("Hız birimi", new[] { "km/sa", "m/sn" }, () => (int)s.Unit, v => s.Unit = (SpeedUnit)v);
-            Choice("Görüntü", new[] { "Otomatik", "H.264", "JPEG" }, () => s.Video, v => s.Video = v);
+            Choice("Görüntü", new[] { "Otomatik", "H.264", "JPEG", "Görünen" }, () => s.Video, v => s.Video = v);   // Görünen: yalnızca bakılan lens keskin
             Stepper("Tekerlek çapı", () => s.WheelDiameterCm.ToString("0.0").Replace('.', ',') + " cm",
                     () => s.WheelDiameterCm = Mathf.Max(2f, s.WheelDiameterCm - 0.5f), () => s.WheelDiameterCm = Mathf.Min(20f, s.WheelDiameterCm + 0.5f));
             Stepper("En yüksek güç", () => "%" + Mathf.RoundToInt(s.PowerLimit * 100f), () => drive.ChangePower(-0.05f), () => drive.ChangePower(0.05f));
@@ -745,6 +744,7 @@ namespace ARaki.Drive
             float dt = Time.unscaledDeltaTime;
 
             video.Mode = (VideoMode)s.Video;
+            video.ViewCamera = drive.Viewer.ViewCamera;
             if (wheelRt != null)
             {
                 // tutulurken simit parmağı izler; bırakınca direksiyonla birlikte ortaya döner

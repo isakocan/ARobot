@@ -61,7 +61,7 @@ namespace ARaki.Drive
             previewText = Label(recordsRoot, "", font, 14, Dim, TextAnchor.MiddleCenter, V(px + pw / 2f, py + ph / 2f), V(pw - 20f, 40));
             previewText.horizontalOverflow = HorizontalWrapMode.Wrap;
             float by = py - 40f;
-            Button(Application.isMobilePlatform ? "GALERİYİ AÇ" : "KLASÖRÜ AÇ", new Rect(r.x + px, r.y + by, 140f, 30f), Gallery.OpenFolder,
+            Button(Application.isMobilePlatform ? "GALERİDE AÇ" : "KLASÖRÜ AÇ", new Rect(r.x + px, r.y + by, 140f, 30f), Gallery.OpenFolder,
                    null, null, 13, TextAnchor.MiddleCenter, recordsRoot);
             if (!Application.isMobilePlatform)
                 Button("DOSYAYI AÇ", new Rect(r.x + px + 150f, r.y + by, 130f, 30f),

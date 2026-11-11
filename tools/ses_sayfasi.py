@@ -16,15 +16,14 @@ EFEKTLER = [
     ("E_BAGLANDI", "Bağlandı", "Uygulama robota ilk bağlanınca ve kopan bağlantı geri gelince", "efekt"),
     ("E_KOPTU", "Koptu", "1,5 sn robottan haber alınamayınca (sesler susar, ışık söner)", "efekt"),
     ("E_KAPANIS", "Kapanış", "Robot panelinden Kapat ya da Yeniden başlat deyince", "efekt"),
-    ("E_VITES", "Vites", "Her vites geçişinde (ayarlarda Vites sesi)", "efekt"),
     ("E_FOTO", "Fotoğraf", "Fotoğraf çekince", "efekt"),
     ("E_KAYIT_BASLA", "Kayıt başladı", "Video kaydı başlayınca", "efekt"),
     ("E_KAYIT_BITTI", "Kayıt bitti", "Video kaydı bitince", "efekt"),
     ("E_ALARM", "Alarm", "Jetson 80 °C'yi geçince ya da teker sıkışıp akım koruması devreye girince (her zaman çalar)", "efekt"),
 ]
-KORNALAR = [("Düz", 0), ("Kalın", 1), ("Tiz", 2), ("Titrek", 3), ("Dü-düt", 4)]
+KORNALAR = [("Düz", 0), ("Kalın", 1), ("Tiz", 2), ("Titrek", 3), ("Dü-düt", 4), ("Havalı", 5)]
 EZGILI = [("E_CUCARACHA", "La Cucaracha"), ("E_DIXIE", "Dixie"), ("E_BABA", "Baba"),
-          ("E_HAVALI", "Havalı korna"), ("E_TRAS", "Ta-ta-ra-ta-ta")]
+          ("E_TRAS", "Ta-ta-ra-ta-ta")]
 
 
 def sarkilar(kaynak):

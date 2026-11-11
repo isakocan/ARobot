@@ -1,5 +1,13 @@
 # Robot: yapılacaklar
 
+## Değişiklik günlüğü (5 Kasım 2026)
+
+- **B2 (mesafe sensörü) ve B3 (IMU) iptal.** Robotta bu sensörler olmayacak; konum yalnızca 360° kameradan bulunacak. Hocadaki tek noktalı lidar çok büyük olduğu için takılmadı.
+- **Yeni: 360° kamerayla oda haritalama denemesi.** Robot oda içinde dolaştırılır, 360° görüntülerden yapı çıkarılır; doğruluk telefon taramasıyla karşılaştırılır. Ölçüm için robotun yerden yüksekliği ve kamera çözünürlüğü not edilir.
+- **Yeni: konum belirleme denemesi.** Kaydedilmiş oda haritası ile robotun 360° görüntüsü eşleştirilir (PICCOLO/CPO benzeri). Ar-Ge çekirdeği.
+- **Hibrit oda taraması:** iPhone LiDAR ve LiDAR'sız telefonda çift kamera ile de harita çıkarılacak; hangi yöntemin hangi durumda daha iyi olduğu ölçülecek.
+- **Fiyat ve malzeme:** Motor ve LiPo fiyatları ara raporda referans olarak yazıldı; diğer parçalar danışmandan temin edildi.
+
 Öncelik sırasına yakın. Her maddede ne gerekiyor, nasıl yapılır, nereye dokunulur.
 
 ## A. Hemen denenecekler (parça gerekmez)
@@ -77,7 +85,7 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
   - Daha da düşerse panel Jetson'u güvenli kapatır.
 - **Oyuna bağlantı:** gerçek pil = oyundaki yakıt (CLAUDE.md'deki fikir).
 
-### B2. Mesafe sensörü → engelde fren, park sensörü
+### B2. (İPTAL) Mesafe sensörü: robotta sensör olmayacak
 - **Elde olan:** hocadaki tek noktalı lidar (modeli öğrenilmeli: TF-Luna / TFmini ise UART ya da I2C; VL53L0X / VL53L1X ise I2C) ve yakınlık sensörü.
 - **Bağlantı:**
   - I2C ise Arduino A4 (SDA) / A5 (SCL).
@@ -86,7 +94,7 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
 - **Park sensörü bipi (arkada):** geri giderken bip aralığı mesafeyle kısalır, 10 cm'de sürekli bip. Ses altyapısı hazır (geri vites bipinin aralığını mesafeye bağlamak yeter).
 - **Oyun:** CLAUDE.md'deki "mesafe sensörü evi haritalar" (ExplorationMap) fikri bu sensörle gerçek olur. Robot yerinde dönerken ölçüm alıp çevresinin kabaca haritasını çıkarır.
 
-### B3. IMU (ivme + jiroskop) → düz gitme, çarpma algılama, AR
+### B3. (İPTAL) IMU: robotta sensör olmayacak
 - **Parça:** MPU-6050 (ucuz) ya da BNO055 (yönü kendisi hesaplar, daha kolay). I2C, A4/A5.
 - **Düz gitme:** encoder yok; iki taraf aynı PWM'de bile biraz farklı döner, robot kayar. Jiroskopla yön tutulur: düz giderken sapma varsa bir tarafa küçük düzeltme (PID'in P'si yeter).
 - **Çarpma algılama:** ani ivme → motorları durdur, dörtlü yak, kısa bip.
@@ -149,6 +157,7 @@ B ile arkaya bakınca W yine robotun önüne gider. İstenirse "kameraya göre s
 - [x] Sürüş Unity'de (3 Kasım): `Scenes/RealRobot.unity`, `Scripts/Drive`. UDP sürüş kanalı (köprü :8081), robotu otomatik bulma, kokpit (direksiyon sol/orta/sağ, iç ve yan aynalar, devir ve hız saatleri), vites, kamera hareketi, şarkı menüsü, foto/video, robotsuz demo (kayıtlı görüntü + buzzer kopyası). Tarayıcı sürüş sayfası artık yalnızca yedek.
 - [ ] **Unity'de H.264:** şu an görüntü JPEG akışından (20-50 Mbit/s). Telefonda Android'in donanım çözücüsü (MediaCodec) için küçük bir eklenti, PC'de FFmpeg. Wi-Fi menzili için en büyük kazanç bu.
 - [ ] **Titreşim:** telefonda titreşimle his: korna ve düğmelerde kısa tık, vites geçişinde hafif vuruş, çarpma / sert frende güçlü titreşim, sinyal zayıflayınca uyarı titreşimi.
+- [ ] **Jiroskopla direksiyon:** telefonu direksiyon gibi sağa sola yatırarak dönme (ayarlardan seçilir); ortada ölü bölge, yatırma açısı direksiyon açısına yumuşak eşlenir, titreşimle orta noktası hissedilir.
 - [ ] **Düğmelerin soluklaşması:** 5 sn dokunulmayınca düğmeler ve bilgiler soluklaşsın, ekran görüntüye kalsın; dokununca ya da tuşa basınca geri gelsin.
 - [ ] **Telefona kurmak:** Unity Hub → 6000.3.26f1 → "Android Build Support" modülü (OpenJDK + SDK/NDK ile). Sonra telefonu kabloyla bağlayıp Build And Run.
 - **Görüntü:** H.264 Android'in donanım çözücüsü (MediaCodec) ile çözülür, 360° düzeltme aynı gölgelendirici mantığıyla Unity'de.
@@ -184,3 +193,6 @@ Ev haritası telefonla taranırsa harita bilinir; robot yalnızca haritadaki yer
 - **Motor + IMU:** düzeltmeler arasında tahmin. Motor: HN-GH12-2217Y, 12 V'ta 120 dev/dk, 50:1.
 - **Birleştirme: parçacık filtresi.** 500 "burada olabilir" tahmini; hareketle kaydır (motor + IMU), kameranın sahte lidarına uymayanları ele. Başlangıç / kaybolma için Wi-Fi ve panorama tanıma.
 - **Tek kameradan derinlik:** MiDaS / Depth Anything (küçük), göreli derinlik; ölçek zemin düzleminden.
+
+## G. İleride: ROS
+- [ ] **ROS 2'yi yeniden değerlendir:** hoca önerdi. Bugünkü sürüş (köprü + Arduino) için gerekmiyor; haritalama, konum bulma ve otonom gezinme gelince hazır paketleri (SLAM, Nav2, tf, rosbag) için ele alınır. Jetson'da Docker içinde Humble kurulu. Yol: köprünün yanına durum yayınlayan / hız komutu dinleyen ince bir ROS düğümü; görüntü ROS'tan geçmez.

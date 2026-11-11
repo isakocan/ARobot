@@ -745,7 +745,7 @@ function h264Baslat() {
 
   sock.onmessage = (e) => {
     const veri = new Uint8Array(e.data);
-    const anahtar = veri[0] === 1;
+    const anahtar = (veri[0] & 1) === 1;   // bit 0: tam kare, üstü akış sırası
     const au = veri.subarray(1);
     if (anahtarBekle && !anahtar) return;
     const n = nallar(au);

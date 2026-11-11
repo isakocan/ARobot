@@ -12,6 +12,9 @@ namespace ARaki.Drive
     public static class Gallery
     {
         public const string Album = "Robot Sürüş";
+        // Samsung, Xiaomi, Huawei, Oppo/OnePlus galeri uygulamaları
+        static readonly string[] GalleryApps = { "com.sec.android.gallery3d", "com.miui.gallery", "com.android.gallery3d",
+                                                 "com.huawei.photos", "com.coloros.gallery3d", "com.oneplus.gallery" };
 
         public static string WhereText => Application.isMobilePlatform
             ? "Galeri › " + Album + " (fotoğraflar Pictures, videolar Movies içinde)"
@@ -72,12 +75,22 @@ namespace ARaki.Drive
             {
                 using (var unity = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
                 using (var activity = unity.GetStatic<AndroidJavaObject>("currentActivity"))
-                using (var intentClass = new AndroidJavaClass("android.content.Intent"))
-                using (var intent = intentClass.CallStatic<AndroidJavaObject>("makeMainSelectorActivity",
-                           "android.intent.action.MAIN", "android.intent.category.APP_GALLERY"))
+                using (var packages = activity.Call<AndroidJavaObject>("getPackageManager"))
                 {
+                    // telefonun kendi galerisi (Google Fotoğraflar değil): önce bilinen galeri uygulamaları, yoksa sistemin seçtiği
+                    AndroidJavaObject intent = null;
+                    foreach (string app in GalleryApps)
+                    {
+                        intent = packages.Call<AndroidJavaObject>("getLaunchIntentForPackage", app);
+                        if (intent != null) break;
+                    }
+                    if (intent == null)
+                        using (var intentClass = new AndroidJavaClass("android.content.Intent"))
+                            intent = intentClass.CallStatic<AndroidJavaObject>("makeMainSelectorActivity",
+                                "android.intent.action.MAIN", "android.intent.category.APP_GALLERY");
                     intent.Call<AndroidJavaObject>("addFlags", 0x10000000);   // FLAG_ACTIVITY_NEW_TASK
                     activity.Call("startActivity", intent);
+                    intent.Dispose();
                 }
             }
             catch (Exception e) { Debug.LogWarning("[Galeri] açılamadı: " + e.Message); }

@@ -57,8 +57,8 @@ E = {
     "E_VITES": nota(392, 18) + nota(262, 34),
     # alarm: iki tonlu acil uyarı, 3 kez
     "E_ALARM": (nota(1760, 140) + nota(1175, 140)) * 3,
-    # foto: yumuşak deklanşör: perde açılır (kısa orta ses), kapanır (kalın, sönen)
-    "E_FOTO": nota(880, 12) + sus(70) + nota(523, 20) + kay(523, 330, 60),
+    # foto: gür deklanşör "çık-ÇAK": piezonun en gür çaldığı 2-2,5 kHz'te, duyulacak kadar uzun
+    "E_FOTO": nota(2489, 35) + sus(45) + nota(1865, 70),
     # kayıt başladı / bitti: iki ton yukarı / aşağı
     "E_KAYIT_BASLA": nota(988, 110) + sus(25) + nota(1480, 170),
     "E_KAYIT_BITTI": nota(1480, 110) + sus(25) + nota(988, 170),
@@ -72,10 +72,6 @@ E = {
     # Baba (The Godfather aşk teması): sol do mib re do mib do re do lab sib sol
     "E_BABA": nota(784, 180) + nota(1047, 180) + nota(1245, 180) + nota(1175, 180) + nota(1047, 520) + nota(1245, 180)
               + nota(1047, 180) + nota(1175, 180) + nota(1047, 180) + nota(831, 180) + nota(932, 180) + nota(784, 800),
-    # Havalı korna (tır kornası): iki ton (la + do diyez) 4 ms'de bir değişerek akor gibi duyulur; ilk 40 ms'de
-    # hava basıncı gibi hafifçe yükselir. Kısa, kısa, uzun: "BAAP BAAP BAAAAAP"
-    "E_HAVALI": havali(260) + sus(90) + havali(260) + sus(90) + havali(900),
-    # Ta-ta-ra-ta-ta ... ta-ta (shave and a haircut)
     "E_TRAS": nota(1047, 260) + sus(20) + nota(784, 120) + sus(15) + nota(784, 120) + nota(880, 260) + sus(20)
               + nota(784, 260) + sus(280) + nota(988, 260) + sus(20) + nota(1047, 300),
 }

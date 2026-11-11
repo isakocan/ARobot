@@ -127,6 +127,8 @@ namespace ARaki.Drive
         string VideoQuality(RobotStatus st)
         {
             if (!video.HasFrame || video.Width <= 0) return "görüntü yok";
+            if (video.ActivePath == ARaki.Video.RobotVideo.ViewportPath)   // görünen kısım: keskin olan parçanın boyutu
+                return (video.Lens == "yuksek" ? "tam kare " : "görünen kısım ") + $"{video.Width}x{video.Height}";
             return $"{video.Width}x{video.Height}";
         }
 

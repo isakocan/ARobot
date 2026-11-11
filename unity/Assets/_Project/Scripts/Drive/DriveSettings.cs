@@ -23,11 +23,11 @@ namespace ARaki.Drive
         public WheelSide Wheel = WheelSide.Left;
         public SpeedUnit Unit = SpeedUnit.KilometersPerHour;
         public bool Effects = true;         // kısa sesler (açılış, bağlandı, koptu, foto, kayıt); varsayılan açık
-        public bool GearSound = true;       // vites geçişinde "tı-tık" (Effects açıkken)
         public int HornStyle;               // HornNames sırası; 5 ve üstü basınca bir kez çalan ezgili kornalar
-        public static readonly string[] HornNames = { "Düz", "Kalın", "Tiz", "Titrek", "Dü-düt",
-                                                      "La Cucaracha", "Dixie", "Baba", "Havalı korna", "Ta-ta-ra-ta-ta" };
-        public int Video;                   // 0 otomatik (H.264, olmazsa JPEG), 1 H.264, 2 JPEG
+        public static readonly string[] HornNames = { "Düz", "Kalın", "Tiz", "Titrek", "Dü-düt", "Havalı",
+                                                      "La Cucaracha", "Dixie", "Baba", "Ta-ta-ra-ta-ta" };
+        public const int HeldHorns = 6;     // ilk 6 basılı tuttukça öter, sonrası ezgi
+        public int Video;                   // 0 otomatik (H.264, olmazsa JPEG), 1 H.264, 2 JPEG, 3 görünen kısım (VideoMode)
         public float PowerLimit = 0.6f;     // en yüksek güç (0.2..1)
         public float WheelDiameterCm = 6.5f;
         public float BatteryVolts = 14.8f;  // pil ölçümü gelene kadar 4S LiPo'nun ortalaması
@@ -51,7 +51,6 @@ namespace ARaki.Drive
             s.Unit = (SpeedUnit)PlayerPrefs.GetInt("unit", (int)s.Unit);
             s.HornStyle = PlayerPrefs.GetInt("hornStyle", s.HornStyle);
             s.Effects = Get("effects2", s.Effects);   // eski "effects" kapalı başlıyordu; yeni varsayılan açık
-            s.GearSound = Get("gearSound", s.GearSound);
             s.Video = PlayerPrefs.GetInt("video", s.Video);
             s.PowerLimit = PlayerPrefs.GetFloat("power", s.PowerLimit);
             s.WheelDiameterCm = PlayerPrefs.GetFloat("wheelCm", s.WheelDiameterCm);
@@ -66,7 +65,6 @@ namespace ARaki.Drive
             PlayerPrefs.SetInt("unit", (int)Unit);
             PlayerPrefs.SetInt("hornStyle", HornStyle);
             Set("effects2", Effects);
-            Set("gearSound", GearSound);
             PlayerPrefs.SetInt("video", Video);
             PlayerPrefs.SetFloat("power", PowerLimit);
             PlayerPrefs.SetFloat("wheelCm", WheelDiameterCm);

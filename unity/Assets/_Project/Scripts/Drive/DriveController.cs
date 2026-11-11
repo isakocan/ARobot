@@ -57,7 +57,6 @@ namespace ARaki.Drive
         float accumulator;
         float lastLocalChange = -10f;
         float hornUntil;
-        int lastShiftCount;
         int shiftDir;
         float shiftAt = -10f;
 
@@ -235,11 +234,6 @@ namespace ARaki.Drive
                 link.SendDrive(new DriveCommand(l, r));
             }
 
-            if (Model.ShiftCount != lastShiftCount)   // vites değişti: kısa "tık"
-            {
-                lastShiftCount = Model.ShiftCount;
-                if (Settings.Gearbox != GearMode.Fixed && Model.Gear != 0 && Settings.GearSound) PlayEffect("EF_VITES");
-            }
 
             var m = link.Status?.motor;
             // Robotun durumu bizimkinden farklıysa (Arduino yeniden başladı ya da tarayıcıdan değişti) istediğimiz

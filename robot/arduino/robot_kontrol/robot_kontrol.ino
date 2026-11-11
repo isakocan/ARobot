@@ -9,7 +9,8 @@
 //   R <0|1>         ikinci röle (pin 5, şimdilik boşta)
 //   K <ms> [ses]    korna, ms boyunca; ses: 0 düz (varsayılan), 1 kalın, 2 tiz, 3 titrek iki ton,
 //                   4 dü-düt (kesik iki öttürme); 5 ve üstü ezgili kornalar (basınca bir kez çalar):
-//                   5 La Cucaracha, 6 Dixie, 7 Baba, 8 Havalı korna, 9 Ta-ta-ra-ta-ta (KORNA_EZGI)
+//                   5 havalı (basılı tuttukça; tır kornası gibi iki ton); 6 ve üstü ezgili (basınca bir kez):
+//                   6 La Cucaracha, 7 Dixie, 8 Baba, 9 Ta-ta-ra-ta-ta (KORNA_EZGI)
 //   B <hz> <ms>     tek ton bip
 //   C <n>           n. melodiyi çal (1..MELODI_SAYISI), C 0 = sustur
 //   X <n>           kısa ses efekti (EFEKTLER; EF_ sabitleri): vites, foto, kayıt, kapanış...
@@ -72,6 +73,8 @@ const unsigned long DORTLU_ADIMI = 500;        // ms; dakikada 60 yanıp sönme 
 const uint16_t KORNA_HZ[] = { 440, 330, 660 };
 const uint16_t DUDUT_HZ = 740;                       // 4: dü-düt (170 ms öt, 60 ms sus, 170 ms öt, 120 ms sus)
 const uint16_t KORNA_HZ_1 = 420, KORNA_HZ_2 = 500;
+const uint16_t HAVALI_ALT = 330, HAVALI_HZ_1 = 466, HAVALI_HZ_2 = 554;   // 5: havalı korna
+const unsigned long HAVALI_GIRIS = 60, HAVALI_ADIMI = 3;            // ms
 const unsigned long KORNA_ADIMI = 4;                // ms
 const uint16_t GERI_BIP_HZ = 1100;
 const unsigned long GERI_BIP_YARIM = 450;            // ms çalar, ms susar
@@ -182,30 +185,32 @@ const uint8_t MELODI_SAYISI = sizeof(MELODILER) / sizeof(MELODILER[0]);
 // tools/efekt_tasarim.py ile üretildi.
 // Piezo kalın seste cılız, çok kısa seste anlaşılmaz: efektler 500-2200 Hz'te, kayan tonlar 12 ms'lik adımlarla.
 // tools/efekt_tasarim.py ile üretildi.
+// Piezo kalın seste cılız, çok kısa seste anlaşılmaz: efektler 500-2200 Hz'te, kayan tonlar 12 ms'lik adımlarla.
+// tools/efekt_tasarim.py ile üretildi.
 const uint16_t E_ACILIS[] PROGMEM = { 784, 110, 988, 110, 1175, 110, 1175, 12, 1213, 12, 1253, 12, 1294, 12, 1336, 12, 1379, 12, 1424, 12, 1471, 12, 1519, 12, 1568, 12, 1568, 260, 0, 0 };
 const uint16_t E_BAGLANDI[] PROGMEM = { 700, 12, 746, 12, 794, 12, 846, 12, 901, 12, 959, 12, 1022, 12, 1088, 12, 1159, 12, 1234, 12, 1315, 12, 1400, 12, 0, 50, 1400, 120, 0, 0 };
 const uint16_t E_KOPTU[] PROGMEM = { 1400, 12, 1353, 12, 1308, 12, 1264, 12, 1221, 12, 1180, 12, 1141, 12, 1102, 12, 1065, 12, 1030, 12, 995, 12, 962, 12, 929, 12, 898, 12, 868, 12, 839, 12, 811, 12, 783, 12, 757, 12, 732, 12, 707, 12, 683, 12, 660, 12, 638, 12, 617, 12, 596, 12, 576, 12, 557, 12, 538, 12, 520, 12, 0, 30, 520, 160, 0, 0 };
 const uint16_t E_KAPANIS[] PROGMEM = { 1568, 140, 1175, 140, 988, 140, 988, 12, 954, 12, 922, 12, 890, 12, 860, 12, 831, 12, 803, 12, 775, 12, 749, 12, 723, 12, 699, 12, 675, 12, 652, 12, 630, 12, 608, 12, 587, 12, 567, 12, 548, 12, 529, 12, 511, 12, 494, 12, 0, 0 };
 const uint16_t E_VITES[] PROGMEM = { 392, 18, 262, 34, 0, 0 };
 const uint16_t E_ALARM[] PROGMEM = { 1760, 140, 1175, 140, 1760, 140, 1175, 140, 1760, 140, 1175, 140, 0, 0 };
-const uint16_t E_FOTO[] PROGMEM = { 880, 12, 0, 70, 523, 20, 523, 12, 466, 12, 415, 12, 370, 12, 330, 12, 0, 0 };
+const uint16_t E_FOTO[] PROGMEM = { 2489, 35, 0, 45, 1865, 70, 0, 0 };
 const uint16_t E_KAYIT_BASLA[] PROGMEM = { 988, 110, 0, 25, 1480, 170, 0, 0 };
 const uint16_t E_KAYIT_BITTI[] PROGMEM = { 1480, 110, 0, 25, 988, 170, 0, 0 };
 const uint16_t E_CUCARACHA[] PROGMEM = { 784, 120, 0, 25, 784, 120, 0, 25, 784, 120, 0, 25, 1047, 260, 0, 30, 1319, 360, 0, 120, 784, 120, 0, 25, 784, 120, 0, 25, 784, 120, 0, 25, 1047, 260, 0, 30, 1319, 360, 0, 120, 0, 0 };
 const uint16_t E_DIXIE[] PROGMEM = { 784, 160, 659, 80, 523, 280, 0, 20, 523, 130, 0, 15, 523, 80, 587, 80, 659, 80, 698, 80, 784, 260, 0, 20, 784, 260, 0, 20, 784, 160, 659, 420, 0, 0 };
 const uint16_t E_BABA[] PROGMEM = { 784, 180, 1047, 180, 1245, 180, 1175, 180, 1047, 520, 1245, 180, 1047, 180, 1175, 180, 1047, 180, 831, 180, 932, 180, 784, 800, 0, 0 };
-const uint16_t E_HAVALI[] PROGMEM = { 415, 4, 523, 4, 415, 4, 523, 4, 415, 4, 523, 4, 415, 4, 523, 4, 415, 4, 523, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 0, 90, 415, 4, 523, 4, 415, 4, 523, 4, 415, 4, 523, 4, 415, 4, 523, 4, 415, 4, 523, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 0, 90, 415, 4, 523, 4, 415, 4, 523, 4, 415, 4, 523, 4, 415, 4, 523, 4, 415, 4, 523, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 440, 4, 554, 4, 0, 0 };
 const uint16_t E_TRAS[] PROGMEM = { 1047, 260, 0, 20, 784, 120, 0, 15, 784, 120, 880, 260, 0, 20, 784, 260, 0, 280, 988, 260, 0, 20, 1047, 300, 0, 0 };
 const uint16_t *const EFEKTLER[] = {
   E_ACILIS, E_BAGLANDI, E_KOPTU, E_KAPANIS, E_VITES, E_ALARM, E_FOTO, E_KAYIT_BASLA, E_KAYIT_BITTI, E_CUCARACHA,
-  E_DIXIE, E_BABA, E_HAVALI, E_TRAS,
+  E_DIXIE, E_BABA, E_TRAS,
 };
 const uint8_t EF_ACILIS = 1, EF_BAGLANDI = 2, EF_KOPTU = 3, EF_KAPANIS = 4, EF_VITES = 5, EF_ALARM = 6,
               EF_FOTO = 7, EF_KAYIT_BASLA = 8, EF_KAYIT_BITTI = 9, EF_CUCARACHA = 10,
-              EF_DIXIE = 11, EF_BABA = 12, EF_HAVALI = 13, EF_TRAS = 14;
+              EF_DIXIE = 11, EF_BABA = 12, EF_TRAS = 13;
 // ezgili kornalar: korna sesi 5, 6, ... sırasıyla bu efektleri bir kez çalar
-const uint8_t KORNA_EZGI[] = { EF_CUCARACHA, EF_DIXIE, EF_BABA, EF_HAVALI, EF_TRAS };
-const uint8_t KORNA_SESI_SAYISI = 5 + sizeof(KORNA_EZGI);
+const uint8_t KORNA_EZGI[] = { EF_CUCARACHA, EF_DIXIE, EF_BABA, EF_TRAS };
+const uint8_t KORNA_BASILI = 6;   // 0-5 basılı tuttukça öter, sonrası ezgi
+const uint8_t KORNA_SESI_SAYISI = KORNA_BASILI + sizeof(KORNA_EZGI);
 const uint8_t EFEKT_SAYISI = sizeof(EFEKTLER) / sizeof(EFEKTLER[0]);
 
 const uint16_t *efekt = 0;        // çalan efekt, 0 = yok
@@ -284,8 +289,13 @@ void sesGuncelle(unsigned long simdi) {
   uint16_t hz = 0;
   if (bipBitis && (long)(simdi - bipBitis) < 0) {
     hz = bipHz;
-  } else if (kornaBitis && (long)(simdi - kornaBitis) < 0 && kornaSesi < 5) {
-    if (kornaSesi == 4) {
+  } else if (kornaBitis && (long)(simdi - kornaBitis) < 0 && kornaSesi < KORNA_BASILI) {
+    if (kornaSesi == 5) {
+      // havalı: basınçla yükselen kısa giriş, sonra iki ton 3 ms'de bir değişir (akor gibi hırıltılı duyulur)
+      unsigned long t = simdi - kornaBaslangic;
+      hz = t < HAVALI_GIRIS ? HAVALI_ALT + t * (HAVALI_HZ_1 - HAVALI_ALT) / HAVALI_GIRIS
+                            : (simdi / HAVALI_ADIMI) % 2 ? HAVALI_HZ_1 : HAVALI_HZ_2;
+    } else if (kornaSesi == 4) {
       unsigned long t = (simdi - kornaBaslangic) % 520;
       hz = t < 170 || (t >= 230 && t < 400) ? DUDUT_HZ : 0;
     } else hz = kornaSesi < 3 ? KORNA_HZ[kornaSesi] : (simdi / KORNA_ADIMI) % 2 ? KORNA_HZ_1 : KORNA_HZ_2;
@@ -451,7 +461,7 @@ void komutuIsle(char *k) {
         kornaSesi = n == 2 ? constrain(b, 0, KORNA_SESI_SAYISI - 1) : 0;
         if (yeni) {
           kornaBaslangic = simdi;
-          if (kornaSesi >= 5) efektCal(KORNA_EZGI[kornaSesi - 5]);
+          if (kornaSesi >= KORNA_BASILI) efektCal(KORNA_EZGI[kornaSesi - KORNA_BASILI]);
         }
       }
       break;
