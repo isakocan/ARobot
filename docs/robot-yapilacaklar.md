@@ -10,6 +10,15 @@
 
 Öncelik sırasına yakın. Her maddede ne gerekiyor, nasıl yapılır, nereye dokunulur.
 
+## 0. Robot bağlanınca (sırayla)
+- [ ] Bekleyen yazılımı yükle: Arduino (havalı korna, gür foto sesi), köprü (görünen kısım, donanım JPEG çözücü), robot paneli (kurulum ağı 20 sn, sınırsız yeniden deneme, 2,4 GHz tercihi; `sudo bash ~/robot/kurulum.sh`), telefona son uygulama.
+- [ ] Bağlantı kopup geri gelmeme sorunu: koptuğunda ne gördüğünü konuş, kayıtlara bak (`kopru.log`, `journalctl -u robot-paneli -u NetworkManager`).
+- [ ] Wi-Fi: `bash ~/robot/araclar/wifi_kontrol.sh` (gönderme gücü, ülke kodu, bağlantı hızı); uzak odada `wifi_kontrol.sh izle`; antenleri farklı açılara getirip karşılaştır; telefon paylaşımı 2,4 GHz'te.
+- [ ] Görünen kısım: Ayarlar › Görüntü › Görünen; veri düşüyor mu, dönüşte bulanıklık rahatsız ediyor mu (ediyorsa iptal).
+- [ ] Telefonda MP4 kayıt, galeriye düşmesi, "Galeride aç"; büyük düğmeler.
+- [ ] Görüntü bekçisi: zayıf sinyalden sonra görüntü kendiliğinden düzeliyor mu.
+- [ ] Motor testleri (robot havadayken): ölü bölge, akım koruması, dönüş.
+
 ## A. Hemen denenecekler (parça gerekmez)
 
 ### A1. Yeni yazılımı robota yükle ve dene
@@ -49,7 +58,8 @@ Kontrol listesi:
 - **Dikkat:** 5 V regülatör 4 A verebilmeli. Yetmezse Jetson ani yükte kendini kapatır.
 
 ### A5. Theta S'in kendiliğinden kapanmasını engelle
-Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulamasında "Uyku modu" ve "Otomatik kapanma"yı kapat (kamera ayarları).
+- [ ] **Arkadaşa söyle:** kameranın uygulaması (RICOH THETA) onda. Kamera ayarlarından "Otomatik kapanma" ve "Uyku"yu kapatsın; ayar kamerada kalıcı. (Kamera bir kez 13 dk sonra USB'den düştü.)
+- Olmazsa: Jetson'dan USB ile kapanma süresi sıfırlanabiliyor (ptpcam, 0xD802 = 0); canlı yayın modunda çalışıp çalışmadığı denenecek.
 
 ### A6. Kayıt ve tekrar (yazılım fikirleri)
 - **Sürüşü kaydet ve tekrar oynat:** sayfa gönderdiği komutları zamanlarıyla saklar, "tekrar" deyince aynı yolu sürer. Encoder olmadığı için kayma birikir; kısa yollarda eğlenceli. Senaryolar:
@@ -62,26 +72,6 @@ Kamera bir kez 13 dk sonra USB'den düştü. Telefondaki RICOH THETA uygulaması
 - **360° fotoğraf:** düğmeyle o anki tam kareyi indir.
 
 ## B. Sensör gerektirenler
-
-### B1. Pil voltajı → sayfada pil yüzdesi, düşük pil uyarısı
-- **Neden:** 4S LiPo 15 V altına inmemeli. Şu an regülatör ekranından bakılıyor.
-- **Gerekenler:**
-  - Gerilim bölücü: iki direnç, örneğin 30 kΩ + 7,5 kΩ (5'e böler) ya da hazır "0-25 V voltaj sensörü modülü".
-- **Bağlantı:**
-  - Pil + → bölücü → Arduino **A2** (boş pin).
-  - Bölücünün eksisi Arduino GND'ye; ortak toprak şart.
-  - 16,8 V / 5 = 3,36 V, Arduino'nun 5 V sınırının altında. 30k+7,5k bölücüde 17 V'ta bile güvenli.
-- **Kod:**
-  - Arduino: `analogRead(A2) * 5.0 / 1023 * 5` = pil voltajı. Ortalamayı al; motor çekerken gerilim düşer.
-  - Durum satırına ekle.
-  - Sayfa: voltajdan yüzde. 4S için kabaca 16,8 V = %100, 15,0 V = %0 (bizim sınırımız).
-- **Davranış:**
-  - 15,3 V altında uyarı ve "dönüş" melodisi.
-  - **Düşük pil sesi** (3 Kasım ses efektleri listesinden, sensör gelince): 30 sn'de bir iki inen ton. Arduino'da
-    `EFEKTLER` tablosuna `E_PIL` olarak eklenir, `X <n>` ile ya da Arduino'nun kendisi çalar.
-  - 15,0 V altında motor gücü %40'a iner, dörtlüler yanar.
-  - Daha da düşerse panel Jetson'u güvenli kapatır.
-- **Oyuna bağlantı:** gerçek pil = oyundaki yakıt (CLAUDE.md'deki fikir).
 
 ### B2. (İPTAL) Mesafe sensörü: robotta sensör olmayacak
 - **Elde olan:** hocadaki tek noktalı lidar (modeli öğrenilmeli: TF-Luna / TFmini ise UART ya da I2C; VL53L0X / VL53L1X ise I2C) ve yakınlık sensörü.
