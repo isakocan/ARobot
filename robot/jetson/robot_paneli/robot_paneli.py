@@ -37,8 +37,9 @@ SAYFA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "panel.html")
 PORTAL_IP = "10.42.0.1"
 PORT = 80
 
-BEKLEME = 45          # sn: bağlantı yoksa bu kadar bekleyip kurulum ağını aç
-BOS_AP_SURE = 300     # sn: kurulum ağında kimse yoksa kayıtlı ağları yeniden dene
+BEKLEME = 90          # sn: bağlantı yoksa bu kadar bekleyip kurulum ağını aç (kısa kopmalarda açılmasın)
+BOS_AP_SURE = 60      # sn: kurulum ağında kimse yoksa kayıtlı ağları yeniden dene (eskiden 300: robot 5 dk
+                      # ulaşılamaz kalıyor, elektriği kesmeden geri gelmiyor gibi görünüyordu)
 BAGLANMA_SURESI = 40  # sn: seçilen ağa bağlanma için üst sınır
 ONAY_SURESI = 300     # sn: yeni ağda bu sürede kimse panele ulaşmazsa önceki ağa dönülür
 INTERNET_ARALIGI = 10   # sn: internet varken kontrol aralığı
@@ -405,6 +406,9 @@ def baglan(ssid, sifre):
             D.son_hata = ""
             D.mod = "istemci"
             D.son_bagli = time.time()
+            nmcli("con", "modify", ad, "connection.autoconnect-retries", "0")
+            if yeni_profil:
+                iki_dort_tercih_et(ad, ssid)
             if onceki and onceki != ad:
                 # Önceliği ancak biri robota bu ağdan ulaşınca ver; ulaşılamazsa önceki ağa dön.
                 # (Ör. giriş sayfası isteyen okul ağı: bağlanılır ama kimse robotu göremez.)
@@ -603,8 +607,26 @@ class Istek(BaseHTTPRequestHandler):
         self.send_error(404)
 
 
+def sinirsiz_yeniden_dene():
+    """NetworkManager bir ağa birkaç kez bağlanamayınca onu bir süre hiç denemez (autoconnect-retries, varsayılan 4).
+    Kayıtlı ağlar sınırsız denensin: sinyal dönünce robot kendisi geri bağlansın."""
+    for ssid, (ad, _) in kayitli_wifi_profilleri().items():
+        nmcli("con", "modify", ad, "connection.autoconnect-retries", "0")
+
+
+def iki_dort_tercih_et(ad, ssid):
+    """Yeni kaydedilen ağ 2,4 GHz'te de yayın yapıyorsa o bant seçilir (duvardan daha iyi geçer, menzil uzun).
+    Yalnızca 5 GHz'teyse dokunulmaz."""
+    _, cikti = nmcli("-t", "-f", "SSID,FREQ", "dev", "wifi", "list", "ifname", ARAYUZ)
+    frekanslar = [terse_bol(s)[1] for s in cikti.splitlines() if terse_bol(s)[0] == ssid and len(terse_bol(s)) > 1]
+    if any(f.strip().startswith("24") for f in frekanslar) and bant_tercihi(ad) == "":
+        log("2,4 GHz tercih ediliyor:", ssid)
+        threading.Thread(target=bant_degistir, args=("bg",), daemon=True).start()
+
+
 def main():
     ap_profilini_hazirla()
+    sinirsiz_yeniden_dene()
     # Servis yeniden başlarsa kurulum ağı açık kalmış olabilir
     if aktif_baglanti() == AP_PROFIL:
         D.mod = "kurulum"

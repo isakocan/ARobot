@@ -251,7 +251,7 @@ namespace ARaki.Drive
             SpeedMs += (Settings.SpeedMs(MotorPower) - SpeedMs) * k;
             Rpm += (Model.Rpm(Settings.Gearbox) + Mathf.Sin(Time.unscaledTime * 11f) * 12f - Rpm) * k;
 
-            var (pitch, roll) = sway.Step(Mathf.Min(Time.unscaledDeltaTime, 0.05f), Model, Settings.CameraMotion);
+            var (pitch, roll) = sway.Step(Mathf.Min(Time.unscaledDeltaTime, 0.05f), Model, CameraSway.Strength[Mathf.Clamp(Settings.CameraMotion, 0, 2)]);
             viewer.SwayPitch = pitch;
             viewer.SwayRoll = roll;
         }

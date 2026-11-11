@@ -71,6 +71,9 @@ namespace ARaki.Video
         }
         readonly Slot main = new Slot(), baseSlot = new Slot(), win = new Slot();
         bool viewportBroken;
+        float slowSince;
+        /// <summary>Bekçinin akışı kaç kez yeniden kurduğu (tanı için).</summary>
+        public int Restarts { get; private set; }
         float viewportBrokenAt;
 
         volatile int generation;          // her yeni okuyucu bir artırır; eskisi kendini bitirir
@@ -157,6 +160,19 @@ namespace ARaki.Video
                 Debug.LogWarning("[Görüntü] görünen kısım akışı gelmiyor, tam kareye dönülüyor. " + LastError);
                 viewportBroken = true;
                 viewportBrokenAt = Time.unscaledTime;
+            }
+
+            // bekçi: bağlantı iyiyken (UDP cevap veriyor) görüntü 6 sn takılıysa (fps < 6) akışı baştan kur. Zayıf
+            // sinyalden sonra bağlantı düzeldiği hâlde görüntü kötü kalıyordu; elle yeniden bağlamak gerekmesin.
+            bool linkGood = robot != null && robot.IsConnected && !robot.IsWeak && robot.RoundTripMs >= 0 && robot.RoundTripMs < 200;
+            if (!demo && host != null && linkGood && Time.unscaledTime - pathStarted > 8f && Fps < 6f) slowSince += Time.unscaledDeltaTime;
+            else slowSince = 0f;
+            if (slowSince > 6f)
+            {
+                Debug.LogWarning($"[Görüntü] bağlantı iyi ama {Fps:0} fps: akış yeniden kuruluyor ({ActivePath}). {LastError}");
+                slowSince = 0f;
+                StopReader();
+                Restarts++;
             }
 
             if (demo) DemoFrame();

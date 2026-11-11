@@ -237,14 +237,16 @@ namespace ARaki.Drive
     {
         public const float PitchPerAccel = 3f, MaxPitch = 4f;   // derece / (güç/sn), en çok derece (ilk sürümdeki şiddet)
         public const float MaxRoll = 2.5f;
+        /// <summary>Ayardaki şiddetler: kapalı, hafif (ilk sürüm), belirgin (hızlanma ve viraj daha çok hissedilir).</summary>
+        public static readonly float[] Strength = { 0f, 1f, 1.8f };
         const float Stiffness = 16f, Damping = 7f;
 
         float pitch, pitchV, roll, rollV;
 
-        public (float pitch, float roll) Step(float dt, DriveModel m, bool enabled)
+        public (float pitch, float roll) Step(float dt, DriveModel m, float strength)
         {
-            float targetPitch = enabled ? Mathf.Clamp(m.Acceleration * PitchPerAccel, -MaxPitch, MaxPitch) : 0f;
-            float targetRoll = enabled ? m.Steer * Mathf.Min(1f, Mathf.Abs(m.Output) * 2f) * MaxRoll : 0f;
+            float targetPitch = Mathf.Clamp(m.Acceleration * PitchPerAccel * strength, -MaxPitch * strength, MaxPitch * strength);
+            float targetRoll = m.Steer * Mathf.Min(1f, Mathf.Abs(m.Output) * 2f) * MaxRoll * strength;
             pitchV += ((targetPitch - pitch) * Stiffness - pitchV * Damping) * dt;
             pitch += pitchV * dt;
             rollV += ((targetRoll - roll) * Stiffness - rollV * Damping) * dt;
