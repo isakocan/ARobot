@@ -1,0 +1,119 @@
+{
+ "aciklama": "YAKLASIK gövde maskesi. cokgenler: balik gozu piksel koordinati (x, y). Lens daire disi zaten karanlik.",
+ "turetme": "tools/robotsuz_deneme/kayit/kare.jpg ve masada sabit kameradan 10 kare uzerinde plaka/pil kenarinin elle izlenmesi (maske_uret.py). Belirsizlik ~ +-15-25 piksel.",
+ "cokgenler": {
+  "lens1": [
+   [
+    500,
+    88
+   ],
+   [
+    470,
+    120
+   ],
+   [
+    445,
+    165
+   ],
+   [
+    437,
+    250
+   ],
+   [
+    447,
+    340
+   ],
+   [
+    455,
+    420
+   ],
+   [
+    480,
+    470
+   ],
+   [
+    530,
+    512
+   ],
+   [
+    600,
+    570
+   ],
+   [
+    700,
+    700
+   ],
+   [
+    700,
+    60
+   ]
+  ],
+  "lens2": [
+   [
+    640,
+    60
+   ],
+   [
+    740,
+    98
+   ],
+   [
+    775,
+    104
+   ],
+   [
+    840,
+    160
+   ],
+   [
+    868,
+    230
+   ],
+   [
+    880,
+    300
+   ],
+   [
+    876,
+    400
+   ],
+   [
+    862,
+    455
+   ],
+   [
+    830,
+    505
+   ],
+   [
+    790,
+    542
+   ],
+   [
+    755,
+    572
+   ],
+   [
+    690,
+    565
+   ],
+   [
+    630,
+    520
+   ],
+   [
+    630,
+    60
+   ]
+  ]
+ },
+ "govde_rengi_bgr": [
+  28,
+  26,
+  26
+ ],
+ "daire_kapsami_yuzde": {
+  "lens1": 21.1,
+  "lens2": 26.3
+ }
+}

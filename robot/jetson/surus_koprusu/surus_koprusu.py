@@ -28,8 +28,10 @@ Python 3.6 uyumlu, standart kütüphane + pyserial.
 
 import collections
 import glob
+import hashlib
 import json
 import os
+import re
 import socket
 import subprocess
 import threading
@@ -41,6 +43,7 @@ from urllib.parse import parse_qs, urlsplit
 import serial
 
 import websoket
+from ham_kayit import HamKayit, KayitHatasi, DOSYALAR as KAYIT_DOSYALARI
 
 SERI_PORT = "/dev/ttyACM0"
 KAMERA_ADI = "THETA"         # /sys/class/video4linux/*/name içinde aranır
@@ -48,6 +51,8 @@ PORT = 8080
 KLASOR = os.path.dirname(os.path.abspath(__file__))
 SAYFA = os.path.join(KLASOR, "surus.html")
 KAMERA_AYARI = os.path.expanduser("~/.config/robot/kamera_ayari.json")
+KAYIT_KOKU = os.path.expanduser("~/robot/kayitlar")   # ham kayıtlar (ham_kayit.py)
+KAYIT_AD = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")   # klasör adı: nokta ve eğik çizgi yok (yol aşımı olmasın)
 KAMERA_BOSTA_KAPAT = 10     # sn: izleyen kalmayınca kamerayı kapat
 VARSAYILAN_FPS = 15
 AKIS_TAMPONU = 128 * 1024   # bayt; ağ yavaşsa kareler kuyrukta birikmesin (~1 kare)
@@ -114,12 +119,14 @@ class Arduino:
         self.son_durum_zamani = 0
         threading.Thread(target=self._dongu, daemon=True).start()
 
-    def gonder(self, komut):
+    def gonder(self, komut, kaynak=None):
         with self.kilit:
             if not self.port:
                 return False
             try:
                 self.port.write((komut + "\n").encode())
+                if kaynak and HAM_KAYIT.aktif:       # ham kayıt: motor hedefi (hata fırlatmaz)
+                    HAM_KAYIT.komut(komut, kaynak)
                 return True
             except (serial.SerialException, OSError):
                 return False
@@ -164,6 +171,8 @@ class Arduino:
                 d[ad] = bool(d[ad])
         self.durum = d
         self.son_durum_zamani = time.time()
+        if HAM_KAYIT.aktif:                          # ham kayıt (hata fırlatmaz)
+            HAM_KAYIT.durum_satiri(d)
 
 
 # ---------------------------------------------------------------- kamera
@@ -420,6 +429,8 @@ class Kamera:
                         return kare_geldi
                     veri += parca
                 kare_geldi = True
+                if HAM_KAYIT.aktif:                   # ham kayıt: JPEG'in okunma anı (kuyruğa koyar, beklemez)
+                    HAM_KAYIT.kare(veri)
                 with self.kosul:
                     self.kare = veri
                     self.sayac += 1
@@ -476,20 +487,20 @@ class Surucu:
         self.sahip = None
         self.son_hareket = 0
 
-    def surus(self, baglanti, sol, sag):
+    def surus(self, baglanti, sol, sag, kaynak=None):
         simdi = time.time()
         with self.kilit:
             if self.sahip is not None and self.sahip is not baglanti and simdi - self.son_hareket < SURUCU_KILIDI:
                 return False
             if sol or sag:
                 self.sahip, self.son_hareket = baglanti, simdi
-        return ARDUINO.gonder("M {} {}".format(sol, sag))
+        return ARDUINO.gonder("M {} {}".format(sol, sag), kaynak)
 
     def ayrildi(self, baglanti):
         with self.kilit:
             if self.sahip is baglanti:
                 self.sahip = None
-                ARDUINO.gonder("M 0 0")
+                ARDUINO.gonder("M 0 0", "ayrildi")
 
 
 def wifi_sinyali():
@@ -521,6 +532,32 @@ def sicaklik():
     return None if en is None else round(en, 1)
 
 
+def kopru_surumu():
+    """Git kısa özeti (varsa), yoksa köprü dosyasının MD5'i: kayıt hangi kodla alındı bilinsin."""
+    try:
+        cikti = subprocess.check_output(["git", "-C", KLASOR, "rev-parse", "--short", "HEAD"],
+                                        stderr=subprocess.DEVNULL, timeout=3)
+        return cikti.decode().strip() or None
+    except Exception:
+        pass
+    try:
+        with open(os.path.join(KLASOR, "surus_koprusu.py"), "rb") as f:
+            return "md5:" + hashlib.md5(f.read()).hexdigest()[:10]
+    except OSError:
+        return None
+
+
+def kayit_bilgi_ek():
+    ek = {"kopru_surumu": kopru_surumu(), "kamera_ayari": None}
+    try:
+        with open(KAMERA_AYARI) as f:
+            ek["kamera_ayari"] = json.load(f)
+    except (OSError, ValueError):
+        pass
+    return ek
+
+
+HAM_KAYIT = HamKayit(KAYIT_KOKU, izle=lambda a: KAM.izle(a), bilgi_ek=kayit_bilgi_ek, log=log)
 ARDUINO = Arduino()
 KAM = Kamera()
 SURUCU = Surucu()
@@ -645,8 +682,102 @@ class Istek(BaseHTTPRequestHandler):
                     self._json(json.load(f))
             except (OSError, ValueError):
                 self._json({})
+        elif adres.path == "/api/kayit":
+            self._kayit(parse_qs(adres.query))
+        elif adres.path == "/api/kayitlar":
+            self._kayit_listesi()
+        elif adres.path.startswith("/kayitlar/"):
+            self._kayit_dosyasi(adres.path)
         else:
             self.send_error(404)
+
+    # -- ham kayıt (ham_kayit.py): /api/kayit?ac=1&ad=salon&sure=180, /api/kayit?ac=0, /api/kayit (durum)
+    def _kayit(self, sorgu):
+        ac = sorgu.get("ac", [None])[0]
+        try:
+            if ac == "1":
+                sure = sorgu.get("sure", [None])[0]
+                d = HAM_KAYIT.baslat(sorgu.get("ad", [None])[0], sure)
+                d["tamam"] = True
+                self._json(d)
+            elif ac == "0":
+                d = HAM_KAYIT.durdur()
+                d["tamam"] = True
+                self._json(d)
+            else:
+                self._json(HAM_KAYIT.durum())
+        except KayitHatasi as e:
+            self._json({"tamam": False, "hata": str(e)}, 409)
+
+    def _kayit_listesi(self):
+        liste = []
+        try:
+            adlar = sorted(os.listdir(KAYIT_KOKU), reverse=True)
+        except OSError:
+            adlar = []
+        for ad in adlar:
+            yol = os.path.join(KAYIT_KOKU, ad)
+            if not KAYIT_AD.match(ad) or not os.path.isdir(yol):
+                continue
+            dosyalar = {}
+            for dosya in KAYIT_DOSYALARI:
+                try:
+                    dosyalar[dosya] = os.path.getsize(os.path.join(yol, dosya))
+                except OSError:
+                    pass
+            bilgi = {}
+            try:
+                with open(os.path.join(yol, "bilgi.json")) as f:
+                    bilgi = json.load(f)
+            except (OSError, ValueError):
+                pass
+            liste.append({"ad": ad, "dosyalar": dosyalar, "bitis_nedeni": bilgi.get("bitis_nedeni"),
+                          "kare_sayisi": bilgi.get("kare_sayisi"), "atilan_kare": bilgi.get("atilan_kare"),
+                          "sure_sn": bilgi.get("sure_sn")})
+        self._json({"kayitlar": liste, "aktif": HAM_KAYIT.aktif or HAM_KAYIT.calisiyor()})
+
+    def _kayit_dosyasi(self, yol):
+        """/kayitlar/<klasör>/<dosya>: yalnızca kayıt klasöründeki bilinen dosyalar (salt okunur). Kayıt sürerken
+        indirme yok: disk ve ağ yükü kareleri atlatmasın."""
+        parca = yol.split("/")
+        if len(parca) != 4 or not KAYIT_AD.match(parca[2]) or parca[3] not in KAYIT_DOSYALARI:
+            self.send_error(404)
+            return
+        if HAM_KAYIT.aktif or HAM_KAYIT.calisiyor():
+            self._json({"tamam": False, "hata": "Kayıt sürerken indirilemez."}, 409)
+            return
+        dosya = os.path.join(KAYIT_KOKU, parca[2], parca[3])
+        if os.path.dirname(os.path.realpath(dosya)) != os.path.realpath(os.path.join(KAYIT_KOKU, parca[2])) \
+                or not os.path.isfile(dosya):
+            self.send_error(404)
+            return
+        boy = os.path.getsize(dosya)
+        bas = 0
+        aralik = self.headers.get("Range")      # yalnızca "bytes=N-" (yarım kalan indirmeyi sürdürmek için)
+        if aralik and aralik.startswith("bytes=") and aralik.endswith("-") and aralik[6:-1].isdigit():
+            bas = int(aralik[6:-1])
+            if bas >= boy:
+                self.send_response(416)
+                self.send_header("Content-Range", "bytes */{}".format(boy))
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+        self.send_response(206 if bas else 200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(boy - bas))
+        if bas:
+            self.send_header("Content-Range", "bytes {}-{}/{}".format(bas, boy - 1, boy))
+        self.end_headers()
+        try:
+            with open(dosya, "rb") as f:
+                f.seek(bas)
+                while True:
+                    parca_veri = f.read(256 * 1024)
+                    if not parca_veri:
+                        break
+                    self.wfile.write(parca_veri)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            self.close_connection = True
 
     # -- sürüş ve durum (WebSocket)
     def _kontrol(self):
@@ -700,9 +831,9 @@ class Istek(BaseHTTPRequestHandler):
                     fark_min[0] = fark
                 if (sol or sag) and fark - fark_min[0] > ESKI_KOMUT_MS:
                     atilan[0] += 1
-                    SURUCU.surus(baglanti, 0, 0)
+                    SURUCU.surus(baglanti, 0, 0, "ws_eski")
                     return
-            SURUCU.surus(baglanti, sol, sag)
+            SURUCU.surus(baglanti, sol, sag, "ws")
         elif t == "led":
             ARDUINO.gonder("L {}".format(1 if m.get("acik") else 0))
         elif t == "selektor":
@@ -802,9 +933,11 @@ class Istek(BaseHTTPRequestHandler):
         yol = urlsplit(self.path).path
         veri = self._govde()
         if yol == "/api/dur":
-            self._json({"tamam": ARDUINO.gonder("S")})
+            self._json({"tamam": ARDUINO.gonder("S", "dur")})
         elif yol == "/api/efekt":       # {"no": n}: kısa ses efekti (panel kapanırken EF_KAPANIS çalar)
             self._json({"tamam": ARDUINO.gonder("X {}".format(int(veri.get("no", 0))))})
+        elif yol == "/api/kayit":       # GET ile aynı: ?ac=1&ad=salon&sure=180 / ?ac=0
+            self._kayit(parse_qs(urlsplit(self.path).query))
         elif yol == "/api/kamera-ayari":
             os.makedirs(os.path.dirname(KAMERA_AYARI), exist_ok=True)
             with open(KAMERA_AYARI, "w") as f:
@@ -898,9 +1031,9 @@ class UdpKanal:
                 taze = False
                 ist["atilan"] += 1
         if taze:
-            SURUCU.surus(ist["baglanti"], sol, sag)
+            SURUCU.surus(ist["baglanti"], sol, sag, "udp")
         elif sol or sag:
-            SURUCU.surus(ist["baglanti"], 0, 0)
+            SURUCU.surus(ist["baglanti"], 0, 0, "udp_eski")
 
         onceki = ist["onceki"]
         if taze and onceki is None and "efekt" in m:
