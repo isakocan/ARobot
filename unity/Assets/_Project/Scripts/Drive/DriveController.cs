@@ -60,6 +60,12 @@ namespace ARaki.Drive
         int shiftDir;
         float shiftAt = -10f;
 
+        // Sürüş kaydı (surus.log): saniyede bir durum satırı + bağlantı/görüntü yolu değişimleri
+        RobotVideo video;
+        float nextLog;
+        bool? lastConnected, lastWeak;
+        string lastPath;
+
         void Awake()
         {
             Settings = DriveSettings.Load();
@@ -254,6 +260,32 @@ namespace ARaki.Drive
             var (pitch, roll) = sway.Step(Mathf.Min(Time.unscaledDeltaTime, 0.05f), Model, CameraSway.Strength[Mathf.Clamp(Settings.CameraMotion, 0, 2)]);
             viewer.SwayPitch = pitch;
             viewer.SwayRoll = roll;
+
+            LogDrive();
+        }
+
+        void LogDrive()
+        {
+            if (video == null) video = FindFirstObjectByType<RobotVideo>();
+            bool connected = link.IsConnected, weak = link.IsWeak;
+            string path = video != null ? video.ActivePath : "";
+            if (lastConnected != connected) Debug.Log("Sürüş: bağlantı " + (connected ? "kuruldu" : "koptu"));
+            if (lastWeak != weak) Debug.Log("Sürüş: bağlantı " + (weak ? "zayıf" : "düzeldi"));
+            if (lastPath != path) Debug.Log("Sürüş: görüntü yolu '" + path + "'");
+            lastConnected = connected;
+            lastWeak = weak;
+            lastPath = path;
+
+            if (Time.unscaledTime < nextLog) return;
+            nextLog = Time.unscaledTime + 1f;
+            var m = link.Status?.motor;
+            Debug.Log(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "Sürüş: rtt {0:0} ms, kayıp {1:0.00}, bağlı {2}, zayıf {3}, demo {4}, görüntü {5} {6:0} fps, giriş {7}/{8}, model {9:0.00} dümen {10:0.00} vites {11}, robot motor {12}/{13} sıkışma {14} arıza {15}, köprü atılan {16}",
+                link.RoundTripMs, link.Loss, connected ? 1 : 0, weak ? 1 : 0, link.Demo ? 1 : 0,
+                path, video != null ? video.Fps : 0f, InputForward, InputTurn,
+                Model.Output, Model.Steer, Model.Gear,
+                m != null ? m.sol.ToString() : "?", m != null ? m.sag.ToString() : "?",
+                m != null ? m.sikisma : 0, m != null && m.ariza ? 1 : 0, link.Status != null ? link.Status.atilan : 0));
         }
     }
 }

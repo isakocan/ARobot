@@ -71,7 +71,9 @@ H264_BEKCI = 5              # sn: JPEG gelirken H.264 bu kadar kare vermezse kam
 ISI_ALARMI = 80             # °C: Jetson bunu geçince bir kez alarm sesi (75'in altına inince yeniden kurulur)
 ANAHTAR_ARALIGI = 15        # kare; 15 fps'te saniyede bir tam kare (yeni izleyen en geç 1 sn bekler)
 ESKI_KOMUT_MS = 250         # bundan geç gelen hareket komutu uygulanmaz
-SURUCU_KILIDI = 0.6         # sn
+TABAN_YENILEME = 1.5        # sn: bu kadar sürekli bayat sayılırsa gecikme kalıcı kabul edilir, taban yenilenir
+UDP_RAPOR_ARALIGI = 10.0    # sn: kopru.log'a istemci başına durum satırı
+SURUCU_KILIDI = 0.6        # sn
 DURUM_ARALIGI = 0.1         # sn: WebSocket'ten durum gönderme
 UDP_PORT = 8081
 UDP_ISTEMCI_ZAMAN_ASIMI = 1.0   # sn: bu kadar paket gelmezse istemci gitmiş sayılır
@@ -79,7 +81,7 @@ KORNA_YENILEME = 0.12       # sn: korna basılıyken Arduino'ya bu aralıkla "K 
 
 
 LOG_DOSYASI = os.path.expanduser("~/robot/surus_koprusu/kopru.log")
-LOG_SINIRI = 512 * 1024    # bayt; aşınca dosya baştan yazılır
+LOG_SINIRI = 512 * 1024    # bayt; aşınca eski dosya kopru.log.1 olur (öncekinin üstüne yazılır)
 
 
 def log(*parca):
@@ -90,8 +92,9 @@ def log(*parca):
     except (OSError, ValueError):
         pass
     try:
-        kip = "w" if os.path.exists(LOG_DOSYASI) and os.path.getsize(LOG_DOSYASI) > LOG_SINIRI else "a"
-        with open(LOG_DOSYASI, kip) as f:
+        if os.path.exists(LOG_DOSYASI) and os.path.getsize(LOG_DOSYASI) > LOG_SINIRI:
+            os.replace(LOG_DOSYASI, LOG_DOSYASI + ".1")     # eskiyi silme, bir önceki dosya kalsın
+        with open(LOG_DOSYASI, "a") as f:
             f.write(satir + "\n")
     except OSError:
         pass
@@ -99,6 +102,66 @@ def log(*parca):
 
 def ms():
     return time.monotonic() * 1000
+
+
+class GecikmeSuzgeci:
+    """Bayat hareket komutunu atar. Taban (fark_min) ağın en iyi hâlidir; gecikme kalıcı yükselirse
+    (sıkışık Wi-Fi) her komut sonsuza dek atılmasın diye TABAN_YENILEME sn sürekli atılınca taban yenilenir."""
+
+    def __init__(self, etiket=""):
+        self.etiket = etiket
+        self.fark_min = None
+        self.fark = 0.0
+        self.atilan = 0
+        self.baslangic = None       # süren atma bölümünün başladığı an
+        self.son_atma = -1e9
+        self.bolum_atilan = 0
+        self.baslangic_logu = -1e9
+        self.bolum_loglandi = False
+
+    def gecikme(self):
+        """Tabanın üstündeki gecikme (ms)."""
+        return 0 if self.fark_min is None else self.fark - self.fark_min
+
+    def _bolum_bitir(self):
+        if self.baslangic is not None and self.bolum_loglandi:
+            log("bayat komutlar bitti, %d atıldı%s" % (self.bolum_atilan, " " + self.etiket if self.etiket else ""))
+        self.baslangic = None
+        self.bolum_atilan = 0
+        self.bolum_loglandi = False
+
+    def bayat_mi(self, fark, hareket, simdi=None):
+        """True: bu komut atılmalı. fark = alınış saati - gönderen saati (ms)."""
+        simdi = time.monotonic() if simdi is None else simdi   # saat ayarlansa da kaymaz
+        self.fark = fark
+        if self.fark_min is None or fark < self.fark_min:
+            self.fark_min = fark
+        if not hareket:
+            return False
+        ust = fark - self.fark_min
+        if ust <= ESKI_KOMUT_MS:
+            self._bolum_bitir()
+            return False
+        # Bölüm arada kesildiyse (uzun süredir atılan yok) yenisi sayılır
+        if self.baslangic is not None and simdi - self.son_atma > 0.5:
+            self._bolum_bitir()
+        if self.baslangic is None:
+            self.baslangic = simdi
+            if simdi - self.baslangic_logu >= 2.0:
+                self.baslangic_logu = simdi
+                self.bolum_loglandi = True
+                log("bayat komutlar atılıyor, gecikme +%d ms%s" % (ust, " " + self.etiket if self.etiket else ""))
+        elif simdi - self.baslangic > TABAN_YENILEME:
+            log("gecikme kalıcı yükseldi: komut tabanı yenilendi (+%d ms)%s" % (ust, " " + self.etiket if self.etiket else ""))
+            self.fark_min = fark
+            self.baslangic = None
+            self.bolum_atilan = 0
+            self.bolum_loglandi = False
+            return False
+        self.son_atma = simdi
+        self.atilan += 1
+        self.bolum_atilan += 1
+        return True
 
 
 # ---------------------------------------------------------------- Arduino
@@ -654,14 +717,13 @@ class Istek(BaseHTTPRequestHandler):
         if not ws:
             return
         baglanti = object()
-        fark_min = [None]          # sayfa saati ile bizim saat arasındaki en küçük fark (ms)
-        atilan = [0]
+        suzgec = GecikmeSuzgeci("(sayfa)")   # sayfa saati ile bizim saat arasındaki en küçük fark (ms) burada tutulur
 
         def durum_gonder():
             try:
                 while ws.acik:
                     d = durum()
-                    d.update(t="durum", atilan=atilan[0])
+                    d.update(t="durum", atilan=suzgec.atilan)
                     ws.metin(json.dumps(d))
                     time.sleep(DURUM_ARALIGI)
             except websoket.Kapandi:
@@ -675,7 +737,7 @@ class Istek(BaseHTTPRequestHandler):
                     continue
                 try:
                     m = json.loads(metin)
-                    self._mesaj(ws, baglanti, m, fark_min, atilan)
+                    self._mesaj(ws, baglanti, m, suzgec)
                 except (ValueError, TypeError, KeyError):
                     continue
         except websoket.Kapandi:
@@ -684,7 +746,7 @@ class Istek(BaseHTTPRequestHandler):
             ws.acik = False
             SURUCU.ayrildi(baglanti)
 
-    def _mesaj(self, ws, baglanti, m, fark_min, atilan):
+    def _mesaj(self, ws, baglanti, m, suzgec):
         surucu_duyuldu()
         t = m.get("t")
         if t == "ping":
@@ -695,11 +757,7 @@ class Istek(BaseHTTPRequestHandler):
             # Bayat komut: sayfanın gönderdiği an ile bize geldiği an arasındaki fark,
             # şimdiye kadarki en küçük farktan (ağın en iyi hâli) ESKI_KOMUT_MS fazlaysa
             if "z" in m:
-                fark = ms() - float(m["z"])
-                if fark_min[0] is None or fark < fark_min[0]:
-                    fark_min[0] = fark
-                if (sol or sag) and fark - fark_min[0] > ESKI_KOMUT_MS:
-                    atilan[0] += 1
+                if suzgec.bayat_mi(ms() - float(m["z"]), bool(sol or sag)):
                     SURUCU.surus(baglanti, 0, 0)
                     return
             SURUCU.surus(baglanti, sol, sag)
@@ -880,7 +938,9 @@ class UdpKanal:
         if ist is None or simdi - ist["son"] > UDP_ISTEMCI_ZAMAN_ASIMI or n < ist["n"] - 1000:
             if ist:
                 SURUCU.ayrildi(ist["baglanti"])
-            ist = {"baglanti": object(), "n": n - 1, "fark_min": None, "onceki": None, "korna": 0.0, "atilan": 0}
+            ist = {"baglanti": object(), "n": n - 1, "onceki": None, "korna": 0.0,
+                   "suzgec": GecikmeSuzgeci(adres[0]), "paket": 0, "istenen": (0, 0),
+                   "rapor_zamani": simdi, "rapor_paket": 0, "rapor_atilan": 0}
             self.istemciler[adres] = ist
             log("UDP istemci:", adres[0])
         ist["son"] = simdi
@@ -890,13 +950,11 @@ class UdpKanal:
 
         sol = max(-255, min(255, int(m.get("sol", 0))))
         sag = max(-255, min(255, int(m.get("sag", 0))))
-        if "z" in m:
-            fark = ms() - float(m["z"])
-            if ist["fark_min"] is None or fark < ist["fark_min"]:
-                ist["fark_min"] = fark
-            if (sol or sag) and fark - ist["fark_min"] > ESKI_KOMUT_MS:
-                taze = False
-                ist["atilan"] += 1
+        ist["paket"] += 1
+        if "z" in m and ist["suzgec"].bayat_mi(ms() - float(m["z"]), bool(sol or sag), simdi):
+            taze = False
+        elif taze:
+            ist["istenen"] = (sol, sag)
         if taze:
             SURUCU.surus(ist["baglanti"], sol, sag)
         elif sol or sag:
@@ -924,7 +982,7 @@ class UdpKanal:
             ist["onceki"] = m
 
         d = durum()
-        d.update(t="s", n=n, z=m.get("z"), atilan=ist["atilan"], hedef_kbps=sum(v for (i, _), v in list(KAM.izleyici_kbps.items()) if i == adres[0]))
+        d.update(t="s", n=n, z=m.get("z"), atilan=ist["suzgec"].atilan, hedef_kbps=sum(v for (i, _), v in list(KAM.izleyici_kbps.items()) if i == adres[0]))
         self._cevap(adres, d)
 
     def _bekci(self):
@@ -935,7 +993,26 @@ class UdpKanal:
                 if simdi - ist["son"] > UDP_ISTEMCI_ZAMAN_ASIMI:
                     SURUCU.ayrildi(ist["baglanti"])
                     del self.istemciler[adres]
-                    log("UDP istemci gitti:", adres[0])
+                    log("UDP istemci gitti: %s (son paket %.1f sn önce)" % (adres[0], simdi - ist["son"]))
+                elif simdi - ist["rapor_zamani"] >= UDP_RAPOR_ARALIGI:
+                    self._rapor(adres, ist, simdi)
+
+    def _rapor(self, adres, ist, simdi):
+        """İstemci başına 10 sn'de bir durum satırı (kopru.log): kopma sonrası neyin olduğu buradan okunur."""
+        try:
+            sz = ist["suzgec"]
+            motor = ARDUINO.durum if simdi - ARDUINO.son_durum_zamani < 1 else {}
+            sinyal = wifi_sinyali()
+            isi = sicaklik()
+            log("UDP %s: %d paket, %d atılan, gecikme +%d ms, istenen %d/%d, motor %s/%s, görüntü %d kbit/s, sinyal %s, %s" % (
+                adres[0], ist["paket"] - ist["rapor_paket"], sz.atilan - ist["rapor_atilan"], sz.gecikme(),
+                ist["istenen"][0], ist["istenen"][1], motor.get("sol", "?"), motor.get("sag", "?"), KAM.veri_kbps,
+                "?" if sinyal is None else "%d dBm" % sinyal, "?" if isi is None else "%d°C" % isi))
+        except Exception as e:
+            log("UDP rapor hatası:", repr(e))
+        ist["rapor_zamani"] = simdi
+        ist["rapor_paket"] = ist["paket"]
+        ist["rapor_atilan"] = ist["suzgec"].atilan
 
 
 def main():
