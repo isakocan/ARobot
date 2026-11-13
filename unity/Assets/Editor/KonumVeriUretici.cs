@@ -608,6 +608,11 @@ namespace ARaki.EditorTools
             public Vector3 Start;                   // robot orijini (x, 0, z)
             public float StartYaw;
             public Func<Op, IEnumerable<Cmd>> Script;
+            // Sinama (held-out) secenekleri: yalniz bu alanlar doluysa kullanilir, eski yollar etkilenmez.
+            public bool Sinama;                     // true: "hepsi" icine girmez, bilgi.json'a kosul anahtari yazilir
+            public string Isik = "normal";          // normal | los | far
+            public string Zemin = "normal";         // normal | duz
+            public double? HizOverride, DonusOverride;   // m/sn, derece/sn (yoksa genel V, W)
         }
 
         sealed class Rec
@@ -697,7 +702,117 @@ namespace ARaki.EditorTools
                         o.GoTo(2.9, 0.10, true), o.GoTo(2.4, 0.10, true), o.GoTo(1.8, 0.10, true), o.GoTo(1.2, 0.10, true), o.GoTo(0.6, 0.10, true), o.GoTo(-0.2, 0.10, true), o.GoTo(-1.8, 0.10), o.GoTo(HouseLayout.BasePosition.x, HouseLayout.BasePosition.z),
                         o.FaceTo(HouseLayout.BaseYaw), o.Wait(1)),
                 });
+                SinamaTracks.Add(list);
                 return list;
+            }
+        }
+
+        // ------------------------------------------------------------------ sinama kosullari (yalniz bellekte, sahne kaydedilmez)
+
+        static readonly List<(Light l, float inten)> savedLights = new List<(Light, float)>();
+        static readonly List<(Renderer r, Material m)> savedFloors = new List<(Renderer, Material)>();
+        static Color savedSky, savedEq, savedGr;
+        static GameObject headlight;
+        static Material plainFloor;
+
+        /// <summary>isik: normal | los (tum ev isiklari %15, gunes yok, ortam %15) | far (ev isiklari %2, gunes yok, ortam %2, robota bagli 70 derece / 4 m far).
+        /// zemin: normal | duz (tum zemin malzemeleri tek duz mat renk).</summary>
+        static void ApplyCondition(string isik, string zemin)
+        {
+            RestoreCondition();
+            if (isik != "normal")
+            {
+                float k = isik == "los" ? 0.15f : 0.02f;
+                int n = 0;
+                foreach (var l in Object.FindObjectsByType<Light>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+                {
+                    if (!l.enabled || (robot != null && l.transform.IsChildOf(robot))) continue;
+                    savedLights.Add((l, l.intensity));
+                    l.intensity = l.type == LightType.Directional ? 0f : l.intensity * k;
+                    n++;
+                }
+                savedSky = RenderSettings.ambientSkyColor; savedEq = RenderSettings.ambientEquatorColor; savedGr = RenderSettings.ambientGroundColor;
+                RenderSettings.ambientSkyColor = savedSky * k; RenderSettings.ambientEquatorColor = savedEq * k; RenderSettings.ambientGroundColor = savedGr * k;
+                Debug.Log($"[KonumVeri] KOSUL isik={isik}: {n} isik olceklendi (x{k}), gunes 0, ortam x{k}");
+                if (isik == "far")
+                {
+                    headlight = new GameObject("SinamaFar");
+                    headlight.transform.SetParent(robot, false);
+                    headlight.transform.localPosition = new Vector3(camLocal.x, 0.12f, camLocal.z + 0.12f);
+                    headlight.transform.localRotation = Quaternion.Euler(12f, 0f, 0f);       // hafif asagi: zeminde parlak leke
+                    var sp = headlight.AddComponent<Light>();
+                    sp.type = LightType.Spot; sp.spotAngle = 70f; sp.innerSpotAngle = 50f; sp.range = 4f;
+                    sp.color = new Color(1f, 0.97f, 0.9f); sp.intensity = 8f; sp.shadows = LightShadows.None;
+                }
+            }
+            if (zemin == "duz")
+            {
+                if (plainFloor == null)
+                {
+                    plainFloor = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                    plainFloor.SetColor("_BaseColor", new Color(0.50f, 0.45f, 0.40f, 1f));
+                    plainFloor.SetFloat("_Smoothness", 0f); plainFloor.SetFloat("_Metallic", 0f);
+                }
+                int n = 0;
+                foreach (var mr in Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+                {
+                    if (mr.gameObject.name != "Floor") continue;
+                    savedFloors.Add((mr, mr.sharedMaterial));
+                    mr.sharedMaterial = plainFloor;
+                    n++;
+                }
+                Debug.Log($"[KonumVeri] KOSUL zemin=duz: {n} zemin yuzeyi tek duz renge cevrildi");
+            }
+        }
+
+        static void RestoreCondition()
+        {
+            foreach (var (l, i) in savedLights) if (l != null) l.intensity = i;
+            if (savedLights.Count > 0) { RenderSettings.ambientSkyColor = savedSky; RenderSettings.ambientEquatorColor = savedEq; RenderSettings.ambientGroundColor = savedGr; }
+            savedLights.Clear();
+            foreach (var (r, m) in savedFloors) if (r != null) r.sharedMaterial = m;
+            savedFloors.Clear();
+            if (headlight != null) { Object.DestroyImmediate(headlight); headlight = null; }
+        }
+
+        // ------------------------------------------------------------------ sinama yollari (held-out)
+
+        static class SinamaTracks
+        {
+            /// <summary>S1: calisma odasindaki adanin (mobilya) etrafinda kapali tur: KD kosesi -> GD -> GB -> KB -> baslangic.</summary>
+            public static IEnumerable<Cmd> S1(Op o) => Concat(
+                o.Wait(1),
+                o.GoTo(4.3, -1.0), o.GoTo(4.3, -2.55), o.GoTo(2.3, -2.55, true), o.GoTo(2.25, -1.0, true), o.GoTo(3.6, -1.0, true),
+                o.FaceTo(90.0), o.Wait(1));
+
+            /// <summary>S2: banyodan baslayip koridor -> yatak odasi -> koridor -> salon; koridorun bati yarisini iki kez gecer.</summary>
+            public static IEnumerable<Cmd> S2(Op o) => Concat(
+                o.Wait(1),
+                o.GoTo(-0.35, 0.9, true), o.GoTo(-0.35, 0.3), o.GoTo(-3.65, 0.3), o.GoTo(-3.65, 0.9, true), o.GoTo(-3.65, 1.5), o.GoTo(-3.4, 2.3),
+                o.GoTo(-3.65, 1.5), o.GoTo(-3.65, 0.9, true), o.GoTo(-3.65, 0.3), o.GoTo(-1.8, 0.25), o.GoTo(-1.8, -0.9),
+                o.Wait(1));
+
+            /// <summary>S6 (hizli): salon -> koridor -> bati ucu.</summary>
+            public static IEnumerable<Cmd> S6(Op o) => Concat(
+                o.Wait(0.5),
+                o.GoTo(-1.8, -1.9), o.GoTo(-1.8, -0.9), o.GoTo(-1.8, 0.25), o.GoTo(-4.0, 0.3),
+                o.Wait(0.5));
+
+            public static void Add(List<Track> list)
+            {
+                var s1Start = new Vector3(3.6f, 0f, -1.0f);
+                list.Add(new Track { Name = "sinama_yeni_rota", Seed = 51, Start = s1Start, StartYaw = 90f, Sinama = true,
+                    Description = "Sinama S1: calisma odasindaki adanin etrafinda kapali tur (baslangica doner)", Script = S1 });
+                list.Add(new Track { Name = "sinama_los", Seed = 51, Start = s1Start, StartYaw = 90f, Sinama = true, Isik = "los",
+                    Description = "Sinama S3: S1 rotasi, los isik (ev isiklari %15, gunes yok, ortam %15)", Script = S1 });
+                list.Add(new Track { Name = "sinama_far", Seed = 51, Start = s1Start, StartYaw = 90f, Sinama = true, Isik = "far",
+                    Description = "Sinama S4: S1 rotasi, ev isiklari %2, robota bagli far (70 derece, 4 m)", Script = S1 });
+                list.Add(new Track { Name = "sinama_duz_zemin", Seed = 51, Start = s1Start, StartYaw = 90f, Sinama = true, Zemin = "duz",
+                    Description = "Sinama S5: S1 rotasi, tum zeminler tek duz mat renk", Script = S1 });
+                list.Add(new Track { Name = "sinama_ters_tur", Seed = 52, Start = new Vector3(-0.35f, 0f, 1.4f), StartYaw = 180f, Sinama = true,
+                    Description = "Sinama S2: banyodan baslayan tur: koridor, yatak odasi, koridorun bati yarisina yeniden giris, salon", Script = S2 });
+                list.Add(new Track { Name = "sinama_hizli", Seed = 53, Start = new Vector3(-3.0f, 0f, -1.9f), StartYaw = 90f, Sinama = true, HizOverride = 0.55, DonusOverride = 120.0,
+                    Description = "Sinama S6: salon + koridor, hizli surus (0.55 m/sn, 120 derece/sn)", Script = S6 });
             }
         }
 
@@ -735,6 +850,7 @@ namespace ARaki.EditorTools
             foreach (var t in tracks)
             {
                 if (only != "hepsi" && !wanted.Contains(t.Name)) continue;
+                if (only == "hepsi" && t.Sinama) continue;      // sinama yollari yalniz adlariyla istenince uretilir
                 int v = RunTrack(t, grid, V, W, drift, maxFrames, dry, out int frames);
                 total += frames; violations += v;
             }
@@ -746,6 +862,8 @@ namespace ARaki.EditorTools
         {
             string folder = Path.Combine(OutRoot, t.Name);
             Directory.CreateDirectory(folder);
+            if (t.HizOverride.HasValue) V = t.HizOverride.Value;
+            if (t.DonusOverride.HasValue) W = t.DonusOverride.Value;
             var sim = new Sim(t.Seed, t.Start.x, t.Start.z, t.StartYaw, drift);
             var op = new Op { S = sim, V = V, W = W };
             var recs = new List<Rec>();
@@ -802,7 +920,13 @@ namespace ARaki.EditorTools
 
             WriteTables(folder, recs, grid);
             WriteInfo(folder, t, recs, V, W, drift, sim, lengthM, violations, onFree);
-            if (!dry) { RenderAll(folder, recs); PatchInfo(folder); }
+            if (!dry)
+            {
+                if (t.Sinama) ApplyCondition(t.Isik, t.Zemin);
+                try { RenderAll(folder, recs); }
+                finally { if (t.Sinama) RestoreCondition(); }
+                PatchInfo(folder);
+            }
             return violations;
         }
 
@@ -850,6 +974,7 @@ namespace ARaki.EditorTools
             sb.Append(",\"motor_gecikmesi_sn\":{\"ileri\":0.12,\"donus\":0.10}");
             sb.Append(",\"komut_donusumu\":{\"pwm_255_dogrusal_hiz_m_sn\":").Append(D(PwmMaxSpeed)).Append(",\"pwm_255_donus_derece_sn\":").Append(D(PwmMaxTurn)).Append(",\"not\":\"komutlar.csv nominal degerlerdir; sol = ileri + donus, sag = ileri - donus; donus saat yonu +\"}");
             sb.Append("}");
+            if (t.Sinama) sb.Append(",\"sinama_kosul\":{\"isik\":\"").Append(t.Isik).Append("\",\"zemin\":\"").Append(t.Zemin).Append("\",\"not\":\"held-out sinama kaydi: isik/zemin yalniz uretim sirasinda gecici sahne durumunda degistirildi\"}");
             sb.Append(",\"robot_yaricapi_m\":").Append(D(RobotRadius, "0.00"));
             sb.Append(",\"harita\":\"gercek_harita.png\"");
             sb.Append(",\"kare_sayisi\":").Append(recs.Count).Append(",\"sure_sn\":").Append(D(recs.Count * Dt, "0.0")).Append(",\"yol_uzunlugu_m\":").Append(D(lengthM, "0.00"));
