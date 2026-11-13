@@ -180,6 +180,14 @@ Erken deneme (13 Kasım 2026, yalnızca sim, robotun gerçek konumu hazır veril
 - Ölçüt (öneri): 5 m'lik tur sonunda başlangıca 30 cm içinde dönüş; üs yakınında 10 cm.
 - Bu aşamanın sonunda gösterilebilir bir AR vardır: nesne koy, dolaş, dön, nesne yaklaşık yerinde.
 
+Sonuç (13 Kasım 2026, yalnızca sim; kod `tools/konum_deney/konum_*.py`, tablo `kayitlar/sonuclar/konum/tablo.md`):
+- İlerleme: zemin kuş bakışına çevrilir (2 cm/piksel), desenin kayması metre verir. Düzeltme: zemin sınırı taraması robotun kendi haritasına oturtulur.
+- Ev turu (22 m, gerçek kamera benzetimi), ortalama konum hatası: komut + kamera yönü 25 cm; yalnızca kamera 6 cm; yalnızca kamera + harita düzeltmesi 5 cm.
+- Robotun kendi konumuyla kurduğu harita, hazır konumla kurulanla aynı kalitede (boş alan örtüşmesi 0,83, duvar 8 cm).
+- Sanal nesne denemesi (`gosterim_ar.py`, 4 sabit nesne): ekrandaki kayma ortanca %0,8, onda biri %2,2'den fazla, en kötü %13 (26 cm, tur sonundaki yerinde dönüşte). Motor komutlu varyantta ortanca %2,8.
+- Haritaya göre gizleme zayıf: kararların %16'sı yanlış, çoğu gereksiz gizleme (dar kalan kapı aralıkları, henüz görülmemiş bölgeler).
+- Kayıtlar: ayarlar aynı üç kayıt üstünde seçildi, görülmemiş rotada sınanmadı; yöntem desenli zemine bağlı; kamera yüksekliği %5 yanlışsa hata 27 cm'ye çıkıyor; "başka yere konunca yerini bulma" yapılmadı.
+
 ### Aşama 5. Harita
 - Robot gezerken serbest mesafe ölçümleri konumla birleşip ızgara haritaya yazılır; belirli aralıklarla panorama da saklanır.
 - Oda ayrımı ve etiketleme (otomatik mi, oyuncu mu adlandırır: konuşulacak).
