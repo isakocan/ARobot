@@ -139,10 +139,8 @@ namespace ARaki.Net
             target = new IPEndPoint(address, UdpPort);
             udp = new UdpClient(AddressFamily.InterNetwork);
             udp.Client.ReceiveTimeout = 500;
-            // Wi-Fi önceliği: DSCP EF → WMM "ses" kuyruğu; sürüş paketleri görüntünün önüne geçer (Android uygular,
-            // Windows yalnızca QoS ilkesiyle uygular)
-            try { udp.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.TypeOfService, 0xB8); }
-            catch (SocketException) { }
+            // DSCP EF (Wi-Fi "ses" önceliği) işareti KONMAZ: okul ağında (EDUROAM, 14 Kasım) EF işaretli paketlerin
+            // %25'i kayboldu, işaretsizlerin %0'ı (tools ile ölçüldü). Kurumsal erişim noktaları bu sınıfı sınırlayabiliyor.
             new Thread(SendLoop) { IsBackground = true, Name = "Robot UDP gönder" }.Start();
             new Thread(ReceiveLoop) { IsBackground = true, Name = "Robot UDP al" }.Start();
         }
@@ -173,7 +171,7 @@ namespace ARaki.Net
                               ",\"fs\":" + s.FlashCount + ",\"mi\":" + s.MelodyCount + ",\"mn\":" + s.Melody +
                               ",\"ef\":" + s.EffectCount + ",\"en\":" + s.Effect + ",\"efekt\":" + B(s.AutoEffects) + "}";
                 var bytes = Encoding.ASCII.GetBytes(json);
-                // önce kaydet, sonra gönder: cevap (3-5 ms) kayıttan önce gelirse kayıp sayılıyordu (görünen %20-30 "kayıp" buydu)
+                // önce kaydet, sonra gönder: cevap kayıttan önce gelirse kayıp sayılmasın
                 lock (ring) ring[n % RingSize] = (n, z, false);
                 try { udp.Send(bytes, bytes.Length, target); }
                 catch (Exception) { /* ağ yok: sonraki turda tekrar */ }
