@@ -173,9 +173,10 @@ namespace ARaki.Net
                               ",\"fs\":" + s.FlashCount + ",\"mi\":" + s.MelodyCount + ",\"mn\":" + s.Melody +
                               ",\"ef\":" + s.EffectCount + ",\"en\":" + s.Effect + ",\"efekt\":" + B(s.AutoEffects) + "}";
                 var bytes = Encoding.ASCII.GetBytes(json);
+                // önce kaydet, sonra gönder: cevap (3-5 ms) kayıttan önce gelirse kayıp sayılıyordu (görünen %20-30 "kayıp" buydu)
+                lock (ring) ring[n % RingSize] = (n, z, false);
                 try { udp.Send(bytes, bytes.Length, target); }
                 catch (Exception) { /* ağ yok: sonraki turda tekrar */ }
-                lock (ring) ring[n % RingSize] = (n, z, false);
             }
         }
 
