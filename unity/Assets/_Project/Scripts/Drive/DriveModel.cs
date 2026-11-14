@@ -35,11 +35,13 @@ namespace ARaki.Drive
         public const float Coast = 1.2f;    // tuş bırakınca saniyede yavaşlama
         public const float Brake = 2.5f;    // ters yöne basınca
         public const float ClutchTime = 0.22f, ClutchDip = 0.6f;
-        public const float SteerRate = 0.6f, SteerReturn = 1.6f, SteerAccel = 2.5f;   // en yüksek hız (1/sn), ivme (1/sn²)
-        public const float SteerBite = 0.3f, BiteRate = 4f;   // direksiyonun ilk %30'u ~75 ms'de (kısa basış da döndürür)
+        public const float SteerRate = 0.4f, SteerReturn = 1.6f, SteerAccel = 2.5f;   // en yüksek hız (1/sn), ivme (1/sn²)
+        public const float SteerBite = 0.3f, BiteRate = 4f;   // direksiyonun ilk %30'u ~75 ms'de (kısa basış da döndürür), kalan %70 ~2 sn'de
         public const float ReverseSecondAfter = 3.5f;
         // Dönüş: kızaklı şasi ancak tekerler arasında büyük fark olunca döner. Hareket halinde dış teker en az
         // bu kadar güçle, iç teker ters yönde dışın çeyreği kadar döner. Geri giderken de aynı (araba gibi).
+        // İç teker direksiyonla eğri (k^2.5) azalır: hafif kırışta hem gider hem döner (basışın ilk ~1 sn'sinde iç teker
+        // dışın ~%60'tan ~%35'ine), ~1,5 sn'de durur, ~2 sn'de tam kilitte ters döner. Keskin dönüş uzun basınca gelir.
         public const float TurnMinimum = 0.6f, InnerWheel = -0.25f, InPlace = 0.8f;
         public const float TurnStart = 0.35f;   // dönüşün başladığı fark (sürtünme eşiği), direksiyonun 0..1'ine eklenir
 
@@ -208,7 +210,8 @@ namespace ARaki.Drive
             if (f != 0f)
             {
                 float outer = Mathf.Sign(f) * Mathf.Lerp(Mathf.Abs(f), Mathf.Max(Mathf.Abs(f), TurnMinimum), k);
-                float inner = Mathf.Lerp(f, InnerWheel * outer, k);
+                float kc = k * k * Mathf.Sqrt(k);   // iç teker eğrisi: hafif kırışta yavaş, tam kilide doğru hızlı
+                float inner = Mathf.Lerp(f, InnerWheel * outer, kc);
                 return t > 0f ? (outer, inner) : (inner, outer);   // dönülen taraf iç tekerdir
             }
             float spin = Mathf.Sign(t) * InPlace * k;   // yerinde dönüş de eşikten başlar
