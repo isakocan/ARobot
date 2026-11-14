@@ -613,6 +613,7 @@ namespace ARaki.EditorTools
             public string Isik = "normal";          // normal | los | far
             public string Zemin = "normal";         // normal | duz
             public double? HizOverride, DonusOverride;   // m/sn, derece/sn (yoksa genel V, W)
+            public (double t, string isik)[] IsikPlani;  // zamana bagli isik: (sn, isik) - o andan itibaren gecerli; null = tek isik (Isik)
         }
 
         sealed class Rec
@@ -798,8 +799,35 @@ namespace ARaki.EditorTools
                 o.GoTo(-1.8, -1.9), o.GoTo(-1.8, -0.9), o.GoTo(-1.8, 0.25), o.GoTo(-4.0, 0.3),
                 o.Wait(0.5));
 
+            /// <summary>S7 (sinama2 T1): salonun orta-guney kismi + salon-calisma odasi kapisindan (1.8,-2.9) giris ve geri. Hicbir eski rota bu kapidan gecmedi.
+            /// (Yildiz sehpanin kutu carpistiricisi kapi duvarina 0.3 m kala biter: sehpa ile duvar arasi gecilemez; rota sehpanin guneyinden gider.)</summary>
+            public static IEnumerable<Cmd> S7(Op o) => Concat(
+                o.Wait(1),
+                o.GoTo(2.4, -2.95, true), o.Wait(0.5),
+                o.GoTo(-1.0, -3.0), o.GoTo(-0.3, -3.3),
+                o.FaceTo(90.0), o.Wait(1));
+
+            /// <summary>S8 (sinama2 T5): salon -> kapi -> calisma odasi (kapiya girip doner) -> salon acikligi -> koridorun bati yarisi -> salon -> baslangic. Karisik isik.</summary>
+            public static IEnumerable<Cmd> S8(Op o) => Concat(
+                o.Wait(1),
+                o.GoTo(2.4, -2.95, true), o.Wait(0.5),
+                o.GoTo(-1.8, -2.4), o.GoTo(-1.8, -1.0), o.GoTo(-1.8, 0.1), o.GoTo(-3.3, 0.1), o.GoTo(-1.8, -0.2), o.GoTo(-1.8, -1.0), o.GoTo(-1.8, -2.4), o.GoTo(-0.3, -3.3),
+                o.FaceTo(90.0), o.Wait(1));
+
             public static void Add(List<Track> list)
             {
+                var s7Start = new Vector3(-0.3f, 0f, -3.3f);
+                list.Add(new Track { Name = "sinama2_t1_normal", Seed = 61, Start = s7Start, StartYaw = 90f, Sinama = true,
+                    Description = "Sinama2 T1: salon orta-dogu + salon-calisma odasi kapisi, normal isik", Script = S7 });
+                list.Add(new Track { Name = "sinama2_t2_los", Seed = 61, Start = s7Start, StartYaw = 90f, Sinama = true, Isik = "los",
+                    Description = "Sinama2 T2: T1 rotasi, los isik", Script = S7 });
+                list.Add(new Track { Name = "sinama2_t3_far", Seed = 61, Start = s7Start, StartYaw = 90f, Sinama = true, Isik = "far",
+                    Description = "Sinama2 T3: T1 rotasi, yalniz far", Script = S7 });
+                list.Add(new Track { Name = "sinama2_t4_duz", Seed = 61, Start = s7Start, StartYaw = 90f, Sinama = true, Zemin = "duz",
+                    Description = "Sinama2 T4: T1 rotasi, duz zemin", Script = S7 });
+                list.Add(new Track { Name = "sinama2_t5_karisik", Seed = 62, Start = s7Start, StartYaw = 90f, Sinama = true,
+                    IsikPlani = new[] { (0.0, "normal"), (16.0, "los"), (32.0, "far"), (48.0, "normal") },
+                    Description = "Sinama2 T5: buyuk kapali tur, isik zamanla degisir: normal -> los (16 sn) -> far (32 sn) -> normal (48 sn)", Script = S8 });
                 var s1Start = new Vector3(3.6f, 0f, -1.0f);
                 list.Add(new Track { Name = "sinama_yeni_rota", Seed = 51, Start = s1Start, StartYaw = 90f, Sinama = true,
                     Description = "Sinama S1: calisma odasindaki adanin etrafinda kapali tur (baslangica doner)", Script = S1 });
@@ -923,7 +951,7 @@ namespace ARaki.EditorTools
             if (!dry)
             {
                 if (t.Sinama) ApplyCondition(t.Isik, t.Zemin);
-                try { RenderAll(folder, recs); }
+                try { RenderAll(folder, recs, t); }
                 finally { if (t.Sinama) RestoreCondition(); }
                 PatchInfo(folder);
             }
@@ -974,7 +1002,7 @@ namespace ARaki.EditorTools
             sb.Append(",\"motor_gecikmesi_sn\":{\"ileri\":0.12,\"donus\":0.10}");
             sb.Append(",\"komut_donusumu\":{\"pwm_255_dogrusal_hiz_m_sn\":").Append(D(PwmMaxSpeed)).Append(",\"pwm_255_donus_derece_sn\":").Append(D(PwmMaxTurn)).Append(",\"not\":\"komutlar.csv nominal degerlerdir; sol = ileri + donus, sag = ileri - donus; donus saat yonu +\"}");
             sb.Append("}");
-            if (t.Sinama) sb.Append(",\"sinama_kosul\":{\"isik\":\"").Append(t.Isik).Append("\",\"zemin\":\"").Append(t.Zemin).Append("\",\"not\":\"held-out sinama kaydi: isik/zemin yalniz uretim sirasinda gecici sahne durumunda degistirildi\"}");
+            if (t.Sinama) sb.Append(",\"sinama_kosul\":{\"isik\":\"").Append(t.IsikPlani != null ? "plan" : t.Isik).Append("\",\"isik_plani\":\"").Append(t.IsikPlani == null ? "" : string.Join(";", Array.ConvertAll(t.IsikPlani, q => q.t.ToString("0.0", Inv) + "s:" + q.isik))).Append("\",\"zemin\":\"").Append(t.Zemin).Append("\",\"not\":\"held-out sinama kaydi: isik/zemin yalniz uretim sirasinda gecici sahne durumunda degistirildi\"}");
             sb.Append(",\"robot_yaricapi_m\":").Append(D(RobotRadius, "0.00"));
             sb.Append(",\"harita\":\"gercek_harita.png\"");
             sb.Append(",\"kare_sayisi\":").Append(recs.Count).Append(",\"sure_sn\":").Append(D(recs.Count * Dt, "0.0")).Append(",\"yol_uzunlugu_m\":").Append(D(lengthM, "0.00"));
@@ -986,13 +1014,20 @@ namespace ARaki.EditorTools
 
         // ------------------------------------------------------------------ çıktı: kareler + ışınlar
 
-        static void RenderAll(string folder, List<Rec> recs)
+        static void RenderAll(string folder, List<Rec> recs, Track track = null)
         {
             string frameDir = Path.Combine(folder, "kareler");
             Directory.CreateDirectory(frameDir);
+            string curIsik = null;
             for (int i = 0; i < recs.Count; i++)
             {
                 var r = recs[i];
+                if (track != null && track.IsikPlani != null)
+                {
+                    string want = track.IsikPlani[0].isik;
+                    foreach (var (pt, pi) in track.IsikPlani) if (r.T >= pt - 1e-9) want = pi;
+                    if (want != curIsik) { curIsik = want; ApplyCondition(want, track.Zemin); }
+                }
                 RenderPano(new Vector3((float)r.RobX, 0f, (float)r.RobZ), (float)r.RobYaw);
                 File.WriteAllBytes(Path.Combine(frameDir, i.ToString("000000") + ".jpg"), outTex.EncodeToJPG(95));
                 if (i % 200 == 0) Debug.Log($"[KonumVeri] {Path.GetFileName(folder)}: kare {i}/{recs.Count}");
