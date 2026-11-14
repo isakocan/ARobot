@@ -9,6 +9,9 @@ KAYIT BİÇİMİ v1 (değişken B):
     kareler.csv    kare,t_ms,ofset,bayt        (ofset/bayt: JPEG'in kareler.mjpg içindeki yeri)
     komutlar.csv   t_ms,sol,sag,kaynak         (Arduino'ya giden motor hedefi; PWM -255..255, ileri +)
     durum.csv      t_ms,sol,sag,sol_ma,sag_ma  (Arduino geri bildirimi, ~10 Hz)
+    olaylar.csv    t_ms,komut,kaynak           (Arduino'ya giden motor DIŞI her komut, olduğu gibi: L far, F selektör,
+                                               H dörtlü, K korna, C müzik, X efekt, E motor sesi, V geri bip,
+                                               Z efekt tercihi; yalnızca nabız "N" yazılmaz)
   t_ms: kayıt başından beri tam sayı ms (köprünün saati, time.monotonic). Kare zamanı: JPEG'in GStreamer
   borusundan okunması bittiği an.
 
@@ -38,7 +41,7 @@ KONTROL_ARALIGI = 0.5       # sn: süre / disk / kamera sınırları bu aralıkl
 BEKLENEN_MB_SN = (2, 6)     # JPEG kare 150-400 KB x 15 fps
 EN_COK_TAMPON = 500000      # bellekteki komut / durum satırı sınırı (yazıcı takılırsa bellek şişmesin)
 
-DOSYALAR = ("bilgi.json", "kareler.mjpg", "kareler.csv", "komutlar.csv", "durum.csv")
+DOSYALAR = ("bilgi.json", "kareler.mjpg", "kareler.csv", "komutlar.csv", "durum.csv", "olaylar.csv")
 AD_DESENI = re.compile(r"[^A-Za-z0-9_-]")
 
 
@@ -85,6 +88,7 @@ class HamKayit:
         self._bayt = 0
         self._komutlar = []
         self._durumlar = []
+        self._olaylar = []
         self._komut_sayisi = 0
         self._durum_sayisi = 0
         self._son_kare = None
@@ -143,7 +147,11 @@ class HamKayit:
             elif komut.startswith("M "):
                 _, a, b = komut.split()
                 sol, sag = int(a), int(b)
-            else:
+            else:                           # motor dışı komut (far, selektör, korna, müzik...): olaylar.csv
+                if komut != "N":
+                    with self.kilit:
+                        if self.aktif and len(self._olaylar) < EN_COK_TAMPON:
+                            self._olaylar.append("%d,%s,%s\n" % (self._t(), komut.replace(",", " "), kaynak or ""))
                 return
             with self.kilit:
                 if not self.aktif or len(self._komutlar) >= EN_COK_TAMPON:
@@ -200,12 +208,14 @@ class HamKayit:
                 dosyalar = [open(os.path.join(klasor, "kareler.mjpg"), "wb"),
                             open(os.path.join(klasor, "kareler.csv"), "w"),
                             open(os.path.join(klasor, "komutlar.csv"), "w"),
-                            open(os.path.join(klasor, "durum.csv"), "w")]
+                            open(os.path.join(klasor, "durum.csv"), "w"),
+                            open(os.path.join(klasor, "olaylar.csv"), "w")]
             except OSError as e:
                 raise KayitHatasi("Kayıt dosyaları açılamadı: {}".format(e))
             dosyalar[1].write("kare,t_ms,ofset,bayt\n")
             dosyalar[2].write("t_ms,sol,sag,kaynak\n")
             dosyalar[3].write("t_ms,sol,sag,sol_ma,sag_ma\n")
+            dosyalar[4].write("t_ms,komut,kaynak\n")
             bilgi = {"bicim": 1, "kaynak": "robot", "ad": ad,
                      "kamera": {"tur": "cift_balikgozu", "genislik": 1280, "yukseklik": 720, "fps": 15},
                      "kamera_yuksekligi_m": None, "baslangic_duvar_saati": _iso_zaman()}
@@ -259,7 +269,10 @@ class HamKayit:
         with self.kilit:
             komutlar, self._komutlar = self._komutlar, []
             durumlar, self._durumlar = self._durumlar, []
+            olaylar, self._olaylar = self._olaylar, []
         kom_csv, durum_csv = self._dosyalar[2], self._dosyalar[3]
+        if olaylar:
+            self._dosyalar[4].write("".join(olaylar))
         if komutlar:
             kom_csv.write("".join(komutlar))
             self._komut_sayisi += len(komutlar)

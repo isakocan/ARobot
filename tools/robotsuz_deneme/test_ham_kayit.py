@@ -76,7 +76,9 @@ class BirimDeneme(unittest.TestCase):
                 h.komut("M 100 -100", "udp")
                 h.komut("S", "dur")
                 h.durum_satiri({"sol": 10, "sag": 20, "sol_ma": 300, "sag_ma": 400})
-                h.komut("N", "udp")                                   # motor komutu değil: yok sayılır
+                h.komut("N", "udp")                                   # nabız: hiçbir yere yazılmaz
+                h.komut("F", None)                                    # selektör: olaylar.csv
+                h.komut("K 250 3", None)                              # korna: olaylar.csv
             time.sleep(0.01)
         d = h.durdur()
         self.assertFalse(d["aktif"])
@@ -100,6 +102,10 @@ class BirimDeneme(unittest.TestCase):
         ust, kom = csv_oku(os.path.join(klasor, "komutlar.csv"))
         self.assertEqual(ust, "t_ms,sol,sag,kaynak")
         self.assertEqual([k[1:] for k in kom], [[100, -100, "udp"], [0, 0, "dur"]])
+        with open(os.path.join(klasor, "olaylar.csv")) as f:
+            olay = [s.strip().split(",") for s in f if s.strip()]
+        self.assertEqual(olay[0], ["t_ms", "komut", "kaynak"])
+        self.assertEqual([o[1:] for o in olay[1:]], [["F", ""], ["K 250 3", ""]])
         ust, dur = csv_oku(os.path.join(klasor, "durum.csv"))
         self.assertEqual(ust, "t_ms,sol,sag,sol_ma,sag_ma")
         self.assertEqual([x[1:] for x in dur], [[10, 20, 300, 400]])

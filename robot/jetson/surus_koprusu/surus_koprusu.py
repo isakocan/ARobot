@@ -192,8 +192,8 @@ class Arduino:
                 return False
             try:
                 self.port.write((komut + "\n").encode())
-                if kaynak and HAM_KAYIT.aktif:       # ham kayıt: motor hedefi (hata fırlatmaz)
-                    HAM_KAYIT.komut(komut, kaynak)
+                if HAM_KAYIT.aktif and (kaynak or komut[:1] not in "MSN"):   # ham kayıt: motor hedefi ve
+                    HAM_KAYIT.komut(komut, kaynak)       # far, korna, müzik vb. her komut (hata fırlatmaz)
                 return True
             except (serial.SerialException, OSError):
                 return False

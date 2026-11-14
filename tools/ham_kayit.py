@@ -18,7 +18,7 @@ import urllib.parse
 import urllib.request
 
 KOK = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-DOSYALAR = ("bilgi.json", "kareler.mjpg", "kareler.csv", "komutlar.csv", "durum.csv")
+DOSYALAR = ("bilgi.json", "kareler.mjpg", "kareler.csv", "komutlar.csv", "durum.csv", "olaylar.csv")
 
 
 def temel(adres):
