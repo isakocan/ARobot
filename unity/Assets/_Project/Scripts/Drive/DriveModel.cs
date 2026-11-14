@@ -138,8 +138,8 @@ namespace ARaki.Drive
             // Dönüş tuşu bırakıldıysa direksiyon ortaya dönerken tekerlere ek güç verilmez: yalnızca hız varken ve hızla
             // orantılı döner (yoksa bırakınca araç yavaşlarken iç teker tersine dönüp son anda fazladan döner).
             bool steering = turn != 0 || AnalogSteer.HasValue;
-            if (!steering) return Mix(Output, Steer * Mathf.Clamp01(Mathf.Abs(Output) / 0.25f), coasting: true);
-            return Mix(Output, Steer);
+            if (!steering) return Mix(Output, Steer * Mathf.Clamp01(Mathf.Abs(Output) / 0.25f), coasting: true, sharp: SharpTurn);
+            return Mix(Output, Steer, sharp: SharpTurn);
         }
 
         void UpdateSteer(float dt, int turn)
@@ -200,7 +200,7 @@ namespace ARaki.Drive
         /// farkta hiç dönmeyip eşik aşılınca birden döner. Bu yüzden direksiyon kırılmaya başlar başlamaz eşiğe
         /// (TurnStart) atlanır, sonrası direksiyonla doğrusal artar; dönüş hızı direksiyonla kademeli büyür.
         /// </summary>
-        public static (float, float) Mix(float f, float t, bool coasting = false)
+        public static (float, float) Mix(float f, float t, bool coasting = false, bool sharp = false)
         {
             float a = Mathf.Abs(t);
             if (a < 0.02f) return (f, f);
@@ -213,7 +213,7 @@ namespace ARaki.Drive
             if (f != 0f)
             {
                 float outer = Mathf.Sign(f) * Mathf.Lerp(Mathf.Abs(f), Mathf.Max(Mathf.Abs(f), TurnMinimum), k);
-                float kc = SharpTurn ? k : k * k * Mathf.Sqrt(k);   // iç teker eğrisi: hafif kırışta yavaş, tam kilide doğru hızlı
+                float kc = sharp ? k : k * k * Mathf.Sqrt(k);   // iç teker eğrisi: hafif kırışta yavaş, tam kilide doğru hızlı
                 float inner = Mathf.Lerp(f, InnerWheel * outer, kc);
                 return t > 0f ? (outer, inner) : (inner, outer);   // dönülen taraf iç tekerdir
             }
