@@ -13,11 +13,9 @@
 ## 0. Robot bağlanınca (sırayla)
 - [ ] Bekleyen yazılımı yükle: Arduino (havalı korna, gür foto sesi), köprü (görünen kısım, donanım JPEG çözücü), robot paneli (kurulum ağı 20 sn, sınırsız yeniden deneme, 2,4 GHz tercihi; `sudo bash ~/robot/kurulum.sh`), telefona son uygulama.
 - [ ] Bağlantı kopup geri gelmeme sorunu: koptuğunda ne gördüğünü konuş, kayıtlara bak (`kopru.log`, `journalctl -u robot-paneli -u NetworkManager`).
-- [ ] Wi-Fi: `bash ~/robot/araclar/wifi_kontrol.sh` (gönderme gücü, ülke kodu, bağlantı hızı); uzak odada `wifi_kontrol.sh izle`; antenleri farklı açılara getirip karşılaştır; telefon paylaşımı 2,4 GHz'te.
 - [ ] Görünen kısım: Ayarlar › Görüntü › Görünen; veri düşüyor mu, dönüşte bulanıklık rahatsız ediyor mu (ediyorsa iptal).
 - [ ] Telefonda MP4 kayıt, galeriye düşmesi, "Galeride aç"; büyük düğmeler.
 - [ ] Görüntü bekçisi: zayıf sinyalden sonra görüntü kendiliğinden düzeliyor mu.
-- [ ] Motor testleri (robot havadayken): ölü bölge, akım koruması, dönüş.
 
 ## A. Hemen denenecekler (parça gerekmez)
 
