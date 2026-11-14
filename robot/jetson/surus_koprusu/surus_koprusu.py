@@ -69,6 +69,8 @@ AKIS_ADLARI = tuple(a[0] for a in H264_AKISLAR)
 OTO_MERDIVEN = (0, 1, 2, 5)
 YUKSELT_BEKLE = 8           # sn: bu kadar sıkışmasız geçerse bir üst kaliteye çıkılır (başarısız denemede ikiye katlanır)
 YUKSELT_BEKLE_EN_COK = 30   # sn
+JPEG_BEKCI = 8              # sn: kamera hattı bu kadar JPEG kare vermezse (aygıt çıkarıldı, GStreamer takıldı) yeniden başlatılır
+YENIDEN_ARA = 3             # sn: iki kamera hattı başlatması arası en az bu kadar (sıkı döngü olmasın)
 H264_BEKCI = 5              # sn: JPEG gelirken H.264 bu kadar kare vermezse kamera hattı yeniden başlatılır
 ISI_ALARMI = 80             # °C: Jetson bunu geçince bir kez alarm sesi (75'in altına inince yeniden kurulur)
 ANAHTAR_ARALIGI = 15        # kare; 15 fps'te saniyede bir tam kare (yeni izleyen en geç 1 sn bekler)
@@ -374,6 +376,9 @@ class Kamera:
         self.seviye_sayisi = len(H264_AKISLAR)   # çoklu kodlayıcı açılamazsa 1
         self.donanim_cozucu = True # JPEG'i Jetson'un donanım çözücüsü (nvv4l2decoder mjpeg=1) çözer; olmazsa jpegdec
         self.h264_calisti = False  # çoklu kodlayıcı en az bir kez kare verdi mi
+        self.son_jpeg = 0.0        # son JPEG kare zamanı (yayın kolu kare beklerken takılırsa bekçi yakalar)
+        self.yeniden_nedeni = None # bekçi hattı öldürdüyse nedeni
+        self.kare_yok_say = 0      # art arda kaç hat hiç JPEG kare vermeden bitti
         self.izleyici_kbps = {}    # (IP, abone) → ona giden akışın bit hızı (durum paketinde IP başına toplanır)
         threading.Thread(target=self._dongu, daemon=True).start()
         threading.Thread(target=self._hiz_olc, daemon=True).start()
@@ -396,17 +401,28 @@ class Kamera:
                 while self.izleyen == 0:
                     self.durum = "kapali"
                     self.kosul.wait()
-            self.aygit = kamera_bul()
+            self.aygit = kamera_bul()      # her başlatmada yeniden: kamera video0 → video1 olabilir
             if not self.aygit:
                 self.durum = "yok"
                 time.sleep(2)
                 continue
             self.durum = "baslatiliyor"
+            bas = time.time()
+            self.yeniden_nedeni = None
             kare_geldi = self._yayinla()
-            if not kare_geldi and self.h264_destek:
-                log("kamera hattı kare vermedi; H.264 kapatılıp yalnızca JPEG denenecek")
-                self.h264_destek = False
-            time.sleep(1)
+            if kare_geldi:
+                self.kare_yok_say = 0
+            elif self.yeniden_nedeni is None:
+                self.kare_yok_say += 1
+                # kamera çıkarılıp takılırken de hat kare vermeden biter: tek seferde H.264'ü kapatma; hiç çalışmamışsa
+                # ve art arda 3 kez böyle olursa kapat
+                if self.h264_destek and not self.h264_calisti and self.kare_yok_say >= 3:
+                    log("kamera hattı kare vermedi; H.264 kapatılıp yalnızca JPEG denenecek")
+                    self.h264_destek = False
+                else:
+                    log("kamera hattı kare vermedi (%d)" % self.kare_yok_say)
+            # iki başlatma arası en az YENIDEN_ARA sn
+            time.sleep(max(1.0, YENIDEN_ARA - (time.time() - bas)))
 
     def _komut(self, h264_fdler):
         komut = ["gst-launch-1.0", "-q", "v4l2src", "device=" + self.aygit, "!",
@@ -448,28 +464,13 @@ class Kamera:
         akis = p.stdout
         sayac_bas, zaman_bas = 0, time.time()
         kare_geldi = False
-        baslangic = self.son_h264 = time.time()
+        baslangic = self.son_h264 = self.son_jpeg = time.time()
+        durdur = threading.Event()
+        threading.Thread(target=self._bekci, args=(p, baslangic, bool(h264_yaz), durdur), daemon=True).start()
         try:
             while True:
                 # izleyen kalmadıysa bir süre sonra kapat
                 if self.izleyen == 0 and time.time() - self.son_izleyen > KAMERA_BOSTA_KAPAT:
-                    break
-                # JPEG gelirken H.264 kolu durduysa (ör. kamera çıkarılıp takıldı, kodlayıcı takıldı) hattı yeniden
-                # başlat; üç kez üst üste olursa yalnızca JPEG'e geç (uygulama da kendiliğinden JPEG'e geçer)
-                if h264_yaz and kare_geldi and self.aboneler and time.time() - max(self.son_h264, baslangic) > H264_BEKCI:
-                    if self.donanim_cozucu and not self.h264_calisti:
-                        self.donanim_cozucu = False
-                        log("donanım JPEG çözücü kare vermedi; yazılım çözücüyle devam")
-                        break
-                    if self.seviye_sayisi > 1 and not self.h264_calisti:
-                        # çoklu kodlayıcı hiç kare vermediyse tek kaliteye dön (eski düzen)
-                        self.seviye_sayisi = 1
-                        log("çoklu H.264 kodlayıcı kare vermedi; tek kaliteyle devam")
-                        break
-                    self.h264_takilma += 1
-                    log("H.264 kolu kare vermiyor, kamera hattı yeniden başlatılıyor (%d)" % self.h264_takilma)
-                    if self.h264_takilma >= 3:
-                        self.h264_destek = False
                     break
                 uzunluk = None
                 while True:                       # parça başlıkları
@@ -488,6 +489,7 @@ class Kamera:
                         return kare_geldi
                     veri += parca
                 kare_geldi = True
+                self.son_jpeg = time.time()
                 with self.kosul:
                     self.kare = veri
                     self.sayac += 1
@@ -498,11 +500,47 @@ class Kamera:
                     self.fps = sayac_bas / (time.time() - zaman_bas)
                     sayac_bas, zaman_bas = 0, time.time()
         finally:
+            durdur.set()
             p.kill()
             p.wait()
             self.fps = 0.0
             log("kamera kapandı")
         return kare_geldi
+
+    def _bekci(self, p, baslangic, h264_var, durdur):
+        """Yayın kolu JPEG beklerken readline'da bloke olur; takılmayı o göremez, bu iş parçacığı görür ve hattı öldürür
+        (okuma biter, _dongu aygıtı yeniden bulup hattı yeniden başlatır). H.264 beklenirken kare gelmemesi
+        (kamera çıkarılıp takıldı, kodlayıcı takıldı) h264_calisti'dan bağımsız yeniden başlatır."""
+        while not durdur.wait(1):
+            if p.poll() is not None:
+                return
+            simdi = time.time()
+            sebep = None
+            jpeg_akiyor = self.son_jpeg > baslangic
+            if simdi - self.son_jpeg > JPEG_BEKCI:
+                self.fps = 0.0
+                sebep = "JPEG kare gelmiyor (%d sn)" % JPEG_BEKCI
+            elif not os.path.exists(self.aygit) or kamera_bul() != self.aygit:
+                sebep = "kamera aygıtı değişti ya da kayboldu (%s)" % self.aygit
+            elif h264_var and self.aboneler and simdi - max(self.son_h264, baslangic) > H264_BEKCI:
+                if jpeg_akiyor and not self.h264_calisti and self.donanim_cozucu:
+                    self.donanim_cozucu = False
+                    sebep = "donanım JPEG çözücü kare vermedi; yazılım çözücüyle devam"
+                elif jpeg_akiyor and not self.h264_calisti and self.seviye_sayisi > 1:
+                    # çoklu kodlayıcı hiç kare vermediyse tek kaliteye dön (eski düzen); kamera çıkarılması bunu tetiklemez
+                    self.seviye_sayisi = 1
+                    sebep = "çoklu H.264 kodlayıcı kare vermedi; tek kaliteyle devam"
+                else:
+                    sebep = "H.264 kolu kare vermiyor"
+                    if jpeg_akiyor:
+                        self.h264_takilma += 1
+                        if self.h264_takilma >= 3 and not self.h264_calisti:
+                            self.h264_destek = False
+            if sebep:
+                self.yeniden_nedeni = sebep
+                log("kamera hattı yeniden başlatılıyor: " + sebep)
+                p.kill()
+                return
 
     def _h264_oku(self, fd, seviye):
         """Bir kalitenin kodlayıcı çıktısını erişim birimlerine (bir kare) böler: her kare AUD ile başlar."""
