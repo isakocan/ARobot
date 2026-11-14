@@ -72,7 +72,9 @@ namespace ARaki.Drive
             if (!Application.isMobilePlatform) Application.runInBackground = true;   // PC'de pencere arka plandayken görüntü ve kayıt sürsün (klavye odak kaybında sıfırlanır, robot durur)
             Firmware = FirmwareData.Load();
             viewer.UseKeyboard = false;
+            Model.SharpTurn = Settings.SharpTurn;
             link.PwmLimit = Settings.PowerLimit;
+            Model.SharpTurn = Settings.SharpTurn;
             link.State.ReverseBeep = Settings.ReverseBeep;
             link.State.HornStyle = Settings.HornStyle;
             // telefonda galeriye de kopyalanır (uygulamanın klasörü galeride görünmez)
@@ -112,6 +114,7 @@ namespace ARaki.Drive
         public void ChangePower(float d)
         {
             Settings.PowerLimit = Mathf.Clamp(Mathf.Round((Settings.PowerLimit + d) * 20f) / 20f, 0.2f, 1f);
+            Model.SharpTurn = Settings.SharpTurn;
             link.PwmLimit = Settings.PowerLimit;
             Settings.Save();
             ShowToast("Güç %" + Mathf.RoundToInt(Settings.PowerLimit * 100f));
