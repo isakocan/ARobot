@@ -1,0 +1,88 @@
+{
+  "ad": "Ricoh Theta S, USB 1280x720 cift balik gozu (GERCEK ROBOT, oz-kalibre, asama A)",
+  "model": "esit_uzaklik",
+  "model_aciklama": "r = f * teta (teta: lens eksenine aci, radyan; f: piksel/radyan). Gokyuzu: ARakiDualFisheye.shader:94-96 ve surus.html:820-821 ile ayni.",
+  "kare": {
+    "genislik": 1280,
+    "yukseklik": 720,
+    "kaynak": "surus.html:814-826 (BOYUT), ARakiDualFisheye.shader:14"
+  },
+  "lens1": {
+    "merkez_x": 322.42,
+    "merkez_y": 319.04,
+    "f": 180.87,
+    "kaynak": "surus.html:814 (M1, F1); ARakiDualFisheye.shader:12 (_Lens1)"
+  },
+  "lens2": {
+    "merkez_x": 956.67,
+    "merkez_y": 320.15,
+    "f": 180.3,
+    "kaynak": "surus.html:815 (M2, F2); ARakiDualFisheye.shader:13 (_Lens2)"
+  },
+  "don2_derece": [
+    -0.141,
+    0.984,
+    0.683
+  ],
+  "don2_aciklama": "2. lensin 1. lense gore kucuk donusu (x,y,z derece); R = Rz*Ry*Rx. lens2 yonu: c2 = R * (-x, y, -z).",
+  "don2_kaynak": "surus.html:838 (DON2), surus.html:873 (DON2_MATRIS); RobotCameraMount.cs:24,57; tools/lens_ayarla.py:46",
+  "rmax_px": 306.0,
+  "rmax_kaynak": "surus.html:816 (RMAX); ARakiDualFisheye.shader:15. Birlestirmede bu yaricaptan oteye bakilmaz.",
+  "daire_yaricap_px": 316.0,
+  "daire_yaricap_kaynak": "BU ARACIN OLCUMU (tools/robotsuz_deneme/kayit/kare.jpg): merkezden disa dairesel ortanca parlaklik r=300'de ~50, 310'da ~21, 320'de ~3. Sim bozucu karanlik halkayi buradan cizer.",
+  "karisim_bandi_derece": 6.0,
+  "bant_kaynak": "surus.html:817 (BANT); ARakiDualFisheye.shader:16. Lens 1 agirligi t1 = 90 +-6 derece arasinda smoothstep ile 1'den 0'a iner.",
+  "montaj": {
+    "yon": -5.11828529113137,
+    "egim": -0.653728948682616,
+    "yatma": 90.0,
+    "yan_egim": 2.302084820129343,
+    "aciklama_ek": "EK ALANLAR (kamera.Kamera bunlari BILMEZ, gercek_kalib_model.KameraGercek okur): yan_egim = kameranin zemine gore robot ileri ekseni (z) etrafinda egimi (derece); M = Rz(yatma) Rx(egim) Rz(yan_egim) Ry(yon). egim = sag ekseni (x) etrafinda, yon = yukari eksen etrafinda ilerleme yonune gore kayma. Robot cercevesi = ZEMINE gore cerceve."
+  },
+  "montaj_aciklama": "Robot isini -> kamera isini: d_kam = Rz(yatma) * Rx(egim) * Ry(yon) * d_robot (satir duzeni matrisler). yatma=90: kamera yan yatik takili, goruntu 90 derece doner.",
+  "montaj_kaynak": "OZ-KALIBRASYON asama A (egim, yan_egim, yon); mercek merkezleri/f kamera.json'dakiler",
+  "robot_ekseni": "x sag, y yukari, z ileri (shader ile ayni)",
+  "kalibrasyon": {
+    "yontem": "duz gidis kare ciftlerinde zemin noktalarinin katı oteleme tutarliligi (geri-projeksiyon hatasi, Cauchy), h=0,17 m SABIT, 2,00 m gercegi KULLANILMADI",
+    "kume": "2a_vitessiz_duz + 4_parke_vitessiz",
+    "asama": "A",
+    "kod": "tools/konum_deney/gercek_kalib_coz.py, gercek_kalib_son.py",
+    "belirsizlik": {
+      "bootstrap_std_derece": {
+        "egim": 0.03042894104213756,
+        "yan_egim": 0.0843228954878228,
+        "yon": 0.17072298006289285
+      },
+      "kayitlar_arasi_ort_std_derece": {
+        "egim": [
+          -0.70942342755578,
+          0.17211879659349577
+        ],
+        "yan_egim": [
+          2.0928431288252383,
+          0.3632551249591573
+        ],
+        "yon": [
+          -4.9169117475174,
+          0.471450627874651
+        ]
+      },
+      "kayitlar_arasi_not": "2a, 2b, 4, 5, olcum_ham tek tek cozumleri (6c: 16 cift, karanlik, guvenilmez, disarida). Gercekci belirsizlik bootstrap degil kayitlar arasi yayilim (~0,2-0,5 derece).",
+      "ileri_geri_yon": {
+        "ileri": {
+          "cift": 113,
+          "egim": -0.7633576634682826,
+          "yan_egim": 2.6545845042412526,
+          "yon": -5.892147696516022
+        },
+        "geri": {
+          "cift": 97,
+          "egim": -0.5280688469231949,
+          "yan_egim": 1.9764379815868158,
+          "yon": -4.300158997397569
+        }
+      },
+      "merkezler_ve_f": "KALIBRE EDILMEDI: asama B (merkezler) kayitlar arasi tutarsiz (m1y 317-330 px) ve bagimsiz olcum_ham sinamasinda kotulesti (1,68 -> 1,41 m); asama C (f) h ile olcek dejenere"
+    }
+  }
+}
