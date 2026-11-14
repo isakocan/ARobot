@@ -28,8 +28,8 @@ namespace ARaki.Drive
     public class DriveModel
     {
         public static readonly float[] GearTop = { 0f, 0.24f, 0.4f, 0.58f, 0.78f, 1f };     // güç sınırının oranı
-        public static readonly float[] GearRate = { 0f, 0.5f, 0.44f, 0.38f, 0.34f, 0.3f };  // saniyede
-        public static readonly float[] GearHold = { 0f, 1.2f, 1.5f, 1.8f, 2.1f, 2.4f };     // kırmızıya varmak için o viteste gazda geçen sn
+        public static readonly float[] GearRate = { 0f, 0.6f, 0.53f, 0.46f, 0.41f, 0.36f };  // saniyede
+        public static readonly float[] GearHold = { 0f, 1.0f, 1.2f, 1.5f, 1.7f, 2.0f };     // kırmızıya varmak için o viteste gazda geçen sn
         public static int TopGear => GearTop.Length - 1;
         public const float ReverseRate = 0.4f;
         public const float Coast = 1.2f;    // tuş bırakınca saniyede yavaşlama
@@ -139,6 +139,8 @@ namespace ARaki.Drive
 
         void UpdateSteer(float dt, int turn)
         {
+            // ters yöne basınca eski yön hemen sıfırlanır (yoksa sağa dönerken sola basınca araç ~1 sn daha sağa döner)
+            if (turn != 0 && Steer != 0f && Mathf.Sign(turn) != Mathf.Sign(Steer)) { Steer = 0f; steerVelocity = 0f; }
             // ilk kısım (SteerBite) hızlı: kısa basışta da araç hemen döner; sonrası yavaş ve kademeli
             float along = turn != 0 ? turn * Steer : 0f;
             if (turn != 0 && along >= -0.001f && along < SteerBite)
