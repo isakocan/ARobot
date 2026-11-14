@@ -42,7 +42,7 @@ Sonuç: hızlı hızlı ileri-geri yapmak robotu titretir ama motoru ya da sür�
   - 5 GHz'de kanal 60 kullanılıyor. Bu kanalda radar algılanınca AP kanal değiştirmek zorunda kalır ve herkes ~1 dk düşer (DFS).
   - Ağ açık ve giriş sayfalı. Robot "internet yok" görüyor; şimdilik sorun değil.
   - Bazı okul ağları cihazların birbirini görmesini engeller. Şu an çalışıyor, ama ağ ayarı değişirse aniden çalışmayabilir.
-- 🟡 **Robot 45 sn ağ bulamazsa kendi kurulum ağını açar.** O sırada uygulama robotu bulamaz. Telefon Robot-A78C ağına bağlanıp panelden ağ seçilir.
+- 🟡 **Robot 45 sn ağ bulamazsa kendi kurulum ağını açar.** O sırada uygulama robotu bulamaz. Telefon Robot-A78C ağına bağlanıp uygulamada menü › ROBOT'tan ağ seçilir.
 - ❌ **Android, internetsiz ağdan kaçabilir:** robotun kendi ağına bağlanınca Samsung "internet yok" deyip mobil veriye geçebilir (Uyarlanabilir Wi-Fi / Mobil veriye geç). O zaman paketler robota gitmez. Çözüm: telefonda bu ayarı kapatmak ya da uygulamanın robota Wi-Fi üzerinden gitmesini zorlamak (Android'de yapılabilir, henüz yok).
 - 🟡 **IP değişir:** her ağda robotun adresi farklı olur. Uygulama kendisi buluyor (önce son adres, sonra jetson.local, sonra yayın, sonra tarama).
 

@@ -13,11 +13,9 @@
 ## 0. Robot bağlanınca (sırayla)
 - [ ] Bekleyen yazılımı yükle: Arduino (havalı korna, gür foto sesi), köprü (görünen kısım, donanım JPEG çözücü), robot paneli (kurulum ağı 20 sn, sınırsız yeniden deneme, 2,4 GHz tercihi; `sudo bash ~/robot/kurulum.sh`), telefona son uygulama.
 - [ ] Bağlantı kopup geri gelmeme sorunu: koptuğunda ne gördüğünü konuş, kayıtlara bak (`kopru.log`, `journalctl -u robot-paneli -u NetworkManager`).
-- [ ] Wi-Fi: `bash ~/robot/araclar/wifi_kontrol.sh` (gönderme gücü, ülke kodu, bağlantı hızı); uzak odada `wifi_kontrol.sh izle`; antenleri farklı açılara getirip karşılaştır; telefon paylaşımı 2,4 GHz'te.
 - [ ] Görünen kısım: Ayarlar › Görüntü › Görünen; veri düşüyor mu, dönüşte bulanıklık rahatsız ediyor mu (ediyorsa iptal).
 - [ ] Telefonda MP4 kayıt, galeriye düşmesi, "Galeride aç"; büyük düğmeler.
 - [ ] Görüntü bekçisi: zayıf sinyalden sonra görüntü kendiliğinden düzeliyor mu.
-- [ ] Motor testleri (robot havadayken): ölü bölge, akım koruması, dönüş.
 
 ## A. Hemen denenecekler (parça gerekmez)
 
@@ -48,8 +46,8 @@ Kontrol listesi:
   - Anten 5 GHz destekliyor mu? Üstünde ya da belgesinde "2.4/5 GHz dual band" geçmeli.
   - Anten metal kasanın dışında mı?
 - 2,4 GHz deneme (duvardan daha iyi geçer): panelde "Wi-Fi bandı" bölümünden 2,4 GHz seç. Kart (Intel 8265) iki bandı da destekliyor; okulda EDUROAM'ın 2,4 GHz yayını da görünüyor. O bantta bağlanamazsa robot eski ayara kendisi döner.
-- Doğrudan bağlantı: panelden "Robotu kurulum moduna al", bilgisayarı `Robot-A78C` ağına bağla, `http://10.42.0.1:8080`. Aynı gecikme ve menzil ölçümünü yap.
-- **Telefonun internet paylaşımı:** telefonun hotspot'unu aç, PC'yi ve robotu ona bağla (robotu panelden). Ev dışı / okul ağı olmadan kullanım böyle olacak.
+- Doğrudan bağlantı: uygulamada menü › ROBOT'tan "Robotu kurulum moduna al", bilgisayarı `Robot-A78C` ağına bağla, `http://10.42.0.1:8080`. Aynı gecikme ve menzil ölçümünü yap.
+- **Telefonun internet paylaşımı:** telefonun hotspot'unu aç, PC'yi ve robotu ona bağla (robotu menü › ROBOT'tan). Ev dışı / okul ağı olmadan kullanım böyle olacak.
 - **Robotun kendi ağına doğrudan:** PC'yi Robot-A78C'ye bağla (o sırada PC'nin interneti gider), Unity'den sür.
 - Sonuçları karşılaştır: sinyal (dBm, ayarlar panelinde), gidip gelme (ms), kaç metrede/hangi duvarda koptuğu. Ölçümü Claude yapar (UDP gidip gelme, kayıp, sinyal); kullanıcı sürerek his testi yapar.
 

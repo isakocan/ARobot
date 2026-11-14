@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """
 Robot paneli (Jetson, root olarak çalışır): Wi-Fi kurulumu ve güvenli kapatma.
+Arayüzü uygulamadadır (menü › ROBOT); burada yalnızca JSON API (/api/*) var.
 
 Akış:
   - Açılışta NetworkManager kayıtlı ağları kendisi dener.
   - BEKLEME saniye boyunca hiçbir ağa bağlanamazsa robot kendi ağını açar (kurulum modu).
-  - Telefon o ağa girince kurulum sayfası kendiliğinden açılır (DNS her adı 10.42.0.1'e çevirir).
-  - Sayfadan ağ seçilir, şifre yazılır; robot o ağa geçer ve onu en öncelikli ağ yapar.
+  - Telefon o ağa girince DNS her adı 10.42.0.1'e çevirir; uygulama robotu bulup ağ listesini API'den alır.
+  - Uygulamadan ağ seçilir, şifre yazılır; robot o ağa geçer ve onu en öncelikli ağ yapar.
   - Bağlanamazsa kurulum ağını hata mesajıyla yeniden açar.
   - Çalışan bir ağdan başka ağa geçilince, yeni ağda ONAY_SURESI boyunca kimse panele
     ulaşmazsa robot önceki ağa döner; seçilen ağ ancak ulaşılınca öncelikli olur.
   - Kurulum ağında BOS_AP_SURE boyunca kimse yoksa kayıtlı ağları yeniden dener.
-  - Bağlıyken sayfadaki "Başka ağa geç" düğmesi robotu kurulum moduna alır.
+  - Bağlıyken uygulamadaki "Başka ağa geç" düğmesi robotu kurulum moduna alır.
   - Giriş sayfası isteyen ağlarda (okul Wi-Fi'ı) kayıtlı bilgilerle kendisi giriş yapar,
     oturum düşerse yeniden girer (ag_girisi.py).
-  - Güç: sayfadan kapat / yeniden başlat (gücü kesmeden önce SD kart güvenle kapanır).
+  - Güç: uygulamadan kapat / yeniden başlat (gücü kesmeden önce SD kart güvenle kapanır).
 
 Python 3.6 uyumlu (Ubuntu 18.04), yalnızca standart kütüphane + nmcli.
 """
@@ -33,7 +34,6 @@ import ag_girisi
 ARAYUZ = "wlan0"
 AP_PROFIL = "Kurulum-Agi"
 AYAR_DOSYASI = "/etc/robot/kurulum_agi.json"
-SAYFA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "panel.html")
 PORTAL_IP = "10.42.0.1"
 PORT = 80
 
@@ -120,7 +120,7 @@ _onbellek = {}
 
 
 def onbellekli(sure, fonk, *arg):
-    """Sayfa 2 sn'de bir durum ister; her seferinde nmcli çağırmak NetworkManager'ı meşgul eder."""
+    """Uygulama 2 sn'de bir durum ister; her seferinde nmcli çağırmak NetworkManager'ı meşgul eder."""
     anahtar = (fonk.__name__,) + arg
     simdi = time.time()
     kayit = _onbellek.get(anahtar)
@@ -245,7 +245,7 @@ def giris_dene(ssid):
     if not b or not D.portal:
         return
     if ag_girisi.portal_turu(D.portal) != "fortigate":
-        D.giris_hata = "Bu ağın giriş sayfası tanınmıyor. Jetson ekranından tarayıcıyla giriş yapılabilir."
+        D.giris_hata = "Bu ağın giriş sayfası tanınmıyor. Jetson ekranından giriş yapılabilir."
         return
     log("ağ girişi deneniyor:", ssid, b["kullanici"])
     tamam, sonuc = ag_girisi.fortigate_giris(D.portal, b["kullanici"], b["sifre"])
@@ -290,7 +290,7 @@ def internet_dongusu():
         if durum == "portal":
             D.canli_tut = None
             # Hatalı bilgiyle okul sunucusunu yormamak için: bir deneme başarısız olduysa
-            # yeniden yalnızca sayfadan istenince dene
+            # yeniden yalnızca uygulamadan istenince dene
             if elle or not D.giris_hata:
                 giris_dene(ssid)
         elif durum == "var" and D.canli_tut and time.time() - son_canli > CANLI_TUT_ARALIGI:
@@ -341,7 +341,7 @@ def bant_degistir(bant):
             return
         onceki = bant_tercihi(ad)
         log("bant:", ad, repr(onceki), "→", repr(bant))
-        time.sleep(1.5)           # sayfaya verilen yanıt ulaşsın
+        time.sleep(1.5)           # uygulamaya verilen yanıt ulaşsın
         nmcli("con", "modify", ad, "802-11-wireless.band", bant)
         kod, cikti = nmcli("--wait", str(BAGLANMA_SURESI), "con", "up", ad, sure=BAGLANMA_SURESI + 10)
         if kod != 0:
@@ -380,7 +380,7 @@ def baglan(ssid, sifre):
         D.onay = None
         D.mod = "baglaniyor"
         D.son_deneme = ssid
-        time.sleep(1.5)           # sayfaya verilen yanıt telefona ulaşsın
+        time.sleep(1.5)           # uygulamaya verilen yanıt telefona ulaşsın
         nmcli("con", "down", AP_PROFIL, sure=20)
         time.sleep(2)
 
@@ -483,7 +483,7 @@ class Istek(BaseHTTPRequestHandler):
     def do_GET(self):
         host = (self.headers.get("Host") or "").split(":")[0]
         yol = self.path.split("?")[0]
-        # Kurulum modunda telefonun internet kontrolü (generate_204 vb.) sayfaya yönlendirilir
+        # Kurulum modunda telefonun internet kontrolü (generate_204 vb.) köke yönlendirilir
         if D.mod == "kurulum" and host not in (PORTAL_IP, "") and not yol.startswith("/api/"):
             self.send_response(302)
             self.send_header("Location", "http://{}/".format(PORTAL_IP))
@@ -520,10 +520,9 @@ class Istek(BaseHTTPRequestHandler):
             })
             return
         if yol in ("/", "/index.html"):
-            with open(SAYFA, "rb") as f:
-                govde = f.read()
+            govde = "Robot paneli uygulamadan yönetilir (menü › ROBOT).".encode("utf-8")
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(govde)))
             self.end_headers()

@@ -14,15 +14,15 @@ Kurar: `python3-serial`, `v4l-utils`, `x11vnc`; `bs` → `dialout`; robot paneli
 
 ## Robot paneli (`robot_paneli/`)
 
-Tarayıcıda `http://jetson.local` ya da robotun IP adresi. İki işi var: Wi-Fi kurulumu ve güç.
+Arayüzü uygulamada (menü › ROBOT); robot tarafında yalnızca JSON API (`/api/*`) var, `http://<robot>/` kısa bir yönlendirme metni döner. İki işi var: Wi-Fi kurulumu ve güç.
 
 - Açılışta NetworkManager kayıtlı ağları dener. 45 sn bağlantı yoksa robot kendi ağını açar: `Robot-XXXX`. XXXX, Wi-Fi kartının MAC adresinin son 4 hanesi; şifre `/etc/robot/kurulum_agi.json`.
-- O ağa giren telefonda panel kendiliğinden açılır (açılmazsa `http://10.42.0.1`). Ağ seçilip şifre yazılır; robot geçer ve o ağı en öncelikli yapar. Olmazsa kurulum ağını hata mesajıyla geri açar.
+- O ağa giren telefonda uygulama menü › ROBOT'tan ağ seçilip şifre yazılır; robot geçer ve o ağı en öncelikli yapar. Olmazsa kurulum ağını hata mesajıyla geri açar.
 - Kurulum ağında 5 dk kimse yoksa kayıtlı ağlar yeniden denenir.
 - Robot bir ağdayken "kurulum moduna al" ile başka ağa geçirilir.
-- Giriş sayfası isteyen ağlarda (Yıldız EDUROAM, FortiGate) panelde "Ağ girişi" çıkar. Bilgiler `/etc/robot/ag_girisleri.json` içinde (yalnızca root); robot oturum düşünce kendisi yeniden girer.
+- Giriş sayfası isteyen ağlarda (Yıldız EDUROAM, FortiGate) uygulamada "Ağ girişi" çıkar. Bilgiler `/etc/robot/ag_girisleri.json` içinde (yalnızca root); robot oturum düşünce kendisi yeniden girer.
 - Bağlıyken panel internet durumunu anlık gösterir: var / giriş bekleniyor / yok, ne kadardır böyle olduğu, son 10 dakikanın renkli şeridi ve "geldi / gitti" listesi (ne kadar kesik kaldığıyla). İnternet varken 10 sn'de, yokken 3 sn'de bir kontrol edilir.
-- **Kapatma:** pilin şalterini kapatmadan önce panelden **Kapat**. Sayfa, robot cevap vermeyi bırakınca 15 sn daha bekleyip "Robot kapandı" der; güç ondan sonra kesilir.
+- **Kapatma:** pilin şalterini kapatmadan önce uygulamada menü › ROBOT'tan **Kapat**. Uygulama, robot cevap vermeyi bırakınca 15 sn daha bekleyip "Robot kapandı" der; güç ondan sonra kesilir.
 - Günlük: `ssh jetson 'journalctl -u robot-paneli -n 50'`
 
 ## Sürüş köprüsü (`surus_koprusu/`)
@@ -62,4 +62,4 @@ ssh -t jetson "sudo bash ~/robot/araclar/ekran_modu.sh masaustu"   # geri al (Je
 
 ## Robotu bulma
 
-Okul ağında `jetson.local` çalışmaz. `tools/robotu_bul.ps1` önce bu adı dener, olmazsa alt ağı tarayıp robotu panelinden tanır ve adresi `~/.ssh/config` içindeki `Host jetson` kaydına yazar (`HostKeyAlias` sayesinde anahtar doğrulaması bozulmaz). Masaüstündeki **Robot Paneli** kısayolu bunu `-Panel` ile çalıştırıp paneli açar; Jetson Ekranı da önce bunu çalıştırır.
+Okul ağında `jetson.local` çalışmaz. `tools/robotu_bul.ps1` önce bu adı dener, olmazsa alt ağı tarayıp robotu panelinden tanır ve adresi `~/.ssh/config` içindeki `Host jetson` kaydına yazar (`HostKeyAlias` sayesinde anahtar doğrulaması bozulmaz). Jetson Ekranı da önce bunu çalıştırır.

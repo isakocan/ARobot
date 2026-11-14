@@ -28,7 +28,7 @@
 //
 // Korumalar: komut 300 ms gelmezse motorlar durur; bağlantı (nabız) 1,5 sn gelmezse sesler susar, ışık söner,
 // sürerken koptuysa dörtlüler yanar (bağlantı gelince ya da 1 dk sonra söner); bir motorun akımı
-// AKIM_SINIR_MA'yı 800 ms aşarsa (teker sıkıştı) iki motor 1,5 sn durdurulur.
+// o sırada uygulanan PWM'e göre hesaplanan sınırı (akimSiniriMa) 800 ms aşarsa (teker sıkıştı) iki motor 1,5 sn durdurulur.
 //
 // Hiçbir yerde delay() yok: loop() her turda saate bakıp sırası gelen işi yapar,
 // böylece motor, LED, buzzer ve seri port birbirini bekletmez.
@@ -52,8 +52,10 @@ const unsigned long KOMUT_ZAMAN_ASIMI = 300;  // ms
 // korna), ışık söner; robot son birkaç saniyede gidiyorduysa dörtlüler kendiliğinden yanar.
 const unsigned long BAGLANTI_ZAMAN_ASIMI = 1500;  // ms
 const unsigned long OTO_DORTLU_SURE = 60000;      // ms; kendiliğinden yanan dörtlü en çok bu kadar yanar
-// Akım koruması. Sıkışma (stall) akımı henüz ölçülmedi; tahmini değer, ölçünce güncellenecek.
-const long AKIM_SINIR_MA = 2500;
+// Akım koruması. Sıkışma (stall) akımı PWM ile artar: 14 Kasım 2026'da sol taraf (2 motor) tekerler tutularak
+// ölçüldü: PWM 90 → ~1000 mA, PWM 150 → ~1950 mA; doğrusal uyum stall_mA ≈ 15,8*PWM - 425 (PWM 255 → ~3600 mA, tahmin).
+// Boşta/halıda normal akım 20-160 mA, kısa tepeler ~560 mA. Sınır = max(AKIM_ALT_SINIR_MA, 0,75 * stall_mA(PWM)).
+const long AKIM_ALT_SINIR_MA = 600;
 const unsigned long AKIM_SURE = 800;              // ms; kalkıştaki kısa tepe sayılmasın
 const unsigned long AKIM_BEKLEME = 1500;          // ms; koruma devreye girince motorlar bu kadar durur
 const unsigned long AKIM_ARALIGI = 20;            // ms; akım bu sıklıkla okunur
@@ -380,6 +382,14 @@ void motorlariDurdur() {
   motorYaz(SAG_A, SAG_B, OCR1B, 0, SAG_TERS);
 }
 
+// O an uygulanan PWM'e (ölü bölge sonrası, 0..255) göre sıkışma sayılacak akım sınırı (mA); bkz. AKIM_ALT_SINIR_MA
+long akimSiniriMa(int deger) {
+  if (!deger) return AKIM_ALT_SINIR_MA;
+  long pwm = OLU_BOLGE + (long)abs(deger) * (255 - OLU_BOLGE) / 255;   // motorYaz ile aynı eşleme
+  long sinir = (158L * pwm - 4250) * 3 / 40;                          // 0,75 * (15,8*pwm - 425)
+  return max(sinir, AKIM_ALT_SINIR_MA);
+}
+
 long akimMa(uint8_t pin) {
   // VNH5019 akım çıkışı ~140 mV/A; 5 V / 1024 adım → adım başına ~34 mA
   return (long)analogRead(pin) * 5000L / 1024 * 1000 / 140;
@@ -403,14 +413,14 @@ void durumGonder() {
   Serial.println(sikisma);
 }
 
-// Teker sıkışınca motor çok akım çeker ve ısınır: akım AKIM_SURE boyunca sınırın üstündeyse iki motoru
+// Teker sıkışınca motor çok akım çeker ve ısınır: akım AKIM_SURE boyunca PWM'e bağlı sınırın üstündeyse iki motoru
 // AKIM_BEKLEME kadar durdur. Bu sürede gelen hareket komutları sıfır sayılır.
 void akimKoru(unsigned long simdi) {
   if (korumaBitis && (long)(simdi - korumaBitis) >= 0) { korumaBitis = 0; sikisma = 0; }
   if (simdi - sonAkim < AKIM_ARALIGI) return;
   sonAkim = simdi;
-  bool solYuksek = simdiSol && akimMa(SOL_AKIM) > AKIM_SINIR_MA;
-  bool sagYuksek = simdiSag && akimMa(SAG_AKIM) > AKIM_SINIR_MA;
+  bool solYuksek = simdiSol && akimMa(SOL_AKIM) > akimSiniriMa(simdiSol);
+  bool sagYuksek = simdiSag && akimMa(SAG_AKIM) > akimSiniriMa(simdiSag);
   if (!solYuksek) akimSolBaslangic = 0; else if (!akimSolBaslangic) akimSolBaslangic = simdi;
   if (!sagYuksek) akimSagBaslangic = 0; else if (!akimSagBaslangic) akimSagBaslangic = simdi;
   uint8_t s = (akimSolBaslangic && simdi - akimSolBaslangic > AKIM_SURE ? 1 : 0) |

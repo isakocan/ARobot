@@ -38,7 +38,6 @@ adim "Robot paneli (Wi-Fi kurulumu, güvenli kapatma)"
 install -d /opt/robot/robot_paneli /etc/robot
 install -m 755 "$KAYNAK/robot_paneli/robot_paneli.py" /opt/robot/robot_paneli/robot_paneli.py
 install -m 644 "$KAYNAK/robot_paneli/ag_girisi.py" /opt/robot/robot_paneli/ag_girisi.py
-install -m 644 "$KAYNAK/robot_paneli/panel.html" /opt/robot/robot_paneli/panel.html
 if [ ! -f "$AYAR" ]; then
   MAC="$(tr -d ':' < /sys/class/net/wlan0/address | tail -c 5 | tr a-f A-F)"
   SIFRE="$(tr -dc 'abcdefghjkmnpqrstuvwxyz23456789' < /dev/urandom | head -c 10 || true)"
@@ -52,8 +51,8 @@ echo 'address=/#/10.42.0.1' > /etc/NetworkManager/dnsmasq-shared.d/kurulum-sayfa
 # isteği) yüzlerce ms bekleyebilir. Ayar sonraki bağlantılar için, iw de şimdiki için.
 printf '[connection]\nwifi.powersave = 2\n' > /etc/NetworkManager/conf.d/wifi-guc-tasarrufu-kapali.conf
 iw dev wlan0 set power_save off 2>/dev/null || true
-# Intel kartlarda (iwlwifi) sürücünün kendi güç düzeni de var: 1 = hep uyanık (sonraki açılışta geçerli)
-if [ -d /sys/module/iwlmvm ]; then echo 'options iwlmvm power_scheme=1' > /etc/modprobe.d/wifi-hep-uyanik.conf; fi
+# Intel kart sürücüsünün kendi güç düzeni varsayılanda kalır (hep uyanık denendi, belirgin fark görülmedi)
+rm -f /etc/modprobe.d/wifi-hep-uyanik.conf
 systemctl reload NetworkManager 2>/dev/null || true   # ayarı okur, bağlantıyı koparmaz
 cat > /etc/systemd/system/robot-paneli.service <<EOF
 [Unit]

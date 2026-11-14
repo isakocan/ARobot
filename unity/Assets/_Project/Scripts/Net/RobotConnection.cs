@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -87,6 +87,9 @@ namespace ARaki.Net
         public const int HttpPort = 8080;   // görüntü ve kamera ayarı (köprünün web sunucusu)
         const int Interval = 50;                 // ms
         const double ConnectedWithinMs = 1500;
+        // Ana iş parçacığı bu kadar durum yazmazsa (uygulama arka planda, donma, yükleme) robot durdurulur: gönderici
+        // kendi iş parçacığında sürdüğü için yoksa son komutu (ör. gaz basılı) göndermeye devam ederdi.
+        const double FreshWithinMs = 300;
 
         static readonly Stopwatch Clock = Stopwatch.StartNew();
         public static double Now() => Clock.Elapsed.TotalMilliseconds;
@@ -125,6 +128,7 @@ namespace ARaki.Net
         ControlState state;
         int seq;
         double lastReply = double.NegativeInfinity;
+        double lastSet = double.NegativeInfinity;
 
         public UdpRobotConnection(string host)
         {
@@ -135,10 +139,8 @@ namespace ARaki.Net
             target = new IPEndPoint(address, UdpPort);
             udp = new UdpClient(AddressFamily.InterNetwork);
             udp.Client.ReceiveTimeout = 500;
-            // Wi-Fi önceliği: DSCP EF → WMM "ses" kuyruğu; sürüş paketleri görüntünün önüne geçer (Android uygular,
-            // Windows yalnızca QoS ilkesiyle uygular)
-            try { udp.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.TypeOfService, 0xB8); }
-            catch (SocketException) { }
+            // DSCP EF (Wi-Fi "ses" önceliği) işareti KONMAZ: okul ağında (EDUROAM, 14 Kasım) EF işaretli paketlerin
+            // %25'i kayboldu, işaretsizlerin %0'ı (tools ile ölçüldü). Kurumsal erişim noktaları bu sınıfı sınırlayabiliyor.
             new Thread(SendLoop) { IsBackground = true, Name = "Robot UDP gönder" }.Start();
             new Thread(ReceiveLoop) { IsBackground = true, Name = "Robot UDP al" }.Start();
         }
@@ -146,7 +148,7 @@ namespace ARaki.Net
         public void Send(ControlState s)
         {
             bool different;
-            lock (stateLock) { different = !s.SameAs(state); state = s; }
+            lock (stateLock) { different = !s.SameAs(state); state = s; lastSet = Now(); }
             if (different) changed.Set();        // değişiklik beklemeden gitsin (ör. korna, dur)
         }
 
@@ -156,7 +158,9 @@ namespace ARaki.Net
             {
                 changed.WaitOne(Interval);
                 ControlState s;
-                lock (stateLock) s = state;
+                bool stale;
+                lock (stateLock) { s = state; stale = Now() - lastSet > FreshWithinMs; }
+                if (stale) { s.Left = s.Right = 0; s.Horn = false; }
                 int n = ++seq;
                 double z = Now();
                 var inv = CultureInfo.InvariantCulture;
@@ -167,9 +171,10 @@ namespace ARaki.Net
                               ",\"fs\":" + s.FlashCount + ",\"mi\":" + s.MelodyCount + ",\"mn\":" + s.Melody +
                               ",\"ef\":" + s.EffectCount + ",\"en\":" + s.Effect + ",\"efekt\":" + B(s.AutoEffects) + "}";
                 var bytes = Encoding.ASCII.GetBytes(json);
+                // önce kaydet, sonra gönder: cevap kayıttan önce gelirse kayıp sayılmasın
+                lock (ring) ring[n % RingSize] = (n, z, false);
                 try { udp.Send(bytes, bytes.Length, target); }
                 catch (Exception) { /* ağ yok: sonraki turda tekrar */ }
-                lock (ring) ring[n % RingSize] = (n, z, false);
             }
         }
 

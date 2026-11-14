@@ -18,6 +18,7 @@ namespace ARaki.Drive
         public bool ReverseBeep = true;
         public int CameraMotion = 1;        // kamera hareketi: 0 kapalı, 1 hafif, 2 belirgin (CameraSway.Strength)
         public bool RearMirror = true;
+        public bool SharpTurn;              // dönüş: false Yumuşak (varsayılan), true Keskin (DriveModel.SharpTurn)
         public bool Cockpit = true;
         public TouchMode Touch = Application.isMobilePlatform ? TouchMode.Pad : TouchMode.Off;
         public WheelSide Wheel = WheelSide.Left;
@@ -45,6 +46,7 @@ namespace ARaki.Drive
             s.ReverseBeep = Get(Names[1], s.ReverseBeep);
             s.CameraMotion = PlayerPrefs.GetInt("cameraMotion2", Get(Names[2], true) ? 1 : 0);   // eski açık/kapalı ayarından
             s.RearMirror = Get("rearMirror", s.RearMirror);
+            s.SharpTurn = Get("sharpTurn", s.SharpTurn);
             s.Cockpit = Get(Names[4], s.Cockpit);
             s.Touch = (TouchMode)PlayerPrefs.GetInt("touchMode", PlayerPrefs.HasKey(Names[5]) ? (Get(Names[5], false) ? 1 : 0) : (int)s.Touch);
             s.Wheel = (WheelSide)PlayerPrefs.GetInt("wheel", (int)s.Wheel);
@@ -59,7 +61,7 @@ namespace ARaki.Drive
         public void Save()
         {
             PlayerPrefs.SetInt("gearbox", (int)Gearbox); Set(Names[1], ReverseBeep); PlayerPrefs.SetInt("cameraMotion2", CameraMotion);
-            Set("rearMirror", RearMirror); Set(Names[4], Cockpit); PlayerPrefs.SetInt("touchMode", (int)Touch);
+            Set("sharpTurn", SharpTurn); Set("rearMirror", RearMirror); Set(Names[4], Cockpit); PlayerPrefs.SetInt("touchMode", (int)Touch);
             PlayerPrefs.SetInt("wheel", (int)Wheel);
             PlayerPrefs.SetInt("unit", (int)Unit);
             PlayerPrefs.SetInt("hornStyle", HornStyle);
