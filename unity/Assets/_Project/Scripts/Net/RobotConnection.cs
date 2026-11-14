@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -87,6 +87,9 @@ namespace ARaki.Net
         public const int HttpPort = 8080;   // görüntü ve kamera ayarı (köprünün web sunucusu)
         const int Interval = 50;                 // ms
         const double ConnectedWithinMs = 1500;
+        // Ana iş parçacığı bu kadar durum yazmazsa (uygulama arka planda, donma, yükleme) robot durdurulur: gönderici
+        // kendi iş parçacığında sürdüğü için yoksa son komutu (ör. gaz basılı) göndermeye devam ederdi.
+        const double FreshWithinMs = 300;
 
         static readonly Stopwatch Clock = Stopwatch.StartNew();
         public static double Now() => Clock.Elapsed.TotalMilliseconds;
@@ -125,6 +128,7 @@ namespace ARaki.Net
         ControlState state;
         int seq;
         double lastReply = double.NegativeInfinity;
+        double lastSet = double.NegativeInfinity;
 
         public UdpRobotConnection(string host)
         {
@@ -146,7 +150,7 @@ namespace ARaki.Net
         public void Send(ControlState s)
         {
             bool different;
-            lock (stateLock) { different = !s.SameAs(state); state = s; }
+            lock (stateLock) { different = !s.SameAs(state); state = s; lastSet = Now(); }
             if (different) changed.Set();        // değişiklik beklemeden gitsin (ör. korna, dur)
         }
 
@@ -156,7 +160,9 @@ namespace ARaki.Net
             {
                 changed.WaitOne(Interval);
                 ControlState s;
-                lock (stateLock) s = state;
+                bool stale;
+                lock (stateLock) { s = state; stale = Now() - lastSet > FreshWithinMs; }
+                if (stale) { s.Left = s.Right = 0; s.Horn = false; }
                 int n = ++seq;
                 double z = Now();
                 var inv = CultureInfo.InvariantCulture;

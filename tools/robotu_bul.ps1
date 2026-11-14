@@ -4,9 +4,8 @@
 # "Host jetson" kaydına yazar; böylece "ssh jetson" ve Jetson Ekranı her ağda çalışır.
 #
 #   robotu_bul.ps1          adresi bulur, SSH ayarını günceller, adresi yazar
-#   robotu_bul.ps1 -Panel   ayrıca paneli tarayıcıda açar
 #   robotu_bul.ps1 -Sur     ayrıca sürüş sayfasını tarayıcıda açar
-param([switch]$Panel, [switch]$Sur)
+param([switch]$Sur)
 
 $ErrorActionPreference = "Stop"
 $sshConfig = Join-Path $env:USERPROFILE ".ssh\config"
@@ -60,7 +59,7 @@ $ip = Ada-Gore-Bul
 if (-not $ip) { $ip = Agi-Tara }
 if (-not $ip) {
     Write-Output "Robot bulunamadi."
-    if ($Panel -or $Sur) {
+    if ($Sur) {
         Add-Type -AssemblyName System.Windows.Forms
         [System.Windows.Forms.MessageBox]::Show("Robot bu ağda bulunamadı.`n`nBilgisayar ile robot aynı Wi-Fi ağında mı? Robot yeni açıldıysa 1-2 dakika bekleyip tekrar dene.", "Robot Paneli", "OK", "Warning") | Out-Null
     }
@@ -68,5 +67,4 @@ if (-not $ip) {
 }
 Ssh-Ayarini-Guncelle $ip
 Write-Output $ip
-if ($Panel) { Start-Process "http://$ip/" }
 if ($Sur) { Start-Process "http://${ip}:8080/" }

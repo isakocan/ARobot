@@ -64,7 +64,9 @@ H264_AKISLAR = (
     ("taban", 400000, None, (640, 360)),
 )
 AKIS_ADLARI = tuple(a[0] for a in H264_AKISLAR)
-TAM_KALITE = 3              # uyarlanabilir kalite yalnızca ilk üç (tam kare) akış arasında
+# uyarlanabilir kalite basamakları (akış sırası): üç tam kare kalite, en altta küçük taban (640x360).
+# Ağ zayıflayınca kare hızı değil kalite düşer; görüntü donmaz, bulanıklaşır.
+OTO_MERDIVEN = (0, 1, 2, 5)
 YUKSELT_BEKLE = 8           # sn: bu kadar sıkışmasız geçerse bir üst kaliteye çıkılır (başarısız denemede ikiye katlanır)
 YUKSELT_BEKLE_EN_COK = 30   # sn
 H264_BEKCI = 5              # sn: JPEG gelirken H.264 bu kadar kare vermezse kamera hattı yeniden başlatılır
@@ -269,13 +271,14 @@ class H264Abone:
     """
 
     def __init__(self, seviye_sayisi, sabit=None):
-        seviye_sayisi = min(seviye_sayisi, TAM_KALITE) if sabit is None else seviye_sayisi
+        self.merdiven = [i for i in OTO_MERDIVEN if i < seviye_sayisi] or [0]
+        self.basamak = 0
         self.kosul = threading.Condition()
         self.kuyruk = collections.deque()
         self.anahtar_bekle = True
         self.seviye_sayisi = seviye_sayisi
         self.sabit = sabit                 # None: otomatik; 0/1/2: hep o kalite
-        self.seviye = self.istenen = sabit if sabit is not None and sabit < seviye_sayisi else 0
+        self.seviye = self.istenen = sabit if sabit is not None and sabit < seviye_sayisi else self.merdiven[0]
         simdi = time.time()
         self.son_degisim = self.temiz_beri = simdi
         self.son_yukselis = -1e9
@@ -292,18 +295,20 @@ class H264Abone:
 
     def _sikisti(self, simdi):
         self.temiz_beri = simdi
-        if self.sabit is not None or self.istenen >= self.seviye_sayisi - 1 or simdi - self.son_degisim < 1.5:
+        if self.sabit is not None or self.basamak >= len(self.merdiven) - 1 or simdi - self.son_degisim < 1.5:
             return
         if simdi - self.son_yukselis < 6:   # az önce çıkmıştık: o kalite taşınmıyor, sonraki denemeyi geciktir
             self.yukselt_bekle = min(YUKSELT_BEKLE_EN_COK, self.yukselt_bekle * 2)
-        self.istenen += 1
+        self.basamak += 1
+        self.istenen = self.merdiven[self.basamak]
         self.son_degisim = simdi
 
     def _rahat_mi(self, simdi):
-        if self.sabit is not None or self.istenen == 0:
+        if self.sabit is not None or self.basamak == 0:
             return
         if simdi - self.temiz_beri > self.yukselt_bekle and simdi - self.son_degisim > self.yukselt_bekle:
-            self.istenen -= 1
+            self.basamak -= 1
+            self.istenen = self.merdiven[self.basamak]
             self.son_degisim = self.son_yukselis = self.temiz_beri = simdi
         elif simdi - self.temiz_beri > 120:
             self.yukselt_bekle = YUKSELT_BEKLE   # uzun süre sorunsuz: yeniden çabuk dene

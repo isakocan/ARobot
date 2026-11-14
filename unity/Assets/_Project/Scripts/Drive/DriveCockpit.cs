@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using ARaki.Video;
 using UnityEngine;
@@ -311,22 +311,22 @@ namespace ARaki.Drive
                    11, icon: "merkez");
             Button("MENÜ", new Rect(mbX, mbY, mb, mb), () => { menuOpen = !menuOpen; drive.CloseMenus(); },
                    null, () => menuOpen, 11, icon: "menu");
-            const int menuColumns = 4;
+            const int menuColumns = 3;   // 6 düğme: 3x2
             float mw = menuColumns * bw + (menuColumns + 1) * gap, mh = 2 * bh + 3 * gap;
             float menuX = W - 24f - mw, menuY = mbY - gap - mh;
             menuRoot = Rt("Menü", content, V(menuX, menuY), V(mw, mh));
             var menuBg = Shape("Zemin", menuRoot);
             menuBg.RoundRect(new Rect(0, 0, mw, mh), 16f, new Color(0.03f, 0.035f, 0.04f, 0.82f));
             Action Open(Func<bool> isOpen, Action open) => () => { bool was = isOpen(); drive.CloseMenus(); if (!was) open(); menuOpen = false; };
-            string[] names = { "KAYITLAR", "KORNA", "FOTO", "VİDEO", "DİKİZ", "ROBOT", "AYARLAR" };   // şarkılar teypte
-            string[] icons = { "kayit", "korna", "foto", "video", "dikiz", "robot", "ayar" };
+            string[] names = { "KAYITLAR", "KORNA", "FOTO", "VİDEO", "ROBOT", "AYARLAR" };   // şarkılar teypte
+            string[] icons = { "kayit", "korna", "foto", "video", "robot", "ayar" };
             Action[] acts = { Open(() => drive.RecordsOpen, () => { drive.RecordsOpen = true; recordsListedAt = -100f; selectedRecord = null; }),
                               Open(() => drive.HornMenuOpen, () => drive.HornMenuOpen = true),
-                              drive.Photo, drive.Video, drive.ToggleRearMirror,
+                              drive.Photo, drive.Video,
                               Open(() => drive.RobotPanelOpen, OpenRobotPanel),
                               Open(() => drive.SettingsOpen, () => drive.SettingsOpen = true) };
             Func<bool>[] lits = { () => drive.RecordsOpen, () => drive.HornMenuOpen, null, () => drive.Recorder.Recording,
-                                  () => drive.Settings.RearMirror, () => drive.RobotPanelOpen, () => drive.SettingsOpen };
+                                  () => drive.RobotPanelOpen, () => drive.SettingsOpen };
             for (int i = 0; i < names.Length; i++)
             {
                 int col = i % menuColumns, row = i / menuColumns;
