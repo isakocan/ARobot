@@ -26,17 +26,38 @@ function Ada-Gore-Bul {
     return $null
 }
 
+function Kayitli-Adresi-Dene {
+    if (-not (Test-Path $sshConfig)) { return $null }
+    $icinde = $false
+    foreach ($s in Get-Content $sshConfig) {
+        if ($s -match "^\s*Host\s+") { $icinde = ($s -match "^\s*Host\s+jetson\s*$") }
+        if ($icinde -and $s -match "^\s*HostName\s+(\S+)") {
+            if (Robot-mu $Matches[1]) { return $Matches[1] }
+        }
+    }
+    return $null
+}
+
 function Agi-Tara {
     $yerel = Get-NetIPAddress -AddressFamily IPv4 |
         Where-Object { $_.PrefixOrigin -in "Dhcp", "Manual" -and $_.IPAddress -notlike "169.254.*" -and $_.InterfaceAlias -notlike "*vEthernet*" }
     foreach ($a in $yerel) {
-        $onek = ($a.IPAddress -split "\.")[0..2] -join "."
-        # 80. portu açık olanları aynı anda dene (yarım saniye bekleme)
-        $denemeler = 1..254 | Where-Object { "$onek.$_" -ne $a.IPAddress } | ForEach-Object {
+        # Alt ağın tamamını tara (ör. /22 = 4 x 256 adres); en çok /20 ile sınırlı
+        $uzunluk = [Math]::Max([int]$a.PrefixLength, 20)
+        $b = $a.IPAddress -split "\."
+        $ip32 = [uint64]$b[0] * 16777216 + [uint64]$b[1] * 65536 + [uint64]$b[2] * 256 + [uint64]$b[3]
+        $say = [uint64]([Math]::Pow(2, 32 - $uzunluk))
+        $ag = $ip32 - ($ip32 % $say)
+        $adresler = 1..($say - 1) | ForEach-Object {
+            $n = [uint64]($ag + $_)
+            "{0}.{1}.{2}.{3}" -f ([Math]::Floor($n / 16777216) % 256), ([Math]::Floor($n / 65536) % 256), ([Math]::Floor($n / 256) % 256), ($n % 256)
+        } | Where-Object { $_ -ne $a.IPAddress }
+        # 80. portu açık olanları aynı anda dene
+        $denemeler = $adresler | ForEach-Object {
             $c = New-Object System.Net.Sockets.TcpClient
-            [pscustomobject]@{ Ip = "$onek.$_"; Istemci = $c; Is = $c.ConnectAsync("$onek.$_", 80) }
+            [pscustomobject]@{ Ip = $_; Istemci = $c; Is = $c.ConnectAsync($_, 80) }
         }
-        Start-Sleep -Milliseconds 700
+        Start-Sleep -Milliseconds 1200
         $acik = $denemeler | Where-Object { $_.Is.Status -eq "RanToCompletion" -and $_.Istemci.Connected } | ForEach-Object Ip
         $denemeler | ForEach-Object { $_.Istemci.Dispose() }
         foreach ($ip in $acik) { if (Robot-mu $ip) { return $ip } }
@@ -56,6 +77,7 @@ function Ssh-Ayarini-Guncelle($ip) {
 }
 
 $ip = Ada-Gore-Bul
+if (-not $ip) { $ip = Kayitli-Adresi-Dene }
 if (-not $ip) { $ip = Agi-Tara }
 if (-not $ip) {
     Write-Output "Robot bulunamadi."
