@@ -42,9 +42,18 @@ Araştırma arası: aynı şekilde.
 |---|---|
 | B1 | SLAM: harita ve konumu birlikte çözmek; ilk keşif ile sonraki oyun arasındaki fark |
 | B2 | Oyuna bağlama: sanal nesnenin kayması, eşya arkasına gizlenme, işlem bütçesi (Jetson, telefon) |
+| B3 | Canlı deneme: donanıma uygun hazır bir SLAM'i kurmak. Önce bantlı ham kayıtta (2,00 m yer gerçeği), sonra robot açıkken anlık |
+
+## Kullanıcının getirdiği konular (yeri gelince işlenecek)
+
+- ROS kullanmalı mıyız, haritalamada ne kazandırır → H4
+- Ölçek sorunu için yapay zekâ (Depth Anything gibi derinlik modelleri) → H2, H4
+- LSD-SLAM (TUM; cvg.cit.tum.de/research/vslam/lsdslam, github.com/tum-vision/lsd_slam) → H4, B1
+- IMU: Arduino boş pini ya da Jetson, ne kadar iyileştirir, takılamazsa ne olur → K2
+- Bitirme çerçevesi: yalnız kamera ile elde edilen sonuç. IMU takılabilirse kameralı + IMU'lu karşılaştırma eklenir → K5, B3
 
 ## Durum
 
 - [ ] Ö1  - [ ] H1  - [ ] H2  - [ ] H3  - [ ] H4  - [ ] H5
 - [ ] K1  - [ ] K2  - [ ] K3  - [ ] K4  - [ ] K5
-- [ ] B1  - [ ] B2
+- [ ] B1  - [ ] B2  - [ ] B3
