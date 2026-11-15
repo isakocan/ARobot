@@ -29,16 +29,19 @@ from kaynaklar import CanliKaynak, Posta, TekrarKaynagi  # noqa: E402
 
 
 class Dunya:
-    """Arka ucun kalıcı harita işlemlerinin birikimi ve istemci imleçleri (bkz. arkauc.py HARİTA İŞLEMLERİ)."""
+    """Arka ucun kalıcı harita/3B işlemlerinin birikimi ve istemci imleçleri (bkz. arkauc.py HARİTA İŞLEMLERİ).
+    "ekle" işlemleri katman başına PARÇA listesi olarak tutulur (xy, xyz, deger, renk, kameralar ... ne varsa olduğu gibi); istemciye imleçten sonraki
+    parçalar gider. Büyük nokta kümeleri (50 bin+) karelere yayıldığı için kare başına küçük artım gider, yeni bağlanana tek seferde özet."""
 
     def __init__(self):
         self.kilit = threading.Lock()
+        self.epoch = 0
         self.sifirla()
 
     def sifirla(self):
         with self.kilit:
-            self.epoch = getattr(self, "epoch", 0) + 1
-            self.ekle = {}           # katman -> düz sayı listesi
+            self.epoch += 1
+            self.ekle = {}           # katman -> [işlem, ...]
             self.yerles = {}         # katman -> (surum, işlem)
             self.surum = 0
 
@@ -49,7 +52,7 @@ class Dunya:
                     self.epoch += 1
                     self.ekle, self.yerles = {}, {}
                 elif op.get("islem") == "ekle":
-                    self.ekle.setdefault(op["katman"], []).extend(op["xy"])
+                    self.ekle.setdefault(op["katman"], []).append(op)
                 elif op.get("islem") == "yerlestir":
                     self.surum += 1
                     self.yerles[op["katman"]] = (self.surum, op)
@@ -67,12 +70,12 @@ class Dunya:
             for k, liste in self.ekle.items():
                 n0 = imlec["ekle"].get(k, 0)
                 if len(liste) > n0:
-                    ops.append({"katman": k, "islem": "ekle", "xy": liste[n0:]})
+                    ops.extend(liste[n0:])
                     imlec["ekle"][k] = len(liste)
-            for k, (s, op) in self.yerles.items():
-                if imlec["yerles"].get(k, 0) < s:
+            for k, (sv, op) in self.yerles.items():
+                if imlec["yerles"].get(k, 0) < sv:
                     ops.append(op)
-                    imlec["yerles"][k] = s
+                    imlec["yerles"][k] = sv
         return ops
 
 
@@ -101,7 +104,7 @@ class Istatistik:
 class Boru:
     """Kaynak yönetimi + işleme iş parçacığı + yayın. Tek örnek."""
 
-    def __init__(self, arkauc, kaynak_secenekleri, ioloop, jpeg_kalite=70, dongu=False, varsayilan_hiz=1.0, canli_sinir_sn=170.0):
+    def __init__(self, arkauc, kaynak_secenekleri, ioloop, jpeg_kalite=70, dongu=False, varsayilan_hiz=1.0, canli_sinir_sn=170.0, canli_yol="mjpg"):
         self.arkauc = arkauc
         self.secenekler = kaynak_secenekleri         # [{"id","tur","ad","yol"|"adres"}]
         self.ioloop = ioloop
@@ -109,6 +112,7 @@ class Boru:
         self.dongu = dongu
         self.hiz = varsayilan_hiz
         self.canli_sinir_sn = canli_sinir_sn
+        self.canli_yol = canli_yol
         self.posta = Posta()
         self.kaynak = None
         self.kaynak_id = None
@@ -156,7 +160,7 @@ class Boru:
             if sec["tur"] == "tekrar":
                 k = TekrarKaynagi(self.posta, sec["yol"], hiz=self.hiz, dongu=self.dongu)
             else:
-                k = CanliKaynak(self.posta, sec["adres"], sinir_sn=self.canli_sinir_sn)
+                k = CanliKaynak(self.posta, sec["adres"], sinir_sn=self.canli_sinir_sn, yol=self.canli_yol)
             self.kaynak, self.kaynak_id = k, kid
             k.baslat()
 
@@ -271,7 +275,7 @@ class Boru:
 def filtrele_katmanlar(katmanlar, gorunum):
     out = {}
     for kid, ogeler in (katmanlar or {}).items():
-        liste = [o for o in ogeler if o.get("uzay") in (gorunum, "harita")]
+        liste = [o for o in ogeler if o.get("uzay") in (gorunum, "harita", "3d")]
         if liste:
             out[kid] = liste
     return out
@@ -285,6 +289,7 @@ class IstemciWS(tornado.websocket.WebSocketHandler):
         self.son_seq = 0
         self.yolda = False
         self.kapali = False
+        self.kimlik = "i%x" % id(self)
 
     def check_origin(self, origin):
         return True
@@ -296,7 +301,7 @@ class IstemciWS(tornado.websocket.WebSocketHandler):
         self.write_message(json.dumps({
             "t": "merhaba", "arkauc": b.arkauc.ad, "katmanlar": b.katmanlar, "statik": b.statik,
             "kaynaklar": [{"id": s["id"], "ad": s["ad"], "tur": s["tur"]} for s in b.secenekler], "kaynak_id": b.kaynak_id,
-            "hiz": b.hiz, "kalite": b.jpeg_kalite,
+            "hiz": b.hiz, "kalite": b.jpeg_kalite, "yontem": b.arkauc.yontem_adi, "yontem_aciklama": getattr(b.arkauc, "yontem_aciklama", ""),
         }))
         self.sonrakini_gonder()
 
@@ -331,6 +336,9 @@ class IstemciWS(tornado.websocket.WebSocketHandler):
             b.basa()
         elif t == "sifirla":
             b.sifirla()
+        elif t == "uzat":
+            if isinstance(b.kaynak, CanliKaynak):
+                b.kaynak.uzat(120)
         elif t == "kaynak":
             try:
                 b.kaynak_sec(m.get("id"))

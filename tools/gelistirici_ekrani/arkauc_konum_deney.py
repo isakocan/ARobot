@@ -34,6 +34,10 @@ BILGI = {"bicim": 1, "kaynak": "gercek", "ad": "canli",
 IZGARA = (-20.0, -20.0, 800, 800, 0.05)       # x0, y0, genişlik, yükseklik, hücre (gercek_e2_harita.py ile aynı)
 GUVEN_MIN = 0.2
 YORUNGE_ADIM_M = 0.01
+MESAFE_ARALIK = (0.3, 3.0)           # zemin uzaklığı renk aralığı (m)
+DUVAR_HUCRE = 0.05                    # 3B sınır noktalarının tekrar eklenmemesi için hücre (m)
+DUVAR_CUBUK = 0.12                    # dikey çubuk boyu (yalnız görsel)
+KAMERA_Z = KAMERA_H
 
 _KURULDU = {}
 
@@ -167,8 +171,14 @@ class BolutlemeSurec:
 
 class KonumDeneyi(ArkaUc):
     ad = "konum_deney"
+    yontem_adi = "Zemin dokusu + yön (kendi yöntemimiz)"
 
-    def __init__(self, bolutleme=True, cihaz=None, hizli_bolutleme=True, bolutleme_surec=True):
+    @property
+    def yontem_aciklama(self):
+        return ("Panoramada ORB ile yön (M2D) + kuşbakışı zemin dokusundan öteleme + komutla birleşen E2 kestirici" +
+                (" + SegFormer zemin bölütleme ve doluluk ızgarası" if self.bolutleme_acik else ". Zemin bölütleme KAPALI: harita ızgarası yok"))
+
+    def __init__(self, bolutleme=False, cihaz=None, hizli_bolutleme=True, bolutleme_surec=True):
         _kur()
         import yontem_pusula_nokta as ypn
         import birlesik_bev as bb
@@ -190,6 +200,7 @@ class KonumDeneyi(ArkaUc):
         if self.bolutleme_acik:
             self.seg = BolutlemeSurec(hizli_bolutleme, cihaz) if self.bolutleme_surec else Bolutleme(hizli_bolutleme, cihaz)
         self._hazirla_geometri()
+        self._tanimli = {t["id"] for t in self.katman_tanimlari()}
         self._m2d_sinifi()
         self._tablo = bb.LcnTablo("theta", self.kam, lcn_par=bb.LcnParam, h=KAMERA_H)
         self._govde_png = None
@@ -226,6 +237,29 @@ class KonumDeneyi(ArkaUc):
         el = 90.0 - (np.arange(Y) + 0.5) / Y * 180.0
         self._pan_az = np.broadcast_to((np.rint(az) % 360).astype(np.int64) % 360, (Y, G))
         self._pan_el = np.broadcast_to(el[:, None], (Y, G))
+        # gerçek gövde (kamera_maske_gercek.png) ve ölçüm dışı fark (sabit - gerçek), iki görünümde
+        gercek = cv2.imread(os.path.join(KOD, "kamera_maske_gercek.png"), cv2.IMREAD_GRAYSCALE)
+        sabit = cv2.imread(os.path.join(KOD, "kamera_maske_gercek_sabit.png"), cv2.IMREAD_GRAYSCALE)
+        if gercek is None:
+            gercek = np.zeros((720, 1280), np.uint8)
+        if sabit is None:
+            sabit = gercek
+        sabit = np.maximum(sabit, gercek)                    # sabit maske gerçek gövdeyi içerir (denetlendi); yine de birleşim alınır
+        fark = np.where((sabit > 127) & ~(gercek > 127), 255, 0).astype(np.uint8)
+        self._maskeler = {"govde": gercek, "olcum_disi": fark}
+        self._govde_ham = cv2.resize(gercek, (320, 180), interpolation=cv2.INTER_AREA) > 127
+        e, _ = self.kam.balikgozu_to_esdikdortgen(gercek, 512, 256, cv2.INTER_LINEAR)
+        self._govde_pan = e > 127
+        # zemin düzlemi geometrisi: ufkun el derece altındaki zemin noktasının yatay uzaklığı (m) = h / tan(-el)
+        self._pan_d = self._zemin_uzaklik(self._pan_el)
+        self._ham_d = self._zemin_uzaklik(self._ham_el)
+
+    @staticmethod
+    def _zemin_uzaklik(el_der):
+        a = np.radians(-np.asarray(el_der, np.float64))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            d = np.where(a > 1e-6, KAMERA_H / np.tan(np.maximum(a, 1e-6)), np.inf)
+        return d
 
     def _m2d_sinifi(self):
         ypn, bb, by = self.ypn, self.bb, self.by
@@ -263,36 +297,61 @@ class KonumDeneyi(ArkaUc):
 
     # ------------------------------------------------------------------ sözleşme
     def katman_tanimlari(self):
-        return [
-            {"id": "orb", "ad": "ORB noktaları (yön)", "uzay": ["pano", "ham"], "renk": "#7a8aa0", "varsayilan": True, "grup": "kamera"},
-            {"id": "orb_ic", "ad": "Eşleşen / uyumlu noktalar", "uzay": ["pano", "ham"], "renk": "#46e08a", "varsayilan": True, "grup": "kamera"},
-            {"id": "orb_vektor", "ad": "Hareket vektörleri", "uzay": ["pano", "ham"], "renk": "#ffd166", "varsayilan": False, "grup": "kamera"},
-            {"id": "zemin", "ad": "Zemin maskesi", "uzay": ["pano", "ham"], "renk": "#2fa8ff", "varsayilan": False, "grup": "kamera"},
-            {"id": "sinir", "ad": "Zemin sınırı", "uzay": ["pano", "ham"], "renk": "#ff7a45", "varsayilan": True, "grup": "kamera"},
-            {"id": "govde", "ad": "Robot gövde maskesi", "uzay": ["pano", "ham"], "renk": "#ff4d6d", "varsayilan": False, "grup": "kamera"},
-            {"id": "ufuk", "ad": "Ufuk çizgisi", "uzay": ["pano", "ham"], "renk": "#c8b6ff", "varsayilan": False, "grup": "kamera"},
-            {"id": "doluluk", "ad": "Doluluk ızgarası", "uzay": ["harita"], "renk": "#a9b7c6", "varsayilan": True, "grup": "harita"},
-            {"id": "yorunge", "ad": "Sürülen yol", "uzay": ["harita"], "renk": "#ffd166", "varsayilan": True, "grup": "harita"},
-            {"id": "sinir_nokta", "ad": "Güncel sınır noktaları", "uzay": ["harita"], "renk": "#ff7a45", "varsayilan": True, "grup": "harita"},
-            {"id": "anahtar", "ad": "Anahtar kareler (öteleme)", "uzay": ["harita"], "renk": "#46e08a", "varsayilan": False, "grup": "harita"},
+        mes = {"ad": "Zemin uzaklığı", "birim": "m", "aralik": list(MESAFE_ARALIK), "harita": "turbo"}
+        K = lambda i, ad, renk, vars_, ana=False, **ek: dict({"id": i, "ad": ad, "uzay": ["pano", "ham"], "renk": renk, "varsayilan": vars_, "grup": "kamera", "ana": ana}, **ek)  # noqa: E731
+        L = [
+            K("orb_ic", "Eşleşen noktalar", "#46e08a", True, True),
+            K("orb", "Tüm ORB noktaları", "#7a8aa0", False),
+            K("orb_vektor", "Hareket vektörleri", "#ffd166", False),
         ]
+        if self.bolutleme_acik:
+            L += [
+                K("sinir", "Zemin sınırı", "#ff7a45", True, True),
+                K("zemin", "Zemin maskesi", "#2fa8ff", False),
+                K("zemin_mesafe", "Zemin mesafesi", "#f0883e", False, True, lejant=mes),
+                K("sinir_mesafe", "Sınır mesafesi", "#e0b84a", False, False, lejant=dict(mes, ad="Sınır uzaklığı")),
+            ]
+        L += [
+            K("govde", "Robot gövdesi", "#ff4d6d", False, True),
+            K("olcum_disi", "Ölçüm dışı bölgeler", "#ffa62b", False, True),
+            K("ufuk", "Ufuk çizgisi", "#c8b6ff", False),
+            {"id": "yorunge", "ad": "Sürülen yol", "uzay": ["harita"], "renk": "#ffd166", "varsayilan": True, "grup": "harita", "ana": True},
+            {"id": "anahtar", "ad": "Anahtar kareler", "uzay": ["harita"], "renk": "#46e08a", "varsayilan": False, "grup": "harita", "ana": True},
+        ]
+        if self.bolutleme_acik:
+            L += [
+                {"id": "doluluk", "ad": "Doluluk ızgarası", "uzay": ["harita"], "renk": "#a9b7c6", "varsayilan": True, "grup": "harita", "ana": True},
+                {"id": "sinir_nokta", "ad": "Güncel sınır noktaları", "uzay": ["harita"], "renk": "#ff7a45", "varsayilan": False, "grup": "harita"},
+            ]
+        # ---- 3B (z yukarı, metre)
+        L += [
+            {"id": "yorunge3d", "ad": "Sürülen yol", "uzay": ["3d"], "tur3d": "cizgi", "renk": "#ffd166", "varsayilan": True, "grup": "3d", "ana": True},
+            {"id": "kamera3d", "ad": "Güncel kamera", "uzay": ["3d"], "tur3d": "kameralar", "renk": "#ffb347", "varsayilan": True, "grup": "3d", "ana": True},
+            {"id": "anahtar3d", "ad": "Anahtar kareler", "uzay": ["3d"], "tur3d": "kameralar", "renk": "#46e08a", "varsayilan": True, "grup": "3d", "ana": True},
+        ]
+        if self.bolutleme_acik:
+            L += [
+                {"id": "duvar3d", "ad": "Zemin sınırı noktaları", "uzay": ["3d"], "tur3d": "noktalar", "renk": "#ff7a45", "varsayilan": True, "grup": "3d", "ana": True,
+                 "lejant": {"ad": "Kameraya uzaklık", "birim": "m", "aralik": list(MESAFE_ARALIK), "harita": "turbo"}},
+                {"id": "cubuk3d", "ad": "Dikey çubuklar (yalnız görsel)", "uzay": ["3d"], "tur3d": "parca", "renk": "#6b7a90", "varsayilan": False, "grup": "3d"},
+                {"id": "doluluk3d", "ad": "Doluluk zemini", "uzay": ["3d"], "tur3d": "zemin", "renk": "#a9b7c6", "varsayilan": True, "grup": "3d"},
+            ]
+        return L
 
     def statik_katmanlar(self):
         kam = self.kam
-        out = {"govde": [], "ufuk": []}
-        m = cv2.imread(os.path.join(KOD, "kamera_maske_gercek_sabit.png"), cv2.IMREAD_GRAYSCALE)
-        if m is None:
-            m = np.zeros((720, 1280), np.uint8)
-        # ham: 320x180 RGBA (gövde = 255)
-        k = cv2.resize(m, (320, 180), interpolation=cv2.INTER_AREA) > 127
-        rgba = np.zeros((180, 320, 4), np.uint8)
-        rgba[k] = (109, 77, 255, 150)            # BGRA: kırmızımsı (renk sayfada #ff4d6d)
-        out["govde"].append({"tur": "resim", "uzay": "ham", "png": _png_b64(rgba)})
-        e, kapsam = kam.balikgozu_to_esdikdortgen(m, 512, 256, cv2.INTER_LINEAR)
-        kp = e > 127
-        rgba = np.zeros((256, 512, 4), np.uint8)
-        rgba[kp] = (109, 77, 255, 150)
-        out["govde"].append({"tur": "resim", "uzay": "pano", "png": _png_b64(rgba)})
+        out = {"govde": [], "olcum_disi": [], "ufuk": []}
+        renk = {"govde": (109, 77, 255, 150), "olcum_disi": (43, 166, 255, 150)}     # BGRA: #ff4d6d ve #ffa62b
+        for kid in ("govde", "olcum_disi"):
+            m = self._maskeler[kid]
+            k = cv2.resize(m, (320, 180), interpolation=cv2.INTER_AREA) > 127
+            rgba = np.zeros((180, 320, 4), np.uint8)
+            rgba[k] = renk[kid]
+            out[kid].append({"tur": "resim", "uzay": "ham", "png": _png_b64(rgba)})
+            e, _ = kam.balikgozu_to_esdikdortgen(m, 512, 256, cv2.INTER_LINEAR)
+            rgba = np.zeros((256, 512, 4), np.uint8)
+            rgba[e > 127] = renk[kid]
+            out[kid].append({"tur": "resim", "uzay": "pano", "png": _png_b64(rgba)})
         # ufuk
         out["ufuk"].append({"tur": "kirik", "uzay": "pano", "xy": [0.0, 0.5, 1.0, 0.5], "kapali": False})
         az = np.arange(0, 361, 2.0)
@@ -334,6 +393,9 @@ class KonumDeneyi(ArkaUc):
             self._harita_ms = 0.0
             self.kare_sayaci = 0
             self._son_yorunge = None
+            self._yorunge3d_son = None
+            self._duvar_hucre = set()
+            self._duvar_bekleyen = []
             self._son_anahtar = 0
             self._ilk_kare = True
             self._maske_onbellek = {}
@@ -357,9 +419,29 @@ class KonumDeneyi(ArkaUc):
             self._tarama = dict(mesafe=mesafe, guven=guven, menzil=menzil, kare=kare_no, poz=tuple(poz), t=time.time())
             self._ek_maske = em
             self._tarama_n += 1
+            self._duvar_kaniti(mesafe, guven, menzil, poz)
         c = time.perf_counter()
         self._tarama_ms = (b - a) * 1000.0
         self._harita_ms = (c - b) * 1000.0
+
+    def _duvar_kaniti(self, mesafe, guven, menzil, poz):
+        """Tarama sınır noktaları (zemin sınırı = duvar/eşya dibi kanıtı) dünya koordinatında; 5 cm hücrede bir kez eklenir. (_kilit altında çağrılır)"""
+        m = np.isfinite(mesafe) & (mesafe > 0.35) & (mesafe <= menzil - 0.12) & (guven >= GUVEN_MIN)
+        if not m.any():
+            return
+        k = np.arange(360.0)[m]
+        teta = np.radians(poz[2] + k)
+        x = poz[0] + np.sin(teta) * mesafe[m]
+        y = poz[1] + np.cos(teta) * mesafe[m]
+        yeni = []
+        gv = guven[m]
+        for xi, yi, di, gi in zip(x, y, mesafe[m], gv):
+            h = (int(np.floor(xi / DUVAR_HUCRE)), int(np.floor(yi / DUVAR_HUCRE)))
+            if h not in self._duvar_hucre:
+                self._duvar_hucre.add(h)
+                yeni.append((xi, yi, 0.0, di, gi))
+        if yeni:
+            self._duvar_bekleyen.append(np.array(yeni, np.float64))
 
     def _tarama_dongu(self):
         while self._tarama_calis:
@@ -457,6 +539,8 @@ class KonumDeneyi(ArkaUc):
                 self._tarama_iste(im, kare_jpeg, poz, self.kare_sayaci)
         # ---- çizim katmanları
         kat = self._katmanlar(m2d, poz, tar, bilgi, im.shape)
+        tanimli = self._tanimli
+        kat = {k: v for k, v in kat.items() if k in tanimli}          # bildirilmeyen katman yayınlanmaz
         ops = self._harita_islemleri(poz, oz)
         t5 = time.perf_counter()
         T["katman"] = (t5 - t4) * 1000.0
@@ -472,6 +556,8 @@ class KonumDeneyi(ArkaUc):
                     "sigma": float(bilgi.get("sigma", 0.0)), "guven": float(bilgi.get("guven", 0.0))},
             "katmanlar": kat, "harita_islem": ops, "sure_ms": {k: round(v, 2) for k, v in T.items()},
             "bilgi": {
+                "asama_adlari": {"cozme": "Çözme", "yon": "Özellik + yön", "oteleme": "Öteleme", "kestirici": "Kestirici", "katman": "Katman", "bolutleme": "Bölütleme", "harita": "Harita"},
+                "esz_asamalar": ["bolutleme", "harita"], "alt_asamalar": {"yon_donusum": "yön içinde panorama dönüşümü"},
                 "profil": [{"ad": n, "deger": round(float(v), 3), "birim": b} for (n, b), v in zip(profil_adlari, pr)],
                 "ek": [
                     {"ad": "yön içerik", "deger": ic}, {"ad": "öteleme içerik", "deger": int(icb)},
@@ -485,7 +571,14 @@ class KonumDeneyi(ArkaUc):
             "uyari": [],
         }
         if m2d.durum == "tut":
-            durum["uyari"].append("yön: görüntü durgun, açı tutuluyor")
+            durum["izleme"] = {"durum": "tut", "metin": "görüntü durgun, açı tutuluyor"}
+        elif bilgi.get("yaw_komut") or m2d.durum == "yedek" or ic < 10:
+            durum["izleme"] = {"durum": "zayif", "metin": "yön görüntüden zor ölçülüyor (komutla köprülendi)"}
+        else:
+            durum["izleme"] = {"durum": "iyi", "metin": "yön görüntüden izleniyor (%d eşleşme)" % ic}
+        if m2d.durum == "tut":
+            hareket = abs(komut[0]) + abs(komut[1]) > 16
+            durum["uyari"].append("yön: bu karede özellik çıkarılmadı (görüntü son işlenen kareye çok benziyor), son açı tutuluyor" + (" · robot sürülüyor: düz ve yavaş dönüşte bu normal, yöntem birkaç karede bir bakar" if hareket else ""))
         if getattr(self, "son_hata", None):
             durum["uyari"].append("tarama hatası: " + self.son_hata)
             self.son_hata = None
@@ -579,17 +672,42 @@ class KonumDeneyi(ArkaUc):
                     rgba = np.zeros(z.shape + (4,), np.uint8)
                     rgba[z] = rgba_renk
                     maske.append({"tur": "resim", "uzay": "ham", "png": _png_b64(rgba)})
+                # zemin mesafesi: zemin pikselleri (gövde hariç), zemin düzleminden metrik uzaklık (renk eşlemesi sayfada)
+                lo, hi = MESAFE_ARALIK
+                if pano:
+                    z = (self._pan_el < eb[self._pan_az]) & (self._pan_el < -1.0) & ~self._govde_pan
+                    idx = (1 + 253 * np.clip((self._pan_d - lo) / (hi - lo), 0, 1)).astype(np.uint8)
+                    maske.append({"tur": "skalar_resim", "uzay": "pano", "png": _png_b64(np.where(z, idx, 0).astype(np.uint8)), "aralik": [lo, hi], "katman": "zemin_mesafe"})
+                if ham:
+                    z = (self._ham_el < eb[self._ham_az]) & self._ham_ok & (self._ham_el < -1.0) & ~self._govde_ham
+                    idx = (1 + 253 * np.clip((self._ham_d - lo) / (hi - lo), 0, 1)).astype(np.uint8)
+                    maske.append({"tur": "skalar_resim", "uzay": "ham", "png": _png_b64(np.where(z, idx, 0).astype(np.uint8)), "aralik": [lo, hi], "katman": "zemin_mesafe"})
                 self._maske_onbellek[anahtar] = maske
-            zemin = maske
+            zemin = [o for o in maske if o["tur"] == "resim"]
+            kat["zemin_mesafe"] = [o for o in maske if o["tur"] == "skalar_resim"]
+            # sınır mesafesi: azimut başına zemin sınırı uzaklığı, uzaklık renkli nokta (yalnız güvenli azimutlar)
+            gv = np.roll(tar["guven"], -s)
+            iyi = gecerli & (gv >= GUVEN_MIN)
+            sm = []
+            if iyi.any():
+                if pano:
+                    sm.append({"tur": "noktalar", "uzay": "pano", "xy": _yuvarla(self._isin_panoya(d[iyi]), 4), "deger": _yuvarla(mes[iyi], 3), "boyut": 4})
+                if ham:
+                    uvh, _, okh = self._isin_hama(d[iyi])
+                    sm.append({"tur": "noktalar", "uzay": "ham", "xy": _yuvarla(uvh[okh], 4), "deger": _yuvarla(mes[iyi][okh], 3), "boyut": 4})
+            kat["sinir_mesafe"] = sm
         kat["sinir"] = sinir
         kat["zemin"] = zemin
+        kat.setdefault("zemin_mesafe", [])
+        kat.setdefault("sinir_mesafe", [])
+        kat["kamera3d"] = [{"tur": "kamera", "uzay": "3d", "x": round(float(poz[0]), 4), "y": round(float(poz[1]), 4), "z": KAMERA_Z, "yon": round(float(poz[2]), 2), "guncel": True}]
         # ---- harita: güncel sınır noktaları (taramanın kendi pozunda)
         if tar is not None:
             m = np.isfinite(tar["mesafe"]) & (tar["mesafe"] > 0.35) & (tar["mesafe"] <= tar["menzil"] - 0.12) & (tar["guven"] >= GUVEN_MIN)
             k = np.arange(360.0)[m]
             teta = np.radians(tar["poz"][2] + k)
             xy = np.stack([tar["poz"][0] + np.sin(teta) * tar["mesafe"][m], tar["poz"][1] + np.cos(teta) * tar["mesafe"][m]], 1)
-            kat["sinir_nokta"] = [{"tur": "noktalar", "uzay": "harita", "xy": _yuvarla(xy, 3)}] if len(xy) else []
+            kat["sinir_nokta"] = [{"tur": "noktalar", "uzay": "harita", "xy": _yuvarla(xy, 3), "guven": _yuvarla(tar["guven"][m], 2)}] if len(xy) else []
         else:
             kat["sinir_nokta"] = []
         return kat
@@ -603,9 +721,21 @@ class KonumDeneyi(ArkaUc):
         if self._son_yorunge is None or np.hypot(*(p - self._son_yorunge)) >= YORUNGE_ADIM_M:
             self._son_yorunge = p
             ops.append({"katman": "yorunge", "islem": "ekle", "xy": [round(float(poz[0]), 4), round(float(poz[1]), 4)]})
+        if self._yorunge3d_son is None or np.hypot(*(p - self._yorunge3d_son)) >= 0.03:
+            self._yorunge3d_son = p
+            ops.append({"katman": "yorunge3d", "islem": "ekle", "xyz": [round(float(poz[0]), 4), round(float(poz[1]), 4), 0.02]})
         if oz.anahtar_degisim != self._son_anahtar:
             self._son_anahtar = oz.anahtar_degisim
             ops.append({"katman": "anahtar", "islem": "ekle", "xy": [round(float(poz[0]), 4), round(float(poz[1]), 4)]})
+            ops.append({"katman": "anahtar3d", "islem": "ekle", "kameralar": [{"x": round(float(poz[0]), 4), "y": round(float(poz[1]), 4), "z": KAMERA_Z, "yon": round(float(poz[2]), 2)}]})
+        with self._kilit:
+            yeni, self._duvar_bekleyen = self._duvar_bekleyen, []
+        if yeni:
+            xyz = np.concatenate(yeni, 0)
+            ops.append({"katman": "duvar3d", "islem": "ekle", "xyz": _yuvarla(xyz[:, :3], 3), "deger": _yuvarla(xyz[:, 3], 3), "guven": _yuvarla(xyz[:, 4], 2)})
+            ust = xyz[:, :3].copy()
+            ust[:, 2] = DUVAR_CUBUK
+            ops.append({"katman": "cubuk3d", "islem": "ekle", "xyz": _yuvarla(np.concatenate([xyz[:, :3], ust], 1), 3)})
         simdi = time.time()
         with self._kilit:
             degisti = self._izgara_degisti and simdi - self._izgara_gonder_t >= 0.25
@@ -613,6 +743,7 @@ class KonumDeneyi(ArkaUc):
                 self._izgara_degisti = False
                 self._izgara_gonder_t = simdi
                 D = self.izgara.durum()
+                G = np.clip(self.izgara.gorulen * 51, 0, 255).astype(np.uint8)       # güven: 5 gözlemde tam (51/gözlem); 2 gözlem = 0,4
         if degisti:
             iz = self.izgara
             bil = iz.gorulen > 0
@@ -622,5 +753,5 @@ class KonumDeneyi(ArkaUc):
                 r0, r1, c0, c1 = max(satir[0] - 1, 0), min(satir[-1] + 2, iz.Hh), max(sut[0] - 1, 0), min(sut[-1] + 2, iz.W)
                 crop = D[r0:r1, c0:c1]
                 ops.append({"katman": "doluluk", "islem": "yerlestir", "x0": round(iz.x0 + c0 * iz.h, 4), "y0": round(iz.y0 + (iz.Hh - r1) * iz.h, 4),
-                            "hucre": iz.h, "w": int(c1 - c0), "h": int(r1 - r0), "png": _png_b64(crop)})
+                            "hucre": iz.h, "w": int(c1 - c0), "h": int(r1 - r0), "png": _png_b64(crop), "guven_png": _png_b64(G[r0:r1, c0:c1])})
         return ops

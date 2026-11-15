@@ -28,11 +28,12 @@ def ana():
     ap.add_argument("--hiz", type=float, default=1.0)
     ap.add_argument("--dongu", action="store_true", help="kayıt bitince başa sar")
     ap.add_argument("--canli-sinir", type=float, default=170.0, help="canlı oturum üst süresi (sn)")
+    ap.add_argument("--canli-yol", choices=["h264", "mjpg"], default="mjpg", help="canlı görüntü yolu: mjpg (/goruntu.mjpg, ham JPEG, ~48 Mbit/s, varsayılan) ya da h264 (ws /goruntu-h264, ~4 Mbit/s, ffmpeg ile çözülür, biraz bulanık; zayıf Wi-Fi için)")
     ap.add_argument("--jpeg-kalite", type=int, default=70)
     ap.add_argument("--arkauc", default="arkauc_konum_deney:KonumDeneyi")
     ap.add_argument("--tam-bolutleme", action="store_true", help="SegFormer olasılığını özgün (yavaş) yolla hesapla")
     ap.add_argument("--ayni-surecte-bolutleme", action="store_true", help="bölütlemeyi ayrı süreç yerine aynı süreçte (iş parçacığı) çalıştır")
-    ap.add_argument("--bolutleme-yok", action="store_true", help="zemin bölütlemeyi kapat (harita ve zemin katmanları boş kalır)")
+    ap.add_argument("--bolutleme", action="store_true", help="zemin bölütlemeyi aç (SegFormer; doluluk ızgarası, zemin katmanları ve 3B sınır noktaları). Varsayılan KAPALI")
     a = ap.parse_args()
     if not a.kayit and not a.robot:
         ap.error("en az bir --kayit ya da --robot gerekli")
@@ -51,7 +52,7 @@ def ana():
     S = getattr(M, sinif)
     kw = {}
     if S.__name__ == "KonumDeneyi":
-        kw = dict(bolutleme=not a.bolutleme_yok, hizli_bolutleme=not a.tam_bolutleme, bolutleme_surec=not a.ayni_surecte_bolutleme)
+        kw = dict(bolutleme=a.bolutleme, hizli_bolutleme=not a.tam_bolutleme, bolutleme_surec=not a.ayni_surecte_bolutleme)
     print("arka uç yükleniyor (model + tablolar; ilk açılışta uzun sürebilir)...", flush=True)
     arkauc = S(**kw)
 
@@ -62,7 +63,7 @@ def ana():
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.set_event_loop(asyncio.new_event_loop())
     ioloop = tornado.ioloop.IOLoop.current()
-    boru = Boru(arkauc, secenekler, ioloop, jpeg_kalite=a.jpeg_kalite, dongu=a.dongu, varsayilan_hiz=a.hiz, canli_sinir_sn=a.canli_sinir)
+    boru = Boru(arkauc, secenekler, ioloop, jpeg_kalite=a.jpeg_kalite, dongu=a.dongu, varsayilan_hiz=a.hiz, canli_sinir_sn=a.canli_sinir, canli_yol=a.canli_yol)
     app = uygulama_kur(boru)
     app.listen(a.port, address="0.0.0.0")
 

@@ -26,6 +26,8 @@ def ana():
     ap.add_argument("--ad", default="gelistirici_ekrani")
     ap.add_argument("--hepsi-filtre", action="store_true", help="bütün katmanları aç")
     ap.add_argument("--gorunum", default=None, choices=["ham", "pano"])
+    ap.add_argument("--ac", default="", help="açılacak katman kimlikleri, virgülle (ör. zemin_mesafe,govde)")
+    ap.add_argument("--mod", default=None, choices=["2b", "3b"], help="harita paneli modu")
     ap.add_argument("--port", type=int, default=9333)
     a = ap.parse_args()
     exe = next((t for t in TARAYICILAR if os.path.exists(t) or shutil.which(t)), None)
@@ -69,6 +71,10 @@ def ana():
                     js += "document.querySelector('#gorunum [data-g=%s]').click();" % a.gorunum
                 if a.hepsi_filtre:
                     js += "for (const t of S.tanim) S.acik[t.id]=true; filtreleriKur();"
+                if a.ac:
+                    js += "for (const id of %r.split(',')) S.acik[id]=true; filtreleriKur(); ciz();" % a.ac
+                if a.mod:
+                    js += "S.harMod=%r; harModGoster();" % a.mod
                 if js:
                     cdp("Runtime.evaluate", expression=js)
                 time.sleep(a.bekle)

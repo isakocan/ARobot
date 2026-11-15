@@ -19,7 +19,27 @@ feed(kare_jpeg, t_ms, komut) -> durum sözlüğü:
    "sure_ms": { ad: ms }              adlandırılmış aşama süreleri (karedeki son değer; eşzamansız aşamalar son bitenin süresi)
    "bilgi":  { "profil": [{"ad","deger","birim"}], "ek": [{"ad","deger"}] }     durum şeridi için adlandırılmış değerler
    "uyari":  [str]                    isteğe bağlı kısa uyarılar
+   "izleme": {"durum":"iyi"|"zayif"|"kayip"|"tut","metin":str}     izleme durumu (durum satırındaki rozet); yoksa gizlenir
   }
+
+GENEL KATMAN TÜRLERİ (kamera görünümlerinde; hepsi arka uca bağımsız, sayfa yalnız çizer)
+  {"tur":"noktalar","uzay":..,"xy":[...],"deger":[v0,v1,...],"boyut":px}
+        "deger" varsa her nokta bir SKALAR taşır ve renk eşlemesiyle çizilir (ör. izlenen noktanın derinliği). Aralık ve renk eşlemesi
+        katman tanımındaki "lejant" alanından gelir: {"ad","birim","aralik":[lo,hi],"harita":"turbo"}; sayfa lejantı (renk çubuğu + sayılar) çizer.
+  {"tur":"cizgiler","uzay":..,"xy":[...],"deger":[parça başına skalar (isteğe bağlı)]}   (epipolar doğru parçaları, hareket vektörleri...)
+  GÜVEN EŞİĞİ (genel): izgara işlemi "guven_png" (8 bit gri, "png" ile aynı boyutta, 0..255) ve nokta öğeleri "guven" ([0..1] her nokta için)
+  taşıyabilir; sayfadaki tek "güven eşiği" kaydırıcısı bunun altını gizler (varsayılan zayıf kanıtı gizler). Taşımayan katman etkilenmez.
+  {"tur":"skalar_resim","uzay":..,"png":"<base64 PNG, 8 bit gri>","aralik":[lo,hi]}
+        Piksel başına skalar kaplama: 0 = veri yok (saydam), 1..254 = aralıkta doğrusal değer; renk eşlemesi katmanın "lejant"ından.
+        DERİNLİK UYDURULMAZ: yalnız yöntemin gerçekten bildiği pikseller doldurulur.
+3B BÖLÜMÜ (uzay "3d"; metre, z YUKARI, x doğu, y kuzey; yön = kuzeyden saat yönünde derece)
+  Kalıcı (artımlı) işlemler "harita_islem" içinde, katman tanımında "grup":"3d" ve "tur3d":
+    "noktalar"  {"katman":id,"islem":"ekle","xyz":[x,y,z,...],"deger":[...](ops.),"renk":[r,g,b,...0..1](ops.)}   artımlı; 50 bin+ nokta için tasarlandı
+    "parca"     {"katman":id,"islem":"ekle","xyz":[ax,ay,az,bx,by,bz,...]}      ayrık doğru parçaları
+    "cizgi"     {"katman":id,"islem":"ekle","xyz":[...]}                         tek çoklu çizgiye nokta ekler (yörünge)
+    "kameralar" {"katman":id,"islem":"ekle","kameralar":[{"x","y","z","yon","egim"(ops.)}]}   anahtar kare koniği (frustum)
+    "zemin"     sayfanın "doluluk" ızgarasını z=0 düzleminde doku olarak çizer (arka uç bir şey yollamaz)
+  Kare üstü: katmanlar[id] = [{"tur":"kamera","uzay":"3d","x","y","z","yon","guncel":true}]  (güncel kamera, vurgulanır)
 
 ÖĞE BİÇİMLERİ (katmanlar içinde; hepsinde "uzay"):
   {"tur":"noktalar","uzay":..,"xy":[x0,y0,x1,y1,...],"etiket":[opsiyonel kategori sayıları]}
@@ -40,9 +60,13 @@ HARİTA İŞLEMLERİ ("harita_islem" öğeleri):
 
 
 class ArkaUc:
-    """Konum/harita yöntemi için küçük sözleşme. Alt sınıf en az `feed`, `sifirla`, `katman_tanimlari` yazar."""
+    """Konum/harita yöntemi için küçük sözleşme. Alt sınıf en az `feed`, `sifirla`, `katman_tanimlari` yazar.
+    Sayfa HİÇBİR yöntemi varsaymaz: katmanlar, harita türleri, durum alanları, profil/ayrıntı değerleri bu sınıfın bildirdiklerinden gelir;
+    bildirilmeyen (boş) şey sayfada gizlenir. `yontem_adi` başlıkta "Yöntem: ..." olarak her zaman görünür."""
 
     ad = "arkauc"
+    yontem_adi = "bilinmeyen yöntem"          # başlıkta görünür (kısa, Türkçe, hangi yöntemin çalıştığı belli olsun)
+    yontem_aciklama = ""                       # ipucu metni (isteğe bağlı)
 
     def katman_tanimlari(self):
         return []

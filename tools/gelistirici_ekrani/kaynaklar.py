@@ -201,7 +201,7 @@ class TekrarKaynagi(Kaynak):
 class CanliKaynak(Kaynak):
     tur = "canli"
 
-    def __init__(self, posta, adres, sinir_sn=170.0, durum_hz=8.0):
+    def __init__(self, posta, adres, sinir_sn=170.0, durum_hz=8.0, yol="mjpg"):
         adres = adres.replace("http://", "").rstrip("/")
         self.host, _, port = adres.partition(":")
         self.port = int(port) if port else 8080
@@ -215,11 +215,19 @@ class CanliKaynak(Kaynak):
         self.ilk_kare = None
         self.byte = 0
         self.fps_olc = 0.0
+        self.yol = yol
+        self.sinir_asildi = False
+        self._varis = []
 
     def bilgi(self):
         d = super().bilgi()
         gecen = 0.0 if self.baslangic is None else time.monotonic() - self.baslangic
-        d.update(konum_sn=round(gecen, 1), toplam_sn=self.sinir_sn, robot=self.robot, host=self.host, kalan_sn=round(max(0.0, self.sinir_sn - gecen), 1))
+        v = list(self._varis)
+        alinan = (len(v) - 1) / (v[-1] - v[0]) if len(v) > 1 and v[-1] > v[0] else 0.0
+        if self.durum == "oynuyor" and v and time.monotonic() - v[-1] > 1.5:
+            alinan = 0.0
+        d.update(alinan_fps=round(alinan, 1), yol=self.yol, sinir_asildi=self.sinir_asildi, mbit=round(self.byte * 8 / 1e6 / max(gecen, 1e-3), 1),
+                 konum_sn=round(gecen, 1), toplam_sn=self.sinir_sn, robot=self.robot, host=self.host, kalan_sn=round(max(0.0, self.sinir_sn - gecen), 1))
         return d
 
     # YALNIZ GET: robota istek değiştirici hiçbir şey gitmez
@@ -251,52 +259,114 @@ class CanliKaynak(Kaynak):
                 self.mesaj = "durum okunamadı: " + repr(e)
             self._dur.wait(1.0 / self.durum_hz)
 
-    def _calis(self):
-        threading.Thread(target=self._durum_dongu, name="canli_durum", daemon=True).start()
-        self.baslangic = time.monotonic()
-        self.t0 = self.baslangic
-        bag = None
+    def _kare_dongusu_mjpg(self):
+        """GET /goruntu.mjpg: çok parçalı JPEG. Tamponlu okuyucudan satır + tam uzunluk okuma (bayt birleştirme yok)."""
+        bag = http.client.HTTPConnection(self.host, self.port, timeout=6)
         try:
-            bag = http.client.HTTPConnection(self.host, self.port, timeout=6)
             r = self._get(bag, "/goruntu.mjpg?fps=15")
             if r.status != 200:
                 raise RuntimeError("HTTP %d" % r.status)
             self.durum = "oynuyor"
-            tampon = b""
-            self.sol_sag = self.sol_sag
+            fp = r.fp
+            n = None
             while not self._dur.is_set():
-                if time.monotonic() - self.baslangic > self.sinir_sn:
-                    self.durum = "bitti"
-                    self.mesaj = "süre sınırı (%d sn) doldu; kamera ısınmasın diye bağlantı kapatıldı" % self.sinir_sn
-                    break
-                parca = r.read1(65536) if hasattr(r, "read1") else r.read(65536)
-                if not parca:
+                if self._sinir_doldu():
+                    return
+                satir = fp.readline(4096)
+                if not satir:
                     raise RuntimeError("akış kapandı")
-                tampon += parca
+                if satir[:15].lower() == b"content-length:":
+                    n = int(satir[15:])
+                elif satir in (b"\r\n", b"\n") and n:
+                    jpeg = fp.read(n)
+                    if len(jpeg) < n:
+                        raise RuntimeError("akış kapandı")
+                    self._kare_geldi(jpeg)
+                    n = None
+        finally:
+            try:
+                bag.close()          # akışı kapat: köprü izleyen kalmayınca kamerayı 10 sn sonra kapatır
+            except Exception:
+                pass
+
+    def _kare_dongusu_h264(self):
+        """ws://robot:8080/goruntu-h264 (Unity uygulamasının kullandığı yol): robotun donanım H.264 akışı, YALNIZ OKUNUR (istemci hiçbir mesaj yollamaz;
+        akış adı sorguda: ?akis=yuksek). Çözme: imageio_ffmpeg'in ffmpeg'i (boru), çıktı JPEG. Kayıplı (4 Mbit/s) olduğundan ham JPEG'den biraz bulanıktır."""
+        import subprocess
+        import imageio_ffmpeg
+        from websockets.sync.client import connect
+        ff = subprocess.Popen([imageio_ffmpeg.get_ffmpeg_exe(), "-loglevel", "error", "-fflags", "nobuffer", "-flags", "low_delay", "-probesize", "32768", "-use_wallclock_as_timestamps", "1",
+                               "-f", "h264", "-i", "pipe:0", "-an", "-fps_mode", "passthrough", "-pix_fmt", "yuvj420p", "-c:v", "mjpeg", "-q:v", "3", "-f", "image2pipe", "pipe:1"],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+
+        def jpeg_oku():
+            tampon = bytearray()
+            while not self._dur.is_set():
+                p = ff.stdout.read(65536)
+                if not p:
+                    break
+                tampon += p
                 while True:
-                    b = tampon.find(b"\r\n\r\n")
-                    if b < 0:
+                    a = tampon.find(b"\xff\xd8")
+                    b = tampon.find(b"\xff\xd9", a + 2) if a >= 0 else -1
+                    # JPEG içinde 0xFFD9 yalnız bitiş imidir (veri baytları 0xFF sonrası 0x00 ile kaçırılır)
+                    if a < 0 or b < 0:
                         break
-                    baslik = tampon[:b].decode("latin1", "replace")
-                    m = re.search(r"Content-Length:\s*(\d+)", baslik, re.I)
-                    if not m:
-                        tampon = tampon[b + 4:]
-                        continue
-                    n = int(m.group(1))
-                    if len(tampon) < b + 4 + n:
-                        break
-                    jpeg = tampon[b + 4:b + 4 + n]
-                    tampon = tampon[b + 4 + n:]
-                    self.byte += n
-                    t = int(round((time.monotonic() - self.t0) * 1000.0))
-                    self.kare_no += 1
-                    self.posta.koy({"jpeg": jpeg, "t_ms": t, "komut": self.sol_sag, "geldi": time.time(), "no": self.kare_no})
+                    jpeg = bytes(tampon[a:b + 2])
+                    del tampon[:b + 2]
+                    self._kare_geldi(jpeg)
+        th = threading.Thread(target=jpeg_oku, name="h264_jpeg", daemon=True)
+        th.start()
+        try:
+            with connect("ws://%s:%d/goruntu-h264?akis=yuksek" % (self.host, self.port), max_size=8 * 1024 * 1024, open_timeout=6) as ws:
+                self.durum = "oynuyor"
+                while not self._dur.is_set():
+                    if self._sinir_doldu():
+                        return
+                    m = ws.recv(timeout=6)
+                    if isinstance(m, (bytes, bytearray)) and len(m) > 1:
+                        ff.stdin.write(bytes(m[1:]))
+        finally:
+            try:
+                ff.stdin.close()
+            except Exception:
+                pass
+            ff.terminate()
+
+    def uzat(self, sn):
+        """Süre sınırını uzat (kamera ısınması riskiyle: her tıklama +sn, sürücü bilinçli uzatır)."""
+        self.sinir_sn += float(sn)
+        if self.durum == "bitti" and self.sinir_asildi:
+            return False
+        return True
+
+    def _sinir_doldu(self):
+        if time.monotonic() - self.baslangic > self.sinir_sn:
+            self.durum = "bitti"
+            self.sinir_asildi = True
+            self.mesaj = "süre sınırı (%d sn) doldu; kamera ısınmasın diye bağlantı kapatıldı" % self.sinir_sn
+            return True
+        return False
+
+    def _kare_geldi(self, jpeg):
+        self.byte += len(jpeg)
+        t = int(round((time.monotonic() - self.t0) * 1000.0))
+        self.kare_no += 1
+        self._varis.append(time.monotonic())
+        while self._varis and self._varis[0] < self._varis[-1] - 3.0:
+            self._varis.pop(0)
+        self.posta.koy({"jpeg": jpeg, "t_ms": t, "komut": self.sol_sag, "geldi": time.time(), "no": self.kare_no})
+
+    def _calis(self):
+        threading.Thread(target=self._durum_dongu, name="canli_durum", daemon=True).start()
+        self.baslangic = time.monotonic()
+        self.t0 = self.baslangic
+        try:
+            if self.yol == "h264":
+                self._kare_dongusu_h264()
+            else:
+                self._kare_dongusu_mjpg()
         except Exception as e:
             self.durum, self.mesaj = "kesildi", "bağlantı: " + repr(e)
         finally:
-            try:
-                if bag is not None:
-                    bag.close()          # akışı kapat: köprü izleyen kalmayınca kamerayı 10 sn sonra kapatır
-            except Exception:
-                pass
             self._dur.set()

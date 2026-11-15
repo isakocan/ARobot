@@ -34,7 +34,7 @@ def ana():
     taban = "http://" + a.adres
 
     html = urllib.request.urlopen(taban + "/", timeout=10).read().decode("utf-8")
-    kontrol("<canvas" in html and "WebSocket" in html and "Geliştirici ekranı" in html, "sayfa HTML geldi (%d bayt)" % len(html))
+    kontrol("<canvas" in html and "WebSocket" in html and "SLAM" in html, "sayfa HTML geldi (%d bayt)" % len(html))
     d0 = json.loads(urllib.request.urlopen(taban + "/api/durum", timeout=10).read().decode("utf-8"))
     kontrol("isleme_fps" in d0, "/api/durum geçerli JSON: kaynak=%s" % ((d0.get("kaynak") or {}).get("ad")))
 
@@ -83,7 +83,7 @@ def ana():
     # katman biçimleri
     for kid, liste in d["katmanlar"].items():
         for o in liste:
-            gecerli = o.get("tur") in ("noktalar", "cizgiler", "kirik", "resim", "ok") and o.get("uzay") in ("pano", "ham", "harita")
+            gecerli = o.get("tur") in ("noktalar", "cizgiler", "kirik", "resim", "ok", "skalar_resim", "kamera") and o.get("uzay") in ("pano", "ham", "harita", "3d")
             if o["tur"] in ("noktalar", "cizgiler", "kirik"):
                 xy = o["xy"]
                 gecerli = gecerli and len(xy) % 2 == 0 and all(np.isfinite(xy))
