@@ -30,8 +30,8 @@ from kaynaklar import CanliKaynak, Posta, TekrarKaynagi  # noqa: E402
 
 class Dunya:
     """Arka ucun kalıcı harita/3B işlemlerinin birikimi ve istemci imleçleri (bkz. arkauc.py HARİTA İŞLEMLERİ).
-    "ekle" işlemleri katman başına PARÇA listesi olarak tutulur (xy, xyz, deger, renk, kameralar ... ne varsa olduğu gibi); istemciye imleçten sonraki
-    parçalar gider. Büyük nokta kümeleri (50 bin+) karelere yayıldığı için kare başına küçük artım gider, yeni bağlanana tek seferde özet."""
+    "ekle" işlemleri katman başına PARÇA listesi olarak tutulur; "guncelle" (id'li küme) işlemleri id -> değer sözlüğü olarak (sürüm damgalı), istemciye
+    imleçten sonra değişen idler gider; "yerlestir" katman başına son işlem. Yeni bağlanana tek seferde özet."""
 
     def __init__(self):
         self.kilit = threading.Lock()
@@ -43,22 +43,53 @@ class Dunya:
             self.epoch += 1
             self.ekle = {}           # katman -> [işlem, ...]
             self.yerles = {}         # katman -> (surum, işlem)
+            self.kume = {}           # katman -> {"surum":n, "o":{id: [alanlar, surum]}, "sil":{id: surum}}
+            self.katman_epoch = {}   # katman -> sayaç (temizle_katman)
             self.surum = 0
 
     def uygula(self, ops):
         with self.kilit:
             for op in ops:
-                if op.get("islem") == "temizle":
+                islem = op.get("islem")
+                if islem == "temizle":
                     self.epoch += 1
-                    self.ekle, self.yerles = {}, {}
-                elif op.get("islem") == "ekle":
+                    self.ekle, self.yerles, self.kume, self.katman_epoch = {}, {}, {}, {}
+                elif islem == "temizle_katman":
+                    k = op["katman"]
+                    self.ekle.pop(k, None)
+                    self.yerles.pop(k, None)
+                    self.kume.pop(k, None)
+                    self.katman_epoch[k] = self.katman_epoch.get(k, 0) + 1
+                elif islem == "ekle":
                     self.ekle.setdefault(op["katman"], []).append(op)
-                elif op.get("islem") == "yerlestir":
+                elif islem == "yerlestir":
                     self.surum += 1
                     self.yerles[op["katman"]] = (self.surum, op)
+                elif islem == "guncelle":
+                    self._guncelle(op)
+
+    def _guncelle(self, op):
+        K = self.kume.setdefault(op["katman"], {"surum": 0, "o": {}, "sil": {}})
+        K["surum"] += 1
+        sv = K["surum"]
+        ids = op.get("kimlik") or []
+        xyz, guven, kam = op.get("xyz"), op.get("guven"), op.get("kameralar")
+        for i, kid in enumerate(ids):
+            alan = {}
+            if xyz is not None:
+                alan["xyz"] = xyz[i * 3:i * 3 + 3]
+            if guven is not None:
+                alan["guven"] = guven[i]
+            if kam is not None:
+                alan["kamera"] = kam[i]
+            K["o"][kid] = [alan, sv]
+            K["sil"].pop(kid, None)
+        for kid in op.get("sil") or []:
+            if K["o"].pop(kid, None) is not None or True:
+                K["sil"][kid] = sv
 
     def imlec_yeni(self):
-        return {"epoch": -1, "ekle": {}, "yerles": {}}
+        return {"epoch": -1, "ekle": {}, "yerles": {}, "kume": {}, "ke": {}}
 
     def farki_al(self, imlec):
         """İstemcinin imlecine göre gönderilecek işlemler; imleç yerinde güncellenir."""
@@ -66,7 +97,14 @@ class Dunya:
         with self.kilit:
             if imlec["epoch"] != self.epoch:
                 ops.append({"islem": "temizle"})
-                imlec["epoch"], imlec["ekle"], imlec["yerles"] = self.epoch, {}, {}
+                imlec.update(epoch=self.epoch, ekle={}, yerles={}, kume={}, ke={})
+            for k, e in self.katman_epoch.items():
+                if imlec["ke"].get(k, 0) != e:
+                    ops.append({"katman": k, "islem": "temizle_katman"})
+                    imlec["ke"][k] = e
+                    imlec["ekle"].pop(k, None)
+                    imlec["yerles"].pop(k, None)
+                    imlec["kume"].pop(k, None)
             for k, liste in self.ekle.items():
                 n0 = imlec["ekle"].get(k, 0)
                 if len(liste) > n0:
@@ -76,6 +114,32 @@ class Dunya:
                 if imlec["yerles"].get(k, 0) < sv:
                     ops.append(op)
                     imlec["yerles"][k] = sv
+            for k, K in self.kume.items():
+                c = imlec["kume"].get(k, 0)
+                if K["surum"] > c:
+                    ids, xyz, guven, kam, sil = [], [], [], [], []
+                    for kid, (alan, sv) in K["o"].items():
+                        if sv > c:
+                            ids.append(kid)
+                            if "xyz" in alan:
+                                xyz.extend(alan["xyz"])
+                            if "guven" in alan:
+                                guven.append(alan["guven"])
+                            if "kamera" in alan:
+                                kam.append(alan["kamera"])
+                    sil = [kid for kid, sv in K["sil"].items() if sv > c]
+                    op = {"katman": k, "islem": "guncelle", "kimlik": ids}
+                    if xyz:
+                        op["xyz"] = xyz
+                    if guven:
+                        op["guven"] = guven
+                    if kam:
+                        op["kameralar"] = kam
+                    if sil:
+                        op["sil"] = sil
+                    if ids or sil:
+                        ops.append(op)
+                    imlec["kume"][k] = K["surum"]
         return ops
 
 
@@ -104,7 +168,7 @@ class Istatistik:
 class Boru:
     """Kaynak yönetimi + işleme iş parçacığı + yayın. Tek örnek."""
 
-    def __init__(self, arkauc, kaynak_secenekleri, ioloop, jpeg_kalite=70, dongu=False, varsayilan_hiz=1.0, canli_sinir_sn=170.0, canli_yol="mjpg"):
+    def __init__(self, arkauc, kaynak_secenekleri, ioloop, jpeg_kalite=70, dongu=False, varsayilan_hiz=1.0, canli_sinir_sn=170.0, canli_yol="mjpg", fabrikalar=None, yontem_id=None):
         self.arkauc = arkauc
         self.secenekler = kaynak_secenekleri         # [{"id","tur","ad","yol"|"adres"}]
         self.ioloop = ioloop
@@ -135,8 +199,15 @@ class Boru:
         self.isleme_ms = deque(maxlen=60)
         self.havuz = ThreadPoolExecutor(max_workers=3, thread_name_prefix="goruntu")
         self._goruntu_onbellek = {}
-        self.statik = arkauc.statik_katmanlar()
-        self.katmanlar = arkauc.katman_tanimlari()
+        self.fabrikalar = list(fabrikalar or [])        # [(id, ad, callable -> ArkaUc)]
+        self.yontem_id = yontem_id
+        self.yontem_durum = "hazir" if arkauc is not None else "yok"     # yok | baslatiliyor | hazir | hata
+        self.yontem_hata = ""
+        self._yontem_kilit = threading.RLock()           # feed / sifirla / değiştirme birbirini beklesin
+        self._degisim_kilit = threading.Lock()
+        self.istek_katmanlar = set()
+        self.statik = arkauc.statik_katmanlar() if arkauc is not None else {}
+        self.katmanlar = arkauc.katman_tanimlari() if arkauc is not None else []
         self.it = threading.Thread(target=self._isle, name="isleme", daemon=True)
         self.it.start()
 
@@ -189,17 +260,104 @@ class Boru:
         self._dur = True
         if self.kaynak is not None:
             self.kaynak.durdur()
-        self.arkauc.kapat()
+        with self._yontem_kilit:
+            if self.arkauc is not None:
+                try:
+                    self.arkauc.kapat()
+                except Exception:
+                    pass
+
+    # ---------------------------------------------------------------- yöntem seçimi (birden çok arka uç, tembel başlatma)
+    def yontem_ad(self, yid):
+        return next((ad for i, ad, _ in self.fabrikalar if i == yid), yid)
+
+    def yontem_sec(self, yid):
+        f = next((x for x in self.fabrikalar if x[0] == yid), None)
+        if f is None:
+            raise KeyError(yid)
+        if self.yontem_durum == "baslatiliyor":
+            return False
+        if yid == self.yontem_id and self.yontem_durum == "hazir":
+            return False
+        self.yontem_durum = "baslatiliyor"          # eşzamanlı: iş parçacığı başlamadan sayfa "başlatılıyor" görsün
+        self.yontem_id = yid
+        self.yontem_hata = ""
+        threading.Thread(target=self._yontem_degistir, args=(f,), name="yontem", daemon=True).start()
+        return True
+
+    def _merhaba_yayinla(self):
+        for c in list(self.istemciler):
+            c.merhaba_gonder()
+
+    def _yontem_degistir(self, f):
+        yid, ad, fabrika = f
+        with self._degisim_kilit:
+            self.yontem_durum, self.yontem_id, self.yontem_hata = "baslatiliyor", yid, ""
+            self.ioloop.add_callback(self._merhaba_yayinla)
+            with self._yontem_kilit:
+                eski, self.arkauc = self.arkauc, None
+            if eski is not None:
+                try:
+                    eski.kapat()                    # köprü süreci temiz kapanır
+                except Exception as e:
+                    print("eski yöntem kapanırken:", repr(e))
+            self.statik, self.katmanlar = {}, []
+            self.dunya.sifirla()
+            self.son_paket = self.son_durum = None
+            self._goruntu_onbellek.clear()
+            try:
+                yeni = fabrika()
+            except Exception as e:
+                self.yontem_hata = "%s: %s" % (type(e).__name__, e)
+                self.yontem_durum = "hata"
+                print("yöntem başlamadı (%s): %s" % (yid, self.yontem_hata), flush=True)
+                self.ioloop.add_callback(self._merhaba_yayinla)
+                return
+            with self._yontem_kilit:
+                self.arkauc = yeni
+                self.statik = yeni.statik_katmanlar()
+                self.katmanlar = yeni.katman_tanimlari()
+            try:
+                yeni.gorunumleri_ayarla({c.gorunum for c in self.istemciler} or {"ham"})
+                yeni.katman_istegi(self._katman_birlesimi())
+            except Exception:
+                pass
+            self.yontem_durum = "hazir"
+            if self.kaynak_id:
+                if isinstance(self.kaynak, TekrarKaynagi):
+                    try:
+                        self.kaynak_sec(self.kaynak_id)         # kayıt baştan
+                    except KeyError:
+                        pass
+                else:
+                    self._sifirla_iste.set()
+            self.ioloop.add_callback(self._merhaba_yayinla)
+
+    def _katman_birlesimi(self):
+        u = set()
+        for c in list(self.istemciler):
+            u |= c.acik_katmanlar
+        return u
+
+    def katman_istegi_guncelle(self):
+        a = self.arkauc
+        if a is not None:
+            try:
+                a.katman_istegi(self._katman_birlesimi())
+            except Exception:
+                pass
 
     # ---------------------------------------------------------------- işleme iş parçacığı
     def _isle(self):
         while not self._dur:
             if self._sifirla_iste.is_set():
                 self._sifirla_iste.clear()
-                try:
-                    self.arkauc.sifirla()
-                except Exception as e:
-                    self.son_hata = "sıfırlama: " + repr(e)
+                with self._yontem_kilit:
+                    if self.arkauc is not None:
+                        try:
+                            self.arkauc.sifirla()
+                        except Exception as e:
+                            self.son_hata = "sıfırlama: " + repr(e)
                 self.dunya.sifirla()
                 self.posta.bosalt()
                 self.son_durum = None
@@ -207,10 +365,15 @@ class Boru:
             p = self.posta.al(0.2)
             if p is None:
                 continue
+            if self.arkauc is None:                       # yöntem başlıyor/başlamadı: kare atılır, ekran donmaz (durum satırı "başlatılıyor" der)
+                continue
             self.kaynak_fps.ekle(p["geldi"])
             a = time.perf_counter()
             try:
-                durum = self.arkauc.feed(p["jpeg"], p["t_ms"], p["komut"])
+                with self._yontem_kilit:
+                    if self.arkauc is None:
+                        continue
+                    durum = self.arkauc.feed(p["jpeg"], p["t_ms"], p["komut"])
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -245,8 +408,16 @@ class Boru:
             "kayip": kayip, "gelen": gelen, "kayip_yuzde": round(100.0 * kayip / max(gelen, 1), 1),
             "isleme_ms": round(ort, 1), "yas_ms": round(self.son_yas_ms, 1),
             "kaynak": (k.bilgi() if k is not None else None), "kaynak_id": self.kaynak_id, "hata": self.son_hata,
-            "komut": list(paket["komut"]) if paket else None, "arkauc": self.arkauc.ad, "islenen": self.islenen,
+            "komut": list(paket["komut"]) if paket else None, "arkauc": (self.arkauc.ad if self.arkauc is not None else None), "islenen": self.islenen,
+            "yontem_id": self.yontem_id, "yontem_durum": self.yontem_durum, "yontem_hata": self.yontem_hata,
         }
+        a = self.arkauc
+        if a is not None:
+            try:
+                d["eylemler"] = a.eylemler()
+                d["olcek"] = a.olcek_bilgisi()
+            except Exception:
+                pass
         return d
 
     # ---------------------------------------------------------------- görüntü üretimi (iş parçacığı)
@@ -258,7 +429,8 @@ class Boru:
         a = time.perf_counter()
         im = cv2.imdecode(np.frombuffer(paket["jpeg"], np.uint8), cv2.IMREAD_COLOR)
         if gorunum == "pano":
-            pn = self.arkauc.panorama_goruntu(im, 1024)
+            ark = self.arkauc
+            pn = ark.panorama_goruntu(im, 1024) if ark is not None else None
             if pn is None:
                 pn = im
             im = pn
@@ -290,29 +462,54 @@ class IstemciWS(tornado.websocket.WebSocketHandler):
         self.yolda = False
         self.kapali = False
         self.kimlik = "i%x" % id(self)
+        self.acik_katmanlar = set()
 
     def check_origin(self, origin):
         return True
+
+    def merhaba_mesaji(self):
+        b = self.boru
+        a = b.arkauc
+        return json.dumps({
+            "t": "merhaba", "arkauc": a.ad if a else None, "katmanlar": b.katmanlar, "statik": b.statik,
+            "kaynaklar": [{"id": s["id"], "ad": s["ad"], "tur": s["tur"]} for s in b.secenekler], "kaynak_id": b.kaynak_id,
+            "hiz": b.hiz, "kalite": b.jpeg_kalite,
+            "yontem": (a.yontem_adi if a else b.yontem_ad(b.yontem_id)), "yontem_aciklama": getattr(a, "yontem_aciklama", "") if a else "",
+            "yontem_id": b.yontem_id, "yontemler": [{"id": i, "ad": ad} for i, ad, _ in b.fabrikalar],
+            "yontem_durum": b.yontem_durum, "yontem_hata": b.yontem_hata,
+            "varsayilan_gorunum": getattr(a, "varsayilan_gorunum", "ham") if a else "ham",
+            "olcek": a.olcek_bilgisi() if a else {"birim": "m", "metrik": True},
+            "paneller": a.kamera_panelleri() if a else None, "guven": a.guven_bilgisi() if a else None,
+        })
+
+    def merhaba_gonder(self):
+        if self.kapali:
+            return
+        self.imlec = self.boru.dunya.imlec_yeni()
+        self.son_seq = 0
+        try:
+            self.write_message(self.merhaba_mesaji())
+        except tornado.websocket.WebSocketClosedError:
+            self.kapali = True
+            return
+        self.sonrakini_gonder()
 
     def open(self):
         b = self.boru
         b.istemciler.add(self)
         self._gorunumleri_bildir()
-        self.write_message(json.dumps({
-            "t": "merhaba", "arkauc": b.arkauc.ad, "katmanlar": b.katmanlar, "statik": b.statik,
-            "kaynaklar": [{"id": s["id"], "ad": s["ad"], "tur": s["tur"]} for s in b.secenekler], "kaynak_id": b.kaynak_id,
-            "hiz": b.hiz, "kalite": b.jpeg_kalite, "yontem": b.arkauc.yontem_adi, "yontem_aciklama": getattr(b.arkauc, "yontem_aciklama", ""),
-        }))
-        self.sonrakini_gonder()
+        self.merhaba_gonder()
 
     def on_close(self):
         self.kapali = True
         self.boru.istemciler.discard(self)
         self._gorunumleri_bildir()
+        self.boru.katman_istegi_guncelle()
 
     def _gorunumleri_bildir(self):
         g = {c.gorunum for c in self.boru.istemciler} or {"ham"}
-        self.boru.arkauc.gorunumleri_ayarla(g)
+        if self.boru.arkauc is not None:
+            self.boru.arkauc.gorunumleri_ayarla(g)
 
     def on_message(self, mesaj):
         try:
@@ -336,6 +533,16 @@ class IstemciWS(tornado.websocket.WebSocketHandler):
             b.basa()
         elif t == "sifirla":
             b.sifirla()
+        elif t == "yontem":
+            try:
+                b.yontem_sec(m.get("id"))
+            except KeyError:
+                pass
+        elif t == "katmanlar":
+            self.acik_katmanlar = set(str(x) for x in (m.get("acik") or []))
+            b.katman_istegi_guncelle()
+        elif t == "eylem":
+            asyncio.ensure_future(self._eylem(m.get("id"), m.get("arg")))
         elif t == "uzat":
             if isinstance(b.kaynak, CanliKaynak):
                 b.kaynak.uzat(120)
@@ -345,6 +552,24 @@ class IstemciWS(tornado.websocket.WebSocketHandler):
                 self.write_message(json.dumps({"t": "olay", "metin": "kaynak değişti", "kaynak_id": b.kaynak_id}))
             except KeyError:
                 pass
+
+    async def _eylem(self, kimlik, arg):
+        a = self.boru.arkauc
+        if a is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+            r = await loop.run_in_executor(self.boru.havuz, a.eylem, kimlik, arg)
+        except Exception as e:
+            r = {"ok": False, "mesaj": "%s: %s" % (type(e).__name__, e)}
+        if r.get("sifirla"):
+            self.boru.sifirla()
+        if r.get("dunya_sifirla"):
+            self.boru.dunya.sifirla()
+        try:
+            self.write_message(json.dumps({"t": "olay", "metin": r.get("mesaj", ""), "eylem_ok": bool(r.get("ok")), "eylem": kimlik}))
+        except tornado.websocket.WebSocketClosedError:
+            self.kapali = True
 
     def sonrakini_gonder(self):
         if self.yolda or self.kapali:

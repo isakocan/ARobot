@@ -19,7 +19,8 @@ feed(kare_jpeg, t_ms, komut) -> durum sözlüğü:
    "sure_ms": { ad: ms }              adlandırılmış aşama süreleri (karedeki son değer; eşzamansız aşamalar son bitenin süresi)
    "bilgi":  { "profil": [{"ad","deger","birim"}], "ek": [{"ad","deger"}] }     durum şeridi için adlandırılmış değerler
    "uyari":  [str]                    isteğe bağlı kısa uyarılar
-   "izleme": {"durum":"iyi"|"zayif"|"kayip"|"tut","metin":str}     izleme durumu (durum satırındaki rozet); yoksa gizlenir
+   "izleme": {"durum":"iyi"|"zayif"|"kayip"|"tut","etiket":str(ops.),"metin":str}   izleme durumu (durum satırındaki rozet; etiket yoksa varsayılan ad); yoksa gizlenir
+   "ozet":   [{"ad":str,"deger":..}]  durum satırına eklenen yöntemin kendi hücreleri (ör. anahtar kare sayısı)
   }
 
 GENEL KATMAN TÜRLERİ (kamera görünümlerinde; hepsi arka uca bağımsız, sayfa yalnız çizer)
@@ -50,6 +51,13 @@ GENEL KATMAN TÜRLERİ (kamera görünümlerinde; hepsi arka uca bağımsız, sa
 KATMAN TANIMLARI (`katman_tanimlari()`): [{"id","ad","uzay": [..],"renk":"#rrggbb","varsayilan":bool,"grup":"kamera"|"harita"}]
   Kamera katmanları sayfada "filtreler" düğmeleri olur; "harita" grubundakiler harita panelinde.
 STATİK KATMANLAR (`statik_katmanlar()`): bağlanınca bir kez yollanan, sabit çizimler ({katman_id: [öğe]}), ör. gövde maskesi, ufuk çizgisi.
+ID'Lİ KÜME İŞLEMLERİ (noktaların sonradan hareket edebildiği/silinebildiği yöntemler: SLAM nokta bulutu, anahtar kareler):
+  {"katman":id,"islem":"guncelle","kimlik":[id...],"xyz":[x,y,z,...],"guven":[0..1,...](ops.),"sil":[id...](ops.)}
+        id varsa YERİNDE günceller, yoksa ekler; "sil" listesindekileri kaldırır. Kameralar için "xyz" yerine "kameralar":[{"x","y","z","yon"}] (kimlik sırasıyla).
+        Sunucu birikimi tutar, istemciye yalnız değişen idler gider (yeni bağlanana tam özet).
+  {"katman":id,"islem":"temizle_katman"}                                tek katmanın birikimini boşaltır (çevrim kapamada yenileme)
+  Katman tanımında "tur2d":"cizgi"|"elmas"|"kume"|"izgara" (2B harita çizimi) ve "tur3d":"noktalar"|"parca"|"cizgi"|"kameralar"|"kume"|"zemin"; 3B "kume" ve
+  "kameralar" katmanları "kume":<2B kümenin katman kimliği> ile aynı birikimi paylaşabilir.
 HARİTA İŞLEMLERİ ("harita_islem" öğeleri):
   {"katman":"yorunge","islem":"ekle","xy":[x,y,...]}                   çoklu çizgiye nokta ekler
   {"katman":"anahtar","islem":"ekle","xy":[x,y,...]}                   nokta kümesine ekler
@@ -67,6 +75,32 @@ class ArkaUc:
     ad = "arkauc"
     yontem_adi = "bilinmeyen yöntem"          # başlıkta görünür (kısa, Türkçe, hangi yöntemin çalıştığı belli olsun)
     yontem_aciklama = ""                       # ipucu metni (isteğe bağlı)
+    varsayilan_gorunum = "ham"                 # bu yöntem seçilince sayfanın açacağı kamera görünümü ("ham" | "pano")
+
+    def olcek_bilgisi(self):
+        """Uzunluk birimi: {"birim":"m","metrik":True} ya da {"birim":"birim","metrik":False,"not":"ölçek bilinmiyor"}. Sayfa eksen/ölçek çubuğu/durum
+        etiketlerini buna göre yazar (metrik değilse "m" yazmaz, uyarı notu gösterir)."""
+        return {"birim": "m", "metrik": True}
+
+    def kamera_panelleri(self):
+        """Sayfanın solundaki küçük kamera panelleri: [{"id","ad","katmanlar":[kamera katman kimlikleri]}]. None = tek panel, tüm kamera katmanları."""
+        return None
+
+    def guven_bilgisi(self):
+        """Güven eşiği kaydırıcısı: {"ad":"Güven eşiği","birim":"gözlem","carpan":5,"min":1,"max":5,"varsayilan":2} (eşik = değer/carpan, katmandaki guven [0..1] ile karşılaştırılır).
+        None = kaydırıcı yalnız güven verisi gelince (genel % olarak) görünür."""
+        return None
+
+    def eylemler(self):
+        """Sayfadaki küçük "Eylemler" menüsü: {"dugmeler":[{"id","ad","uyari"?}], "secimler":[{"id","ad","deger","secenekler":[{"id","ad"}]}]}. Boşsa menü gizlenir."""
+        return {"dugmeler": [], "secimler": []}
+
+    def eylem(self, kimlik, arg=None):
+        """Bir eylemi çalıştır (ayrı iş parçacığında çağrılır, bloklayabilir). Dönüş {"ok":bool,"mesaj":str}."""
+        return {"ok": False, "mesaj": "eylem yok: %s" % kimlik}
+
+    def katman_istegi(self, acik):
+        """Sayfada şu an AÇIK katman kimlikleri (küme). Pahalı katmanlar yalnız istenirse hesaplanabilir."""
 
     def katman_tanimlari(self):
         return []

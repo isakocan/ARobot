@@ -44,6 +44,7 @@ class Sahne3D {
     this.guncel = null;              // güncel kamera
     this.doku = null;                // {tex, x0, y0, w, h, ver}
     this.sinir = {min: [Infinity, Infinity, 0], max: [-Infinity, -Infinity, 0.2]};
+    this.sinirYol = {min: [Infinity, Infinity, 0], max: [-Infinity, -Infinity, 0.05]};
     this.nokta_sayisi = 0;
     this.kamera_sayisi = 0;
     this.esik = 0;
@@ -75,6 +76,7 @@ class Sahne3D {
     this.katmanlar.clear();
     this.guncel = null;
     this.sinir = {min: [Infinity, Infinity, 0], max: [-Infinity, -Infinity, 0.2]};
+    this.sinirYol = {min: [Infinity, Infinity, 0], max: [-Infinity, -Infinity, 0.05]};
     this.nokta_sayisi = 0; this.kamera_sayisi = 0;
     this.gorus.otomatik = true;
   }
@@ -88,8 +90,8 @@ class Sahne3D {
     return k;
   }
 
-  _sinirGenislet(x, y, z){
-    const s = this.sinir;
+  _sinirGenislet(x, y, z, yol){
+    const s = yol ? this.sinirYol : this.sinir;
     if (x < s.min[0]) s.min[0] = x; if (x > s.max[0]) s.max[0] = x;
     if (y < s.min[1]) s.min[1] = y; if (y > s.max[1]) s.max[1] = y;
     if (z < s.min[2]) s.min[2] = z; if (z > s.max[2]) s.max[2] = z;
@@ -101,7 +103,7 @@ class Sahne3D {
     const tur = tanim.tur3d;
     if (tur === "kameralar"){
       const k = this._katman(op.katman, tur, tanim.renk);
-      for (const c of op.kameralar || []){ k.kameralar.push(c); this.kamera_sayisi++; this._sinirGenislet(c.x, c.y, c.z || 0); }
+      for (const c of op.kameralar || []){ k.kameralar.push(c); this.kamera_sayisi++; this._sinirGenislet(c.x, c.y, c.z || 0, true); }
       k.kirli = true;
       return;
     }
@@ -120,14 +122,66 @@ class Sahne3D {
       if (op.renk){ r = op.renk[i*3]; g = op.renk[i*3+1]; b = op.renk[i*3+2]; }
       else if (op.deger && T){ const j = Math.max(0, Math.min(255, Math.round((op.deger[i] - lo) / (hi - lo) * 255))); r = T[j*3]; g = T[j*3+1]; b = T[j*3+2]; }
       k.veri[o+3] = r; k.veri[o+4] = g; k.veri[o+5] = b; k.veri[o+6] = op.guven ? op.guven[i] : 1;
-      this._sinirGenislet(x, y, z);
+      this._sinirGenislet(x, y, z, tur === "cizgi");
     }
     k.n += n;
     if (tur === "noktalar") this.nokta_sayisi += n;
     k.kirli = true;
   }
 
-  guncelKamera(c){ this.guncel = c; if (c) this._sinirGenislet(c.x, c.y, c.z || 0); }
+  guncelKamera(c){ this.guncel = c; if (c) this._sinirGenislet(c.x, c.y, c.z || 0, true); }
+
+  /* id'li küme: yerinde güncelleme ve silme (SLAM nokta bulutu, anahtar kareler) */
+  guncelle(op, tanim){
+    if (!this.ok || !tanim) return;
+    const tur = tanim.tur3d, ids = op.kimlik || [], sil = op.sil || [];
+    if (tur === "kameralar"){
+      const k = this._katman(tanim.id, tur, tanim.renk);
+      k.kamMap = k.kamMap || new Map();
+      ids.forEach((id, i) => { const c = op.kameralar[i]; k.kamMap.set(id, c); this._sinirGenislet(c.x, c.y, c.z || 0, true); });
+      for (const id of sil) k.kamMap.delete(id);
+      k.kameralar = Array.from(k.kamMap.values());
+      this.kamera_sayisi = Math.max(this.kamera_sayisi, k.kameralar.length);
+      k.kirli = true;
+      return;
+    }
+    if (tur !== "kume") return;
+    const k = this._katman(tanim.id, "kume", tanim.renk);
+    k.idx = k.idx || new Map(); k.idler = k.idler || [];
+    const yaz = (poz, i) => {
+      const o = poz * 7;
+      k.veri[o] = op.xyz[i*3]; k.veri[o+1] = op.xyz[i*3+1]; k.veri[o+2] = op.xyz[i*3+2];
+      k.veri[o+3] = k.renk[0]; k.veri[o+4] = k.renk[1]; k.veri[o+5] = k.renk[2];
+      k.veri[o+6] = op.guven ? op.guven[i] : 1;
+    };
+    ids.forEach((id, i) => {
+      let poz = k.idx.get(id);
+      if (poz === undefined){
+        poz = k.n++;
+        if (k.n > k.veri.length / 7){ const y = new Float32Array(k.veri.length * 2); y.set(k.veri); k.veri = y; }
+        k.idx.set(id, poz); k.idler[poz] = id;
+      }
+      yaz(poz, i);
+      this._sinirGenislet(op.xyz[i*3], op.xyz[i*3+1], op.xyz[i*3+2], false);
+    });
+    for (const id of sil){
+      const poz = k.idx.get(id);
+      if (poz === undefined) continue;
+      const son = k.n - 1;
+      if (poz !== son){
+        k.veri.copyWithin(poz * 7, son * 7, son * 7 + 7);
+        const tasinan = k.idler[son]; k.idx.set(tasinan, poz); k.idler[poz] = tasinan;
+      }
+      k.n--; k.idx.delete(id); k.idler.length = k.n;
+    }
+    k.yuklenen = 0; k.kirli = true;
+    this.nokta_sayisi = k.n;
+  }
+
+  temizleKatman(id){
+    const k = this.katmanlar.get(id);
+    if (k){ if (k.buf) this.gl.deleteBuffer(k.buf); if (k.cbuf) this.gl.deleteBuffer(k.cbuf); this.katmanlar.delete(id); }
+  }
 
   dokuKoy(tuval, op){
     if (!this.ok || !tuval || !op) return;
@@ -152,7 +206,7 @@ class Sahne3D {
 
   /* --- kamera denetimi --- */
   sigdir(){
-    const s = this.sinir;
+    let s = isFinite(this.sinirYol.min[0]) ? this.sinirYol : this.sinir;
     if (!isFinite(s.min[0])) return;
     const g = this.gorus;
     g.hedef = [(s.min[0] + s.max[0]) / 2, (s.min[1] + s.max[1]) / 2, 0.05];
@@ -259,7 +313,7 @@ class Sahne3D {
     // 3) katmanlar
     for (const [id, k] of this.katmanlar){
       if (!this.katmanAcik(id)) continue;
-      if (k.tur === "noktalar"){
+      if (k.tur === "noktalar" || k.tur === "kume"){
         this._yukle(k.buf, null, k);
         this._ciz(this.pN, k.buf, gl.POINTS, 0, k.n, (p) => { vpU(p); gl.uniform1f(gl.getUniformLocation(p, "boyut"), 3.2); gl.uniform1f(gl.getUniformLocation(p, "esik"), this.esik || 0); gl.uniform1f(gl.getUniformLocation(p, "dpr"), dpr); });
       } else if (k.tur === "parca"){
@@ -270,9 +324,11 @@ class Sahne3D {
         this._ciz(this.pL, k.buf, gl.LINE_STRIP, 0, k.n, (p) => { vpU(p); gl.uniform1f(gl.getUniformLocation(p, "alfa"), 1); });
         this._ciz(this.pN, k.buf, gl.POINTS, 0, k.n, (p) => { vpU(p); gl.uniform1f(gl.getUniformLocation(p, "boyut"), 1.6); gl.uniform1f(gl.getUniformLocation(p, "esik"), 0); gl.uniform1f(gl.getUniformLocation(p, "dpr"), dpr); });
       } else if (k.tur === "kameralar"){
-        if (k.kirli || !k.cizgi){
+        const ko = this.kamOlcek();
+        if (k.kirli || !k.cizgi || Math.abs(ko / (k.kullanilanOlcek || 1) - 1) > 0.2){
+          k.kullanilanOlcek = ko;
           const lst = [];
-          for (const cm of k.kameralar) lst.push(...this._kameraCizgileri(cm, k.renk, 1));
+          for (const cm of k.kameralar) lst.push(...this._kameraCizgileri(cm, k.renk, ko));
           k.cizgi = this._cizgiVeri(lst); k.cizgiN = lst.length; k.kirli = false;
           if (!k.cbuf) k.cbuf = gl.createBuffer();
           this._yukle(k.cbuf, k.cizgi, null);
@@ -282,7 +338,7 @@ class Sahne3D {
     }
     // 4) güncel kamera: vurgulu, derinlik testsiz
     if (this.guncel && this.katmanAcik("kamera3d")){
-      const lst = this._kameraCizgileri(this.guncel, hexRenk("#ffb347"), 1.5);
+      const lst = this._kameraCizgileri(this.guncel, hexRenk("#ffb347"), 1.6 * this.kamOlcek());
       this._yukle(this.anlikBuf, this._cizgiVeri(lst), null);
       gl.disable(gl.DEPTH_TEST);
       this._ciz(this.pL, this.anlikBuf, gl.LINES, 0, lst.length, (p) => { vpU(p); gl.uniform1f(gl.getUniformLocation(p, "alfa"), 1); });
@@ -290,7 +346,8 @@ class Sahne3D {
     }
   }
 
-  _guzelAdim(h){ for (const a of [0.1, 0.25, 0.5, 1, 2, 5, 10, 20]) if (a >= h) return a; return 50; }
+  _guzelAdim(h){ const us = Math.pow(10, Math.floor(Math.log10(h))); for (const m of [1, 2, 5, 10]) if (m * us >= h) return m * us; return 10 * us; }
+  kamOlcek(){ const s = this.sinirYol; if (!isFinite(s.min[0])) return 1; const span = Math.max(s.max[0] - s.min[0], s.max[1] - s.min[1]); return Math.max(span / 6, 0.002); }
   katmanAcik(id){ return this.acik ? !!this.acik[id] : true; }
   bilgi(){ return this.nokta_sayisi + " nokta · " + this.kamera_sayisi + " anahtar kare"; }
 }
