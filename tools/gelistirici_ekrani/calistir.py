@@ -28,7 +28,7 @@ def ana():
     ap.add_argument("--hiz", type=float, default=1.0)
     ap.add_argument("--dongu", action="store_true", help="kayıt bitince başa sar")
     ap.add_argument("--canli-sinir", type=float, default=170.0, help="canlı oturum üst süresi (sn)")
-    ap.add_argument("--canli-yol", choices=["h264", "mjpg"], default="mjpg", help="canlı görüntü yolu: mjpg (/goruntu.mjpg, ham JPEG, ~48 Mbit/s, varsayılan) ya da h264 (ws /goruntu-h264, ~4 Mbit/s, ffmpeg ile çözülür, biraz bulanık; zayıf Wi-Fi için)")
+    ap.add_argument("--canli-yol", choices=["h264", "mjpg"], default="h264", help="canlı görüntü yolu: h264 (ws /goruntu-h264, ~4 Mbit/s, ffmpeg ile çözülür, biraz bulanık; varsayılan, sürüş bağlantısını boğmaz) ya da mjpg (/goruntu.mjpg, ham JPEG, ~48 Mbit/s)")
     ap.add_argument("--jpeg-kalite", type=int, default=70)
     ap.add_argument("--arkauc", action="append", default=[], help="yöntem (birden çok verilebilir, ilki başlangıçta çalışır, diğerleri sayfadan seçilince tembel başlar): "
                     "stella | konum_deney | modul:Sinif. Verilmezse yalnız stella (sayfada tek yöntem; eski konum_deney yalnız açıkça istenirse)")
