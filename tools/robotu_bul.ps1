@@ -90,3 +90,4 @@ if (-not $ip) {
 Ssh-Ayarini-Guncelle $ip
 Write-Output $ip
 if ($Sur) { Start-Process "http://${ip}:8080/" }
+exit 0

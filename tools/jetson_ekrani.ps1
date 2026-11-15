@@ -12,8 +12,8 @@ function Uyari($mesaj) {
 if (-not (Test-Path $viewer)) { Uyari "TigerVNC bulunamadı: $viewer"; exit 1 }
 
 # Robotun bu ağdaki adresini bul ve SSH ayarına yaz
-& (Join-Path $PSScriptRoot "robotu_bul.ps1") | Out-Null
-if ($LASTEXITCODE -ne 0) {
+$robotIp = & (Join-Path $PSScriptRoot "robotu_bul.ps1")
+if (-not $robotIp) {
     Uyari "Robot bu ağda bulunamadı.`n`nBilgisayar ile Jetson aynı Wi-Fi ağında mı? Jetson yeni açıldıysa 1-2 dakika bekleyip tekrar dene."
     exit 1
 }
