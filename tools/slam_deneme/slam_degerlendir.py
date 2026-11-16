@@ -33,10 +33,9 @@ def yukle(sonuc):
     c = np.full((n, 3), np.nan)
     for i, d in enumerate(P):
         if d.get("poz_cw") is not None and izl[i]:
-            T = np.array(d["poz_cw"]).reshape(4, 4)
-            R = T[:3, :3]
-            Rwc[i] = R.T
-            c[i] = -R.T @ T[:3, 3]
+            T = np.array(d["poz_cw"]).reshape(4, 4)     # alan adı yanıltıcı: gerçekte T_wc (kamera->dünya)
+            Rwc[i] = T[:3, :3]
+            c[i] = T[:3, 3]
     with open(os.path.join(sonuc, "harita.json")) as f:
         hm = json.load(f)
     return dict(P=P, t=t, izl=izl, durum=durum, Rwc=Rwc, c=c, noktalar=np.array(hm["noktalar"]), kf=hm["anahtar_kareler"])

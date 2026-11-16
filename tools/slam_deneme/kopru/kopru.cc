@@ -45,6 +45,14 @@ struct Motor {
     cv::Mat mask;
     bool mapping = true;
     long frames = 0;
+    // Başlatma bekçisi: ilk Tracking karesinde harita nokta sayısı n0 saklanır, bekci_kare kare sonra oran < bekci_esik ise haritayı sıfırlar (request_reset).
+    // Gözlem (olcum_ham, 190 sn x 160 koşu): kötü başlatmalarda başlatmadan 3 sn sonraki nokta sayısı başlangıçtakinden azalıyor (oran < 1), iyilerde 1,5-1,6 katına çıkıyor.
+    double bekci_esik = 0.0;      // 0 = kapalı
+    int bekci_kare = 45;
+    int bekci_max = 4;
+    long bekci_ilk = -1;
+    unsigned bekci_n0 = 0;
+    int sifirlama = 0;
 
     void baslat(const std::string& map_in, bool harita_kipi) {
         if (slam) {
@@ -123,6 +131,24 @@ static std::string besle(Motor& m, const cv::Mat& img, double t_ms, bool tam, do
     auto pose = m.slam->feed_monocular_frame(img, t_ms / 1000.0, m.mask);
     auto t1 = clk::now();
     m.frames++;
+    bool sifirlandi = false;
+    if (m.bekci_esik > 0.0) {
+        std::vector<std::shared_ptr<stella_vslam::data::landmark>> lms0;
+        std::set<std::shared_ptr<stella_vslam::data::landmark>> loc0;
+        unsigned nlm0 = m.slam->get_map_publisher()->get_landmarks(lms0, loc0);
+        bool izl = pose && m.slam->get_frame_publisher()->get_tracking_state() == "Tracking";
+        if (izl && m.bekci_ilk < 0) { m.bekci_ilk = m.frames; m.bekci_n0 = nlm0; }
+        if (m.bekci_ilk >= 0 && m.frames == m.bekci_ilk + m.bekci_kare && m.sifirlama < m.bekci_max && m.bekci_n0 > 0) {
+            double oran = (double)nlm0 / m.bekci_n0;
+            if (oran < m.bekci_esik) {
+                spdlog::warn("BEKCI: baslatma kotu (nokta orani {:.2f} < {:.2f}), harita sifirlaniyor (t={} ms)", oran, m.bekci_esik, (long long)t_ms);
+                m.slam->request_reset();
+                m.sifirlama++;
+                m.bekci_ilk = -1;
+                sifirlandi = true;
+            }
+        }
+    }
     auto fp = m.slam->get_frame_publisher();
     auto mp = m.slam->get_map_publisher();
     std::string st = fp->get_tracking_state();
@@ -130,11 +156,16 @@ static std::string besle(Motor& m, const cv::Mat& img, double t_ms, bool tam, do
     std::ostringstream o;
     o << "{\"ok\":true,\"t_ms\":" << (long long)t_ms << ",\"durum\":\"" << st << "\",\"izleniyor\":" << ((pose && st == "Tracking") ? "true" : "false");
     o << ",\"mod\":\"" << (m.mapping ? "harita" : "konum") << "\"";
+    if (m.bekci_esik > 0.0) o << ",\"bekci_sifirlama\":" << m.sifirlama << ",\"bekci_sifirlandi\":" << (sifirlandi ? "true" : "false");
     if (!komut_json.empty()) o << ",\"komut\":" << komut_json;
     if (pose) {
         o << ",\"poz_cw\":"; mat44(o, *pose);
         stella_vslam::Mat44_t wc = pose->inverse();
         o << ",\"kamera_konum\":["; f3(o, wc(0, 3)); o << ","; f3(o, wc(1, 3)); o << ","; f3(o, wc(2, 3)); o << "]";
+        // DOGRU adlar (eski anahtarlar uyumluluk icin kaldi, anlamlari yanlis adli): *pose aslinda T_wc'dir (kamera->dunya).
+        o << ",\"poz_wc\":"; mat44(o, *pose);
+        o << ",\"poz_cw_gercek\":"; mat44(o, wc);
+        o << ",\"kamera_merkezi\":["; f3(o, (*pose)(0, 3)); o << ","; f3(o, (*pose)(1, 3)); o << ","; f3(o, (*pose)(2, 3)); o << "]";
     }
     int n_kp = (int)kl.first.size(), n_es = 0;
     std::ostringstream ip;
@@ -232,6 +263,8 @@ static int sunucu(Motor& m, int port) {
                     bool ok = m.slam->save_map_database(kv(h, "path")); yaz(fd, std::string("{\"ok\":") + (ok ? "true" : "false") + "}");
                 } else if (cmd == "load") {
                     m.baslat(kv(h, "path"), kv(h, "mode", "konum") != "konum"); yaz(fd, "{\"ok\":true}");
+                } else if (cmd == "bekci") {
+                    m.bekci_esik = std::atof(kv(h, "esik", "0").c_str()); m.bekci_ilk = -1; m.sifirlama = 0; yaz(fd, "{\"ok\":true}");
                 } else if (cmd == "reset") {
                     m.baslat("", true); yaz(fd, "{\"ok\":true}");
                 } else if (cmd == "quit") {
@@ -249,7 +282,7 @@ static int sunucu(Motor& m, int port) {
     return 0;
 }
 
-static int toplu(Motor& m, const std::string& dizin, const std::string& cikti, long bas, long bitis, const std::string& map_out, bool gercek_zaman) {
+static int toplu(Motor& m, const std::string& dizin, const std::string& cikti, long bas, long bitis, const std::string& map_out, double gercek_zaman) {
     std::ifstream f(dizin + "/zamanlar.csv");
     std::string satir;
     std::getline(f, satir);
@@ -267,8 +300,8 @@ static int toplu(Motor& m, const std::string& dizin, const std::string& cikti, l
     auto t_bas = clk::now();
     double toplam_takip = 0;
     for (long i = bas; i < bitis; ++i) {
-        if (gercek_zaman) {   // kare zamanına göre bekle: eşzamansız harita modülü gerçek kullanımdaki gibi iş yapabilsin
-            auto hedef = t_bas + std::chrono::microseconds((long long)((kareler[i].second - kareler[bas].second) * 1000.0));
+        if (gercek_zaman > 0.0) {   // kare zamanına göre bekle (gercek_zaman = hız çarpanı: 1 gerçek zaman, 0,5 yarı hız, 2 iki kat): eşzamansız harita modülü gerçek kullanımdaki gibi iş yapabilsin
+            auto hedef = t_bas + std::chrono::microseconds((long long)((kareler[i].second - kareler[bas].second) * 1000.0 / gercek_zaman));
             if (clk::now() < hedef) std::this_thread::sleep_until(hedef);
         }
         cv::Mat img = cv::imread(kareler[i].first, cv::IMREAD_COLOR);
@@ -292,13 +325,13 @@ static int toplu(Motor& m, const std::string& dizin, const std::string& cikti, l
 int main(int argc, char** argv) {
     std::string vocab, config, mask, map_in, map_out, dizin, cikti = ".", mod = "harita";
     int port = 9760; long bas = 0, bitis = -1;
-    std::string loglevel = "warn"; bool gercek_zaman = false;
+    std::string loglevel = "warn"; double gercek_zaman = 0.0; double bekci = 0.0;
     for (int i = 1; i + 1 < argc; i += 2) {
         std::string k = argv[i], v = argv[i + 1];
         if (k == "--vocab") vocab = v; else if (k == "--config") config = v; else if (k == "--mask") mask = v;
         else if (k == "--map-in") map_in = v; else if (k == "--map-out") map_out = v; else if (k == "--dizin") dizin = v;
         else if (k == "--cikti") cikti = v; else if (k == "--port") port = std::atoi(v.c_str()); else if (k == "--bas") bas = std::atol(v.c_str());
-        else if (k == "--bitis") bitis = std::atol(v.c_str()); else if (k == "--mod") mod = v; else if (k == "--log") loglevel = v; else if (k == "--gercek-zaman") gercek_zaman = (v == "1");
+        else if (k == "--bitis") bitis = std::atol(v.c_str()); else if (k == "--mod") mod = v; else if (k == "--log") loglevel = v; else if (k == "--gercek-zaman") gercek_zaman = std::atof(v.c_str()); else if (k == "--bekci") bekci = std::atof(v.c_str());
         else { std::cerr << "bilinmeyen secenek " << k << std::endl; return 2; }
     }
     spdlog::set_pattern("[%H:%M:%S.%e] %^[%L] %v%$");
@@ -306,6 +339,7 @@ int main(int argc, char** argv) {
     Motor m;
     m.cfg = std::make_shared<stella_vslam::config>(config);
     m.vocab = vocab;
+    m.bekci_esik = bekci;
     if (!mask.empty()) m.mask = cv::imread(mask, cv::IMREAD_GRAYSCALE);
     try {
         m.baslat(map_in, mod != "konum");

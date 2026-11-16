@@ -27,9 +27,20 @@ MASKE_BALIKGOZU = os.path.join(KONUM, "kamera_maske_gercek_sabit.png")   # 255 =
 
 
 class Donusturucu:
-    def __init__(self, g=G, y=Y, ayar=AYAR, maske_yolu=MASKE_BALIKGOZU):
+    def __init__(self, g=G, y=Y, ayar=AYAR, maske_yolu=MASKE_BALIKGOZU, f_olcek=1.0, m1=(0.0, 0.0), m2=(0.0, 0.0), enterpolasyon=cv2.INTER_LINEAR,
+                 maske_modu="taban", clahe=None):
+        """f_olcek: iki merceğin f'sine çarpan (piksel/radyan). m1, m2: mercek merkezi kayması (dx, dy piksel). enterpolasyon: remap yöntemi.
+        maske_modu: 'taban' (blok şeklindeki sabit maske + 2 px güvenlik) | 'dar' (yalnız büyük gövde parçası, sabit yansıma yamaları ve güvenlik payı yok).
+        clahe: None | (sınır, kutu) örn (2.0, 8): L kanalına yerel kontrast."""
         with open(ayar, encoding="utf-8") as f:
-            self.kam = KameraGercek(json.load(f))
+            aj = json.load(f)
+        aj["lens1"]["f"] *= f_olcek
+        aj["lens2"]["f"] *= f_olcek
+        aj["lens1"]["merkez_x"] += m1[0]; aj["lens1"]["merkez_y"] += m1[1]
+        aj["lens2"]["merkez_x"] += m2[0]; aj["lens2"]["merkez_y"] += m2[1]
+        self.kam = KameraGercek(aj)
+        self.interp = enterpolasyon
+        self.clahe = cv2.createCLAHE(clipLimit=clahe[0], tileGridSize=(clahe[1], clahe[1])) if clahe else None
         self.g, self.y = g, y
         tab, w1, w2 = self.kam._esd_tablo(g, y)
         self.tab = tab
@@ -47,20 +58,34 @@ class Donusturucu:
         mb = cv2.remap(bm, tab[1][0], tab[1][1], cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=255).astype(np.float32) / 255
         gov = ma * self.k1[..., 0] + mb * self.k2[..., 0]
         kullan = (gov < 0.25) & self.kapsam          # karışım bandında her iki lens da gövdeyi görmüyorsa kullan; temkinli: %25 üstü gövde = maskele
-        kullan = cv2.erode(kullan.astype(np.uint8), np.ones((5, 5), np.uint8))      # kenarda 2 px güvenlik
+        if maske_modu == "dar":
+            gov_m = ((~kullan) | (gov >= 0.25)).astype(np.uint8)
+            n, lab, st, _ = cv2.connectedComponentsWithStats(gov_m, connectivity=8)
+            buyuk = np.zeros_like(gov_m)
+            for i in range(1, n):
+                if st[i, cv2.CC_STAT_AREA] > 0.03 * g * y:
+                    buyuk[lab == i] = 1
+            kullan = (buyuk == 0) & self.kapsam
+            kullan = kullan.astype(np.uint8)
+        else:
+            kullan = cv2.erode(kullan.astype(np.uint8), np.ones((5, 5), np.uint8))      # kenarda 2 px güvenlik
         self.maske = (kullan * 255).astype(np.uint8)
 
     def kare(self, jpeg_bayt_ya_da_bgr):
         im = jpeg_bayt_ya_da_bgr
         if isinstance(im, (bytes, bytearray)):
             im = cv2.imdecode(np.frombuffer(im, np.uint8), cv2.IMREAD_COLOR)
-        a = cv2.remap(im, self.tab[0][0], self.tab[0][1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-        b = cv2.remap(im, self.tab[1][0], self.tab[1][1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        a = cv2.remap(im, self.tab[0][0], self.tab[0][1], self.interp, borderMode=cv2.BORDER_CONSTANT)
+        b = cv2.remap(im, self.tab[1][0], self.tab[1][1], self.interp, borderMode=cv2.BORDER_CONSTANT)
         self._b0 = b.copy() if len(self.bant[0]) else b
         cv2.copyTo(a, self.sade1, b)                          # b: lens 1 baskın yerlerde a, öbür yerlerde b
         bb = self.bant
         if len(bb[0]):
             b[bb] = np.clip(a[bb].astype(np.float32) * self.kb1 + self._b0[bb].astype(np.float32) * (1 - self.kb1) + 0.5, 0, 255).astype(np.uint8)
+        if self.clahe is not None:
+            lab = cv2.cvtColor(b, cv2.COLOR_BGR2LAB)
+            lab[..., 0] = self.clahe.apply(lab[..., 0])
+            b = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
         return b
 
 

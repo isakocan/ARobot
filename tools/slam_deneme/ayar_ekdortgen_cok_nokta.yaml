@@ -1,0 +1,56 @@
+# NOT: CLAHE (sınır 4, kutu 8) bu dosyada değil, dönüştürücüde: Donusturucu(clahe=(4.0, 8)). Eşleşen nokta ~3 kat (670 vs 248), kare başı ~30 ms, ama döngü kapama değişken (82,4 sn uzaklık ortanca 1,66 m).
+# ÇOK NOKTA SEÇENEĞİ (önerilen değil, ikincil): paralaks2 +: temel ayar + Initializer.parallax_deg_threshold 2.0. Neden: temel ayarda başlatmanın %25'i (6/24) ilk haritanın 5 sn içinde kaybolup 4 kare aralıklı yeniden başlatmayla ölçek bozuyor;
+# paralaks 2,0 ile 0/24 (iki ayrı 12'lik küme). Bedeli: izleme 3,8 sn yerine 4,2 sn'de başlıyor. Temel dosya değişmedi.
+# stella_vslam ayarı: Theta S eşdikdörtgen, 1280x640 (kendi kalibre dönüşümümüz). Taban: stella_vslam/example/aist/equirectangular.yaml
+Camera:
+  name: "Theta S levelled equirect 1280x640"
+  setup: "monocular"
+  model: "equirectangular"
+  fps: 15.0
+  cols: 1280
+  rows: 640
+  color_order: "BGR"
+
+Preprocessing:
+  min_size: 200
+  mask_rectangles:      # kutup bölgeleri (aşırı gerilmiş); gövde maskesi ayrı dosyadan (maske.png)
+    - [0.0, 1.0, 0.0, 0.06]
+    - [0.0, 1.0, 0.94, 1.0]
+
+Feature:
+  name: "ORB"
+  scale_factor: 1.1
+  num_levels: 12
+  ini_fast_threshold: 20
+  min_fast_threshold: 7
+
+Mapping:
+  backend: "g2o"
+  baseline_dist_thr_ratio: 0.02
+  redundant_obs_ratio_thr: 0.95
+  num_covisibilities_for_landmark_generation: 20
+  num_covisibilities_for_landmark_fusion: 20
+  residual_deg_thr: 0.4
+
+Tracking:
+  backend: "g2o"
+
+Initializer:
+  parallax_deg_threshold: 2.0
+
+LoopDetector:
+  backend: "g2o"
+  enabled: true
+  reject_by_graph_distance: true
+  min_distance_on_graph: 50
+
+GraphOptimizer:
+  min_num_shared_lms: 200
+
+GlobalOptimizer:
+  thr_neighbor_keyframes: 100
+
+System:
+  map_format: "msgpack"
+  num_grid_cols: 64
+  num_grid_rows: 32

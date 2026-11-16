@@ -12,7 +12,10 @@ KULLANIM:
   Dönüş y (sözlük):
     durum          'Initializing' | 'Tracking' | 'Lost'      izleniyor: bool (Tracking ve poz var)
     mod            'harita' | 'konum'
-    poz_cw         16 sayı, satır sıralı 4x4, dünya->kamera.   kamera_konum [x,y,z] dünya (x sağ, y AŞAĞI, z ileri; dünya = ilk anahtar kare)
+    poz_wc         16 sayı, satır sıralı 4x4 T_wc (kamera->dünya): sütun 3 = kamera merkezi dünyada, 3x3 = kameranın dünyaya göre yönü.  DOĞRU ALAN BUDUR.
+    kamera_merkezi [x,y,z] dünyada kamera konumu (x sağ, y AŞAĞI, z ileri; dünya = ilk anahtar kare).  poz_cw_gercek: T_cw (dünya->kamera).
+    UYARI (geriye uyumluluk için KALDI, adları yanıltıcı): 'poz_cw' aslında T_wc ile AYNI sayıları taşır (stella feed_monocular_frame T_wc döndürür),
+      'kamera_konum' ise onun tersinin konumudur = -R^T t, yani YANLIŞ. Yerinde dönüşte 'büyük daire' çizdiren buydu. Yeni kod poz_wc ve kamera_merkezi kullanmalı.
     ipuclari       [[u,v],...] haritadaki noktalara eşleşmiş 2B anahtar noktalar (eşdikdörtgen 1280x640 piksel)
     nokta_sayisi   karedeki tüm ORB noktaları;  eslesen_sayisi: haritaya eşleşen;  harita_nokta_sayisi, yerel_nokta_sayisi, anahtar_kare_sayisi
     sureler_ms     {donusum (istemci: balık gözü->eşdikdörtgen), kopru_alma, takip, cikarim, toplam_sunucu, uctan_uca}

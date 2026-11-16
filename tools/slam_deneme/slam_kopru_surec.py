@@ -10,7 +10,7 @@ WSL_KOK = "/mnt/c/" + KOK[3:].replace("\\", "/")
 
 class KopruSurec:
     def __init__(self, port=9760, mod="harita", harita="", ayar=None, maske="veri/olcum_ham.maske.png", bekleme=60):
-        ayar = ayar or (WSL_KOK + "/tools/slam_deneme/ayar_ekdortgen.yaml")
+        ayar = ayar or (WSL_KOK + "/tools/slam_deneme/ayar_ekdortgen_paralaks2.yaml")
         c = "cd /root/slam && exec ./kopru/build/kopru --vocab orb_vocab.fbow --config %s --mask %s --port %d --mod %s --log warn" % (ayar, maske, port, mod)
         if harita:
             c += " --map-in " + harita

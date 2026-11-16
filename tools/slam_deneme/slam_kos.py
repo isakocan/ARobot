@@ -34,6 +34,9 @@ def yaml_uret(taban, degisiklik, hedef):
             if re.match(r"\s+%s:" % re.escape(anahtar), s[j]):
                 s[j] = "  %s: %s" % (anahtar, v)
                 bulundu = True
+                if v.strip() == "[]":                       # liste değeri boşaltılıyorsa altındaki '- ...' satırlarını sil
+                    while j + 1 < len(s) and s[j + 1].lstrip().startswith("-"):
+                        del s[j + 1]
                 break
             j += 1
         if not bulundu:

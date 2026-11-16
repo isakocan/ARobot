@@ -16,8 +16,8 @@ def oku(klasor):
     for i, p in enumerate(P):
         if izl[i] and p.get("poz_cw"):
             T = np.array(p["poz_cw"]).reshape(4, 4)
-            R[i] = T[:3, :3].T
-            c[i] = -T[:3, :3].T @ T[:3, 3]
+            R[i] = T[:3, :3]        # poz_cw alanı gerçekte T_wc
+            c[i] = T[:3, 3]
     return P, t, izl, c, R
 
 
