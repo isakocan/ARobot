@@ -55,5 +55,5 @@ Araştırma arası: aynı şekilde.
 ## Durum
 
 - [x] Ö1  - [x] H1  - [x] H2  - [x] H3  - [x] H4  - [ ] H5
-- [ ] K1  - [ ] K2  - [ ] K3  - [ ] K4  - [ ] K5
+- [x] K1  - [ ] K2  - [ ] K3  - [ ] K4  - [ ] K5
 - [ ] B1  - [ ] B2  - [ ] B3
