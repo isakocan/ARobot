@@ -29,6 +29,7 @@ namespace ArTarama
             AssetDatabase.Refresh();
             AndroidAyarlari();
             XrAyarlari();
+            GrafikAyarlari();
             MalzemeleriOlustur();
             DuzlemPrefabi();
             SahneKur();
@@ -84,6 +85,15 @@ namespace ArTarama
             EditorUtility.SetDirty(ayar);
         }
 
+        static void GrafikAyarlari()
+        {
+            // golge alici seffaf yuzeyler icin ekran uzayi golge toplayicisi kapali: golge haritasi dogrudan ornekleniyor
+            GraphicsSettings.SetShaderMode(BuiltinShaderType.ScreenSpaceShadows, BuiltinShaderMode.Disabled);
+            QualitySettings.shadows = ShadowQuality.All;
+            QualitySettings.shadowDistance = 6f;
+            AssetDatabase.SaveAssets();
+        }
+
         static Material Mal(string ad, Shader s)
         {
             string yol = "Assets/Resources/" + ad + ".mat";
@@ -99,12 +109,15 @@ namespace ArTarama
             var nokta = Mal("mat_nokta", Shader.Find("ArTarama/Nokta")); nokta.SetFloat("_Boyut", 7f);
             var duz = Mal("mat_duzlem", Shader.Find("ArTarama/Duzlem"));
             var gol = Mal("mat_golge", Shader.Find("ArTarama/Golge"));
+            var ga = Mal("mat_golgealici", Shader.Find("ArTarama/GolgeAlici")); ga.SetFloat("_Yogunluk", 0.5f);
+            var cizgi = Mal("mat_cizgi", Shader.Find("Sprites/Default"));
             var kr = Mal("mat_kristal", Shader.Find("Standard"));
-            var renk = new Color(0.35f, 0.92f, 0.86f, 1f);
-            kr.color = renk; kr.SetFloat("_Metallic", 0.35f); kr.SetFloat("_Glossiness", 0.88f);
-            kr.EnableKeyword("_EMISSION"); kr.SetColor("_EmissionColor", renk * 0.22f);
+            // daha az doygun ve daha az parlak: sahneye oturur
+            var renk = new Color(0.55f, 0.80f, 0.76f, 1f);
+            kr.color = renk; kr.SetFloat("_Metallic", 0.25f); kr.SetFloat("_Glossiness", 0.72f);
+            kr.EnableKeyword("_EMISSION"); kr.SetColor("_EmissionColor", renk * 0.07f);
             kr.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
-            foreach (var m in new[] { nokta, duz, gol, kr }) EditorUtility.SetDirty(m);
+            foreach (var m in new[] { nokta, duz, gol, ga, cizgi, kr }) EditorUtility.SetDirty(m);
         }
 
         static void DuzlemPrefabi()
@@ -113,8 +126,9 @@ namespace ArTarama
             var go = new GameObject("Duzlem");
             go.AddComponent<MeshFilter>();
             var mr = go.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = AssetDatabase.LoadAssetAtPath<Material>("Assets/Resources/mat_duzlem.mat");
-            mr.shadowCastingMode = ShadowCastingMode.Off; mr.receiveShadows = false;
+            mr.sharedMaterials = new[] { AssetDatabase.LoadAssetAtPath<Material>("Assets/Resources/mat_duzlem.mat"), AssetDatabase.LoadAssetAtPath<Material>("Assets/Resources/mat_golgealici.mat") };
+            mr.shadowCastingMode = ShadowCastingMode.Off; mr.receiveShadows = true;
+            go.layer = NoktaBulutu.HaritaKatmani;
             go.AddComponent<ARPlane>();
             go.AddComponent<ARPlaneMeshVisualizer>();
             go.AddComponent<PlaneStyle>();
@@ -130,7 +144,7 @@ namespace ArTarama
             // Isik
             var isikGo = new GameObject("Directional Light");
             var isik = isikGo.AddComponent<Light>();
-            isik.type = LightType.Directional; isik.intensity = 0.9f; isik.shadows = LightShadows.None;
+            isik.type = LightType.Directional; isik.intensity = 0.9f; isik.shadows = LightShadows.Soft; isik.shadowStrength = 0.8f; isik.shadowBias = 0.03f; isik.shadowNormalBias = 0.4f;
             isikGo.transform.rotation = Quaternion.Euler(50, -30, 0);
             RenderSettings.ambientMode = AmbientMode.Flat;
             RenderSettings.ambientLight = new Color(0.45f, 0.47f, 0.5f);
@@ -175,15 +189,25 @@ namespace ArTarama
             var pc = originGo.AddComponent<ARPointCloudManager>();
             var isin = originGo.AddComponent<ARRaycastManager>();
             originGo.AddComponent<ARAnchorManager>();
+            var probe = originGo.AddComponent<AREnvironmentProbeManager>();
+            probe.automaticPlacementRequested = true;
 
             // Uygulama
             var uyg = new GameObject("Uygulama");
             var app = uyg.AddComponent<ArApp>();
             var bulut = uyg.AddComponent<NoktaBulutu>();
             var kayit = uyg.AddComponent<KayitYoneticisi>();
+            var planH = uyg.AddComponent<PlanHaritasi>();
+            var isaret = uyg.AddComponent<IsaretYoneticisi>();
+
+            // 3B harita kamerasi (ayri nesne, baslangicta kapali)
+            var hGo = new GameObject("Harita3B");
+            var hkGo = new GameObject("HaritaKamera"); hkGo.transform.SetParent(hGo.transform, false);
+            var hkam = hkGo.AddComponent<Camera>(); hkam.enabled = false;
+            var h3 = hGo.AddComponent<Harita3B>(); h3.kam = hkam;
             app.oturum = oturum; app.kamera = kamYon; app.oklusyon = okl; app.duzlem = duzlem;
             app.isin = isin; app.nokta = pc; app.arKamera = cam; app.isik = isik;
-            app.bulut = bulut; app.kayit = kayit;
+            app.bulut = bulut; app.kayit = kayit; app.plan = planH; app.isaret = isaret; app.harita3b = h3; app.probe = probe;
 
             EditorSceneManager.SaveScene(sahne, SahneYolu);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(SahneYolu, true) };

@@ -33,9 +33,11 @@ namespace ArTarama
             var smr = s.AddComponent<MeshRenderer>();
             var m = new Material(Resources.Load<Material>("mat_golge"));
             m.mainTexture = GolgeDoku();
+            m.color = new Color(0f, 0f, 0f, 0.26f);
             smr.sharedMaterial = m;
             smr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             smr.receiveShadows = false;
+            g.layer = 0;
             k.faz = Random.value * 6.28f;
             return kok;
         }

@@ -13,7 +13,10 @@ using UnityEngine.XR.ARSubsystems;
 
 namespace ArTarama
 {
-    /// <summary>Cevrimdisi haritalama icin kare kaydi: JPG + poz + ic parametreler + derinlik.</summary>
+    /// <summary>
+    /// Cevrimdisi haritalama icin kare kaydi: JPG + poz + ic parametreler + derinlik + ArUco + oda etiketi.
+    /// Tarama baslayinca otomatik baslar. JPG kodlama ve dosya yazma arka plan is parcaciginda yapilir.
+    /// </summary>
     public class KayitYoneticisi : MonoBehaviour
     {
         public ARCameraManager kamera;
@@ -21,25 +24,43 @@ namespace ArTarama
         public ARPlaneManager duzlem;
         public NoktaBulutu nokta;
         public Camera arKamera;
+        public PlanHaritasi plan;
+        public IsaretYoneticisi isaret;
 
         public const float Aralik = 0.25f;
         public const int MaksGenislik = 960, JpgKalite = 85;
         public const string ArFoundationSurum = "6.7.1";
+        public const string DefaultOda = "Salon";
 
         public bool Kayitta { get; private set; }
         public int KareSayisi { get; private set; }
         public int AtlananKare { get; private set; }
         public float Sure => Kayitta ? Time.realtimeSinceStartup - baslangic : sonSure;
         public string SonKlasor { get; private set; } = "";
+        public string Klasor => klasor;
+        public string Oda { get; private set; } = DefaultOda;
+        public string AdimNotu = "";
+        public int Duzlem { get; private set; }
+        public long YazilanBayt;
+        public bool Duraklat;
 
-        string klasor; float baslangic, sonSure, sonrakiZaman;
+        public IEnumerable<string> OdaAdlari() { return odaSirasi; }
+
+        string klasor; float baslangic, sonSure, sonrakiZaman, sonOtoKayit;
         int sayac, bekleyenDonusum, oturum;
         DateTime baslangicZamani;
         BlockingCollection<Action> kuyruk;
         Thread yazici;
         StreamWriter jsonl;
+        readonly List<Kare> bekleyen = new List<Kare>();
+        readonly List<string> odaSirasi = new List<string>();
+        readonly Dictionary<string, int> odaKare = new Dictionary<string, int>();
+        readonly List<IsaretTespiti> tumTespitler = new List<IsaretTespiti>();
+        static bool jpgIsParcacik = true;
+        readonly ConcurrentQueue<Action> anaIs = new ConcurrentQueue<Action>();
+        float ortIsaretMs;
 
-        // ---- JSON kayit sinifları ----
+        // ---- JSON kayit siniflari (alan adlari v1 ile uyumlu, yenileri eklendi) ----
         [Serializable]
         class KareKaydi
         {
@@ -52,31 +73,70 @@ namespace ArTarama
             public string conf_file, conf_format; public int conf_w, conf_h, conf_pixel_stride;
             public string display_orientation; public int screen_w, screen_h;
             public bool has_floor; public float floor_y;
+            // v2
+            public string oda;
+            public bool marker_checked;
+            public List<IsaretKaydi> markers = new List<IsaretKaydi>();
         }
 
-        [Serializable] class Ozet
+        [Serializable]
+        class IsaretKaydi
         {
+            public int id; public int hamming; public float[] corners; public double timestamp_s;
+        }
+
+        class IsaretTespiti { public int frame_index; public int id; public float[] corners; public double timestamp_s; }
+        [Serializable] class TespitListe { public List<TespitKaydi> detections = new List<TespitKaydi>(); }
+        [Serializable] class TespitKaydi { public int frame_index; public int id; public float[] corners; public double timestamp_s; }
+
+        [Serializable] class OdaKaydi { public string name; public int frame_count; }
+        [Serializable] class IsaretOzeti { public int id; public int detections; public bool has_world_position; public V3 world_position; }
+        [Serializable]
+        class Ozet
+        {
+            public int scan_version = 2;
             public int frame_count, dropped_frames, point_count, plane_count; public float duration_s;
             public string device_model, device_name, os, arfoundation_version, unity_version, started_at, folder;
             public string notes;
+            public List<OdaKaydi> rooms = new List<OdaKaydi>();
+            public List<IsaretOzeti> markers_seen = new List<IsaretOzeti>();
+            public string steps_note; public bool complete;
+            public float avg_marker_detect_ms;
         }
 
         [Serializable] class V3 { public float x, y, z; }
-        [Serializable] class DuzlemKaydi
+        [Serializable]
+        class DuzlemKaydi
         {
             public string id, alignment; public V3 center; public float qx, qy, qz, qw; public List<V3> boundary_world = new List<V3>();
         }
         [Serializable] class DuzlemListe { public List<DuzlemKaydi> planes = new List<DuzlemKaydi>(); }
 
+        class Kare
+        {
+            public KareKaydi k; public volatile bool dosyaTamam, tespitTamam, atla; public float zaman;
+        }
+
+        // ---------------------------------------------------------------- oda
+        public void OdaDegistir(string ad)
+        {
+            Oda = ad;
+            if (!odaKare.ContainsKey(ad)) { odaKare[ad] = 0; odaSirasi.Add(ad); }
+        }
+
+        public static string Kok => Path.Combine(Application.persistentDataPath, "kayitlar");
+
+        // ---------------------------------------------------------------- baslat / durdur
         public void Baslat()
         {
             if (Kayitta) return;
-            string kok = Path.Combine(Application.persistentDataPath, "kayitlar");
             SonKlasor = "kayit_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-            klasor = Path.Combine(kok, SonKlasor);
+            klasor = Path.Combine(Kok, SonKlasor);
             Directory.CreateDirectory(klasor);
             baslangicZamani = DateTime.Now;
-            oturum++; sayac = 0; KareSayisi = 0; AtlananKare = 0; bekleyenDonusum = 0;
+            oturum++; sayac = 0; KareSayisi = 0; AtlananKare = 0; bekleyenDonusum = 0; YazilanBayt = 0;
+            bekleyen.Clear(); tumTespitler.Clear(); odaKare.Clear(); odaSirasi.Clear();
+            OdaDegistir(Oda);
             kuyruk = new BlockingCollection<Action>(new ConcurrentQueue<Action>());
             var q = kuyruk;
             string jl = Path.Combine(klasor, "kareler.jsonl");
@@ -93,49 +153,115 @@ namespace ArTarama
                 finally { try { jsonl?.Flush(); jsonl?.Dispose(); } catch { } }
             }) { IsBackground = true, Name = "KayitYazici" };
             yazici.Start();
-            baslangic = Time.realtimeSinceStartup;
+            baslangic = Time.realtimeSinceStartup; sonOtoKayit = baslangic;
             sonrakiZaman = 0;
             Kayitta = true;
             Debug.Log("[ArTarama] Kayit basladi: " + klasor);
         }
 
-        public void Durdur()
+        void BekleyenleriBosalt(bool zorla)
+        {
+            // yalnizca bastan, sirayi koruyarak bosalt
+            while (bekleyen.Count > 0)
+            {
+                var b = bekleyen[0];
+                bool yas = Time.unscaledTime - b.zaman > 2f;
+                if (!b.atla && !zorla && !(b.dosyaTamam && b.tespitTamam) && !yas) break;
+                bekleyen.RemoveAt(0);
+                if (b.atla) continue;
+                var q = kuyruk;
+                if (q == null || q.IsAddingCompleted) continue;
+                string json = JsonUtility.ToJson(b.k);
+                try { q.Add(() => { jsonl.WriteLine(json); }); }
+                catch (InvalidOperationException) { }
+            }
+        }
+
+        public void Durdur(bool tamam = true)
         {
             if (!Kayitta) return;
+            BekleyenleriBosalt(true);
+            // jsonl satirlari kuyrukta; siralama icin satirlari ters sirada bosaltmistik, sorun degil (index alani var)
             Kayitta = false;
             sonSure = Time.realtimeSinceStartup - baslangic;
-            oturum++; // bekleyen donusumleri gecersiz kil
-            var q = kuyruk; string dir = klasor;
+            oturum++;
+            var q = kuyruk;
+            OzetYaz(q, tamam, true);
+            q.CompleteAdding();
+            Debug.Log("[ArTarama] Kayit durdu: " + klasor + " kare=" + KareSayisi);
+        }
 
+        /// <summary>Kaydi durdurur ve klasoru siler (Sifirla).</summary>
+        public void Sil()
+        {
+            if (!Kayitta && string.IsNullOrEmpty(klasor)) return;
+            Kayitta = false; oturum++;
+            bekleyen.Clear();
+            var q = kuyruk; var t = yazici; string dir = klasor;
+            try { q?.CompleteAdding(); } catch { }
+            try { if (t != null) t.Join(4000); } catch { }
+            try { if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)) Directory.Delete(dir, true); Debug.Log("[ArTarama] Kayit silindi: " + dir); }
+            catch (Exception e) { Debug.LogWarning("[ArTarama] klasor silinemedi: " + e.Message); }
+            klasor = null; KareSayisi = 0; AtlananKare = 0; kuyruk = null; yazici = null;
+        }
+
+        void OzetYaz(BlockingCollection<Action> q, bool tamam, bool son)
+        {
+            string dir = klasor;
             var ozet = new Ozet
             {
-                frame_count = KareSayisi, dropped_frames = AtlananKare, duration_s = sonSure,
+                frame_count = KareSayisi, dropped_frames = AtlananKare, duration_s = Sure,
                 point_count = nokta != null ? nokta.Sayi : 0,
                 device_model = SystemInfo.deviceModel, device_name = SystemInfo.deviceName,
                 os = SystemInfo.operatingSystem, arfoundation_version = ArFoundationSurum,
                 unity_version = Application.unityVersion,
                 started_at = baslangicZamani.ToString("o", CultureInfo.InvariantCulture), folder = SonKlasor,
-                notes = "Goruntu sensor yonunde (manzara) kaydedildi; ic parametreler tam cozunurluk icindir, saved_w/h ile olcekle. Poz Unity oturum uzayinda (y yukari)."
+                steps_note = AdimNotu, complete = tamam, avg_marker_detect_ms = isaret != null ? isaret.OrtMs : 0,
+                notes = "Goruntu sensor yonunde (manzara) kaydedildi; ic parametreler tam cozunurluk icindir, saved_w/h ile olcekle. Poz Unity oturum uzayinda (y yukari). Oda etiketi her karede 'oda' alaninda. ArUco koseleri TL,TR,BR,BL sirasiyla x,y tam kamera goruntusu pikselleri (full_w x full_h, sensor yonu)."
             };
-            var pts = nokta != null ? nokta.Kopya() : new Vector3[0];
-            var dl = DuzlemleriTopla();
-            ozet.plane_count = dl.planes.Count;
+            foreach (var o in odaSirasi) ozet.rooms.Add(new OdaKaydi { name = o, frame_count = odaKare[o] });
+            if (plan != null)
+                foreach (var b in plan.Isaretler.Values)
+                {
+                    var io = new IsaretOzeti { id = b.id, detections = b.sayi, has_world_position = b.konumVar };
+                    if (b.konumVar) io.world_position = new V3 { x = b.konum.x, y = b.konum.y, z = b.konum.z };
+                    ozet.markers_seen.Add(io);
+                }
+            var dl = DuzlemleriTopla(); ozet.plane_count = dl.planes.Count; Duzlem = dl.planes.Count;
             string duzJson = JsonUtility.ToJson(dl, true);
             string ozetJson = JsonUtility.ToJson(ozet, true);
+            var tl = new TespitListe();
+            foreach (var t in tumTespitler) tl.detections.Add(new TespitKaydi { frame_index = t.frame_index, id = t.id, corners = t.corners, timestamp_s = t.timestamp_s });
+            string tespitJson = JsonUtility.ToJson(tl, true);
+            Vector3[] pts = son && nokta != null ? nokta.Kopya() : null;
 
-            q.Add(() =>
+            try
             {
-                jsonl?.Flush();
-                File.WriteAllText(Path.Combine(dir, "ozet.json"), ozetJson, new UTF8Encoding(false));
-                File.WriteAllText(Path.Combine(dir, "duzlemler.json"), duzJson, new UTF8Encoding(false));
-                var sb = new StringBuilder(pts.Length * 28 + 256);
-                sb.Append("ply\nformat ascii 1.0\nelement vertex ").Append(pts.Length).Append("\nproperty float x\nproperty float y\nproperty float z\nend_header\n");
-                var ci = CultureInfo.InvariantCulture;
-                foreach (var p in pts) sb.Append(p.x.ToString("R", ci)).Append(' ').Append(p.y.ToString("R", ci)).Append(' ').Append(p.z.ToString("R", ci)).Append('\n');
-                File.WriteAllText(Path.Combine(dir, "noktalar.ply"), sb.ToString(), new UTF8Encoding(false));
-            });
-            q.CompleteAdding();
-            Debug.Log("[ArTarama] Kayit durdu: " + dir + " kare=" + KareSayisi);
+                q.Add(() =>
+                {
+                    jsonl?.Flush();
+                    File.WriteAllText(Path.Combine(dir, "ozet.json"), ozetJson, new UTF8Encoding(false));
+                    File.WriteAllText(Path.Combine(dir, "duzlemler.json"), duzJson, new UTF8Encoding(false));
+                    File.WriteAllText(Path.Combine(dir, "isaretler.json"), tespitJson, new UTF8Encoding(false));
+                    if (pts != null)
+                    {
+                        var ci = CultureInfo.InvariantCulture;
+                        using (var w = new StreamWriter(Path.Combine(dir, "noktalar.ply"), false, new UTF8Encoding(false), 1 << 16))
+                        {
+                            w.Write("ply\nformat ascii 1.0\nelement vertex " + pts.Length + "\nproperty float x\nproperty float y\nproperty float z\nend_header\n");
+                            var sb = new StringBuilder(1 << 16);
+                            for (int i = 0; i < pts.Length; i++)
+                            {
+                                var p = pts[i];
+                                sb.Append(p.x.ToString("F3", ci)).Append(' ').Append(p.y.ToString("F3", ci)).Append(' ').Append(p.z.ToString("F3", ci)).Append('\n');
+                                if (sb.Length > 60000) { w.Write(sb.ToString()); sb.Length = 0; }
+                            }
+                            w.Write(sb.ToString());
+                        }
+                    }
+                });
+            }
+            catch (InvalidOperationException) { }
         }
 
         DuzlemListe DuzlemleriTopla()
@@ -160,9 +286,34 @@ namespace ArTarama
             return l;
         }
 
+        // ---------------------------------------------------------------- isaret sonucu
+        public void IsaretSonucu(int kareIdx, List<ArucoSonuc> bulunan, float ms)
+        {
+            Kare hedef = null;
+            foreach (var b in bekleyen) if (b.k.index == kareIdx) { hedef = b; break; }
+            if (hedef == null) return;
+            hedef.k.marker_checked = true;
+            foreach (var a in bulunan)
+            {
+                var ik = new IsaretKaydi { id = a.id, hamming = a.hamming, corners = a.kose, timestamp_s = hedef.k.image_timestamp_s };
+                hedef.k.markers.Add(ik);
+                tumTespitler.Add(new IsaretTespiti { frame_index = kareIdx, id = a.id, corners = a.kose, timestamp_s = hedef.k.image_timestamp_s });
+            }
+            hedef.tespitTamam = true;
+        }
+
+        // ---------------------------------------------------------------- ana dongu
         void Update()
         {
+            while (anaIs.TryDequeue(out var a)) { try { a(); } catch { } }
             if (!Kayitta || kamera == null) return;
+            BekleyenleriBosalt(false);
+            if (Duraklat) return;
+            if (Time.realtimeSinceStartup - sonOtoKayit > 30f && kuyruk != null && !kuyruk.IsAddingCompleted)
+            {
+                sonOtoKayit = Time.realtimeSinceStartup;
+                OzetYaz(kuyruk, false, false);
+            }
             if (Time.unscaledTime < sonrakiZaman) return;
             if (!ArApp.Ornek.Takipte) return;
             if (bekleyenDonusum >= 2 || (kuyruk != null && kuyruk.Count >= 8)) { AtlananKare++; sonrakiZaman = Time.unscaledTime + Aralik; return; }
@@ -180,7 +331,9 @@ namespace ArTarama
             kare.px = tr.position.x; kare.py = tr.position.y; kare.pz = tr.position.z;
             kare.qx = tr.rotation.x; kare.qy = tr.rotation.y; kare.qz = tr.rotation.z; kare.qw = tr.rotation.w;
             kare.full_w = img.width; kare.full_h = img.height;
-            if (kamera.TryGetIntrinsics(out XRCameraIntrinsics ki))
+            kare.oda = Oda;
+            bool intrVar = kamera.TryGetIntrinsics(out XRCameraIntrinsics ki);
+            if (intrVar)
             {
                 kare.has_intrinsics = true;
                 kare.fx = ki.focalLength.x; kare.fy = ki.focalLength.y;
@@ -192,6 +345,30 @@ namespace ArTarama
             kare.has_floor = ArApp.ZeminVar; kare.floor_y = ArApp.ZeminY;
             string ad = idx.ToString("D6");
             kare.jpg = "kare_" + ad + ".jpg";
+
+            var kayitKare = new Kare { k = kare, zaman = Time.unscaledTime };
+            bekleyen.Add(kayitKare);
+
+            // ArUco: ayni goruntu uzerinde arka planda
+            if (isaret != null && intrVar && !isaret.Mesgul && img.format == XRCpuImage.Format.AndroidYuv420_888)
+            {
+                try
+                {
+                    var pl0 = img.GetPlane(0);
+                    int uz = Mathf.Min(pl0.data.Length, pl0.rowStride * img.height);
+                    var buf = isaret.TamponAl(pl0.rowStride * img.height);
+                    NativeArray<byte>.Copy(pl0.data, 0, buf, 0, uz);
+                    isaret.Calistir(new IsaretYoneticisi.Istek
+                    {
+                        kareIdx = idx, w = img.width, h = img.height, satir = pl0.rowStride, zaman = img.timestamp,
+                        poz = tr.position, rot = tr.rotation,
+                        fx = ki.focalLength.x, fy = ki.focalLength.y, cx = ki.principalPoint.x, cy = ki.principalPoint.y,
+                        rw = ki.resolution.x, rh = ki.resolution.y
+                    });
+                }
+                catch (Exception e) { Debug.LogWarning("[ArTarama] aruco hazirlama hatasi: " + e.Message); kayitKare.tespitTamam = true; }
+            }
+            else kayitKare.tespitTamam = true;
 
             byte[] derinlik = null, guven = null;
             if (oklusyon != null)
@@ -235,26 +412,51 @@ namespace ArTarama
             {
                 bekleyenDonusum--;
                 if (durum != XRCpuImage.AsyncConversionStatus.Ready || benimOturum != oturum || kuyruk == null || kuyruk.IsAddingCompleted)
-                { AtlananKare++; return; }
-                byte[] jpg;
-                try { jpg = ImageConversion.EncodeArrayToJPG(veri.ToArray(), GraphicsFormat.R8G8B8_SRGB, (uint)p.outputDimensions.x, (uint)p.outputDimensions.y, 0, JpgKalite); }
-                catch (Exception e) { Debug.LogWarning("[ArTarama] JPG hatasi: " + e.Message); AtlananKare++; return; }
-                string json = JsonUtility.ToJson(kare);
-                string dir = klasor;
+                { AtlananKare++; kayitKare.atla = true; return; }
+                byte[] ham = veri.ToArray();  // ana is parcacigi: yalnizca ham kopya
+                string dir = klasor; int ww = p.outputDimensions.x, hh = p.outputDimensions.y;
+                string yol = Path.Combine(dir, kare.jpg);
                 try
                 {
                     kuyruk.Add(() =>
                     {
-                        File.WriteAllBytes(Path.Combine(dir, kare.jpg), jpg);
-                        if (derinlik != null) File.WriteAllBytes(Path.Combine(dir, kare.depth_file), derinlik);
-                        if (guven != null) File.WriteAllBytes(Path.Combine(dir, kare.conf_file), guven);
-                        jsonl.WriteLine(json);
+                        if (jpgIsParcacik)
+                        {
+                            try
+                            {
+                                byte[] jpg = ImageConversion.EncodeArrayToJPG(ham, GraphicsFormat.R8G8B8_SRGB, (uint)ww, (uint)hh, 0, JpgKalite);
+                                File.WriteAllBytes(yol, jpg); YazilanBayt += jpg.Length;
+                            }
+                            catch (Exception e)
+                            {
+                                // is parcaciginda desteklenmiyorsa ana is parcacigina don
+                                jpgIsParcacik = false;
+                                Debug.LogWarning("[ArTarama] JPG is parcaciginda basarisiz, ana is parcacigina donuluyor: " + e.Message);
+                                anaIs.Enqueue(() => JpgAnaIs(ham, ww, hh, yol));
+                            }
+                        }
+                        else anaIs.Enqueue(() => JpgAnaIs(ham, ww, hh, yol));
+                        if (derinlik != null) { File.WriteAllBytes(Path.Combine(dir, kare.depth_file), derinlik); YazilanBayt += derinlik.Length; }
+                        if (guven != null) { File.WriteAllBytes(Path.Combine(dir, kare.conf_file), guven); YazilanBayt += guven.Length; }
+                        kayitKare.dosyaTamam = true;
                     });
                     KareSayisi++;
+                    odaKare[kare.oda] = (odaKare.TryGetValue(kare.oda, out int onceki) ? onceki : 0) + 1;
                 }
-                catch (InvalidOperationException) { AtlananKare++; }
+                catch (InvalidOperationException) { AtlananKare++; kayitKare.atla = true; }
             });
             img.Dispose();
+        }
+
+        void JpgAnaIs(byte[] ham, int w, int h, string yol)
+        {
+            try
+            {
+                byte[] jpg = ImageConversion.EncodeArrayToJPG(ham, GraphicsFormat.R8G8B8_SRGB, (uint)w, (uint)h, 0, JpgKalite);
+                var kq = kuyruk;
+                File.WriteAllBytes(yol, jpg); YazilanBayt += jpg.Length;
+            }
+            catch (Exception e) { Debug.LogWarning("[ArTarama] JPG hatasi: " + e.Message); }
         }
 
         /// <summary>Satir doldurmasini (rowStride) atip sikisik bayt dizisi uretir.</summary>
@@ -269,7 +471,15 @@ namespace ArTarama
             return cikis;
         }
 
-        void OnDestroy() { if (Kayitta) Durdur(); }
-        void OnApplicationPause(bool p) { if (p && Kayitta) Durdur(); }
+        void OnDestroy() { if (Kayitta) Durdur(false); }
+
+        void OnApplicationPause(bool p)
+        {
+            if (p && Kayitta)
+            {
+                BekleyenleriBosalt(true);
+                OzetYaz(kuyruk, false, true);   // kismi ozet + nokta bulutu; kayit devam edebilir
+            }
+        }
     }
 }

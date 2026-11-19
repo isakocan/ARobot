@@ -1,79 +1,222 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
 
 namespace ArTarama
 {
-    /// <summary>ARCore ozellik noktalarini biriktirir (2 cm vokselde tekillestirir), nokta olarak cizer.</summary>
+    /// <summary>
+    /// ARCore ozellik noktalari + ortam derinliginden nokta bulutu biriktirir. Ust sinir yok: 2 cm voksel tekillestirme
+    /// (derinlik noktalari 4 cm), 65 bin kose basina bir mesh parcasi, yalnizca son parca artimli guncellenir.
+    /// </summary>
     public class NoktaBulutu : MonoBehaviour
     {
         public ARPointCloudManager yonetici;
-        public const int Tavan = 60000;
-        public const float Voksel = 0.02f;
+        public AROcclusionManager oklusyon;
+        public ARCameraManager kamera;
+        public Camera arKamera;
+        public PlanHaritasi plan;
 
-        readonly List<Vector3> poz = new List<Vector3>(Tavan);
-        readonly List<Color> renk = new List<Color>(Tavan);
-        readonly HashSet<long> gorulen = new HashSet<long>();
-        int[] indis;
-        Mesh mesh; MeshRenderer mr;
-        float sonTarama, sonMesh; bool kirli;
+        public const float Voksel = 0.02f, DerinVoksel = 0.04f;
+        public const int ParcaMaks = 65000;
+        public const int HaritaKatmani = 8;
+        public const float MinGuven = 0.3f;
 
-        public int Sayi => poz.Count;
-        public bool Goster { get => mr != null && mr.enabled; set { if (mr != null) mr.enabled = value; } }
+        public bool Aktif;
+        public bool DerinlikNoktalari = true;
+        public int Sayi { get; private set; }
+        public int OzellikSayisi { get; private set; }
+        public float OrtancaDerinlik { get; private set; } = -1f;
+        public Vector3 Min { get; private set; } = new Vector3(1e9f, 1e9f, 1e9f);
+        public Vector3 Maks { get; private set; } = new Vector3(-1e9f, -1e9f, -1e9f);
+        public bool SinirVar => Sayi > 0;
+
+        class Parca
+        {
+            public Mesh mesh; public GameObject go; public Vector3[] v = new Vector3[ParcaMaks]; public int n; public bool kirli;
+        }
+
+        readonly List<Parca> parcalar = new List<Parca>();
+        readonly HashSet<long> gorulen = new HashSet<long>(), gorulenD = new HashSet<long>();
+        ushort[] indis;
+        Material mat;
+        float sonOzellik, sonDerinlik, sonMesh;
+        bool goster = true;
+        readonly List<float> ortTmp = new List<float>(1024);
+        int derinlikLog;
+
+        public bool Goster
+        {
+            get => goster;
+            set { goster = value; foreach (var p in parcalar) p.go.SetActive(value); }
+        }
 
         void Awake()
         {
-            indis = new int[Tavan];
-            for (int i = 0; i < Tavan; i++) indis[i] = i;
-            mesh = new Mesh { name = "NoktaBulutu", indexFormat = IndexFormat.UInt32 };
-            mesh.MarkDynamic();
-            var go = new GameObject("NoktaCizim");
-            go.transform.SetParent(transform, false);
-            go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            mr = go.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = Resources.Load<Material>("mat_nokta");
-            mr.shadowCastingMode = ShadowCastingMode.Off;
-            mr.receiveShadows = false;
+            indis = new ushort[ParcaMaks];
+            for (int i = 0; i < ParcaMaks; i++) indis[i] = (ushort)i;
+            mat = Resources.Load<Material>("mat_nokta");
         }
 
-        public Vector3[] Kopya() { return poz.ToArray(); }
+        Parca YeniParca()
+        {
+            var p = new Parca();
+            p.mesh = new Mesh { name = "NoktaParca" + parcalar.Count, indexFormat = IndexFormat.UInt16 };
+            p.mesh.MarkDynamic();
+            p.go = new GameObject("NoktaParca" + parcalar.Count);
+            p.go.layer = HaritaKatmani;
+            p.go.transform.SetParent(transform, false);
+            p.go.AddComponent<MeshFilter>().sharedMesh = p.mesh;
+            var mr = p.go.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            mr.shadowCastingMode = ShadowCastingMode.Off; mr.receiveShadows = false;
+            p.go.SetActive(goster);
+            parcalar.Add(p);
+            return p;
+        }
+
+        public void Temizle()
+        {
+            foreach (var p in parcalar) { if (p.mesh != null) Destroy(p.mesh); if (p.go != null) Destroy(p.go); }
+            parcalar.Clear(); gorulen.Clear(); gorulenD.Clear();
+            Sayi = 0; OzellikSayisi = 0; OrtancaDerinlik = -1f;
+            Min = new Vector3(1e9f, 1e9f, 1e9f); Maks = new Vector3(-1e9f, -1e9f, -1e9f);
+        }
+
+        /// <summary>Tum noktalarin kopyasi (PLY icin).</summary>
+        public Vector3[] Kopya()
+        {
+            var a = new Vector3[Sayi]; int k = 0;
+            foreach (var p in parcalar) { Array.Copy(p.v, 0, a, k, p.n); k += p.n; }
+            return a;
+        }
+
+        void Ekle(Vector3 w)
+        {
+            Parca p = parcalar.Count > 0 ? parcalar[parcalar.Count - 1] : null;
+            if (p == null || p.n >= ParcaMaks) p = YeniParca();
+            p.v[p.n++] = w; p.kirli = true; Sayi++;
+            if (w.x < Min.x) Min = new Vector3(w.x, Min.y, Min.z); if (w.y < Min.y) Min = new Vector3(Min.x, w.y, Min.z); if (w.z < Min.z) Min = new Vector3(Min.x, Min.y, w.z);
+            if (w.x > Maks.x) Maks = new Vector3(w.x, Maks.y, Maks.z); if (w.y > Maks.y) Maks = new Vector3(Maks.x, w.y, Maks.z); if (w.z > Maks.z) Maks = new Vector3(Maks.x, Maks.y, w.z);
+            if (plan != null) plan.NoktaEkle(w);
+        }
+
+        static long Anahtar(Vector3 w, float v)
+        {
+            long a = (long)Mathf.Floor(w.x / v) + 1048576;
+            long b = (long)Mathf.Floor(w.y / v) + 1048576;
+            long c = (long)Mathf.Floor(w.z / v) + 1048576;
+            return (a << 42) | (b << 21) | c;
+        }
 
         void Update()
         {
-            if (yonetici == null) return;
-            if (Time.unscaledTime - sonTarama > 0.2f && poz.Count < Tavan)
+            Shader.SetGlobalFloat("_ArZeminY", ArApp.ZeminVar ? ArApp.ZeminY : (arKamera != null ? arKamera.transform.position.y - 1.3f : 0f));
+            if (!Aktif) return;
+            float t = Time.unscaledTime;
+
+            if (yonetici != null && t - sonOzellik > 0.2f)
             {
-                sonTarama = Time.unscaledTime;
+                sonOzellik = t;
                 foreach (var pc in yonetici.trackables)
                 {
                     var ps = pc.positions;
                     if (!ps.HasValue) continue;
-                    var arr = ps.Value;
-                    for (int i = 0; i < arr.Length && poz.Count < Tavan; i++)
+                    var arr = ps.Value; var gv = pc.confidenceValues;
+                    for (int i = 0; i < arr.Length; i++)
                     {
+                        if (gv.HasValue && gv.Value.IsCreated && i < gv.Value.Length && gv.Value[i] < MinGuven) continue;
                         Vector3 w = pc.transform.TransformPoint(arr[i]);
-                        long a = (long)Mathf.Floor(w.x / Voksel) + 1048576;
-                        long b = (long)Mathf.Floor(w.y / Voksel) + 1048576;
-                        long c = (long)Mathf.Floor(w.z / Voksel) + 1048576;
-                        long key = (a << 42) | (b << 21) | c;
-                        if (!gorulen.Add(key)) continue;
-                        poz.Add(w);
-                        float t = Mathf.InverseLerp(-1.2f, 2.0f, w.y);
-                        renk.Add(Color.Lerp(UiKur.Vurgu, Color.white, t));
-                        kirli = true;
+                        if (!gorulen.Add(Anahtar(w, Voksel))) continue;
+                        OzellikSayisi++;
+                        Ekle(w);
                     }
                 }
             }
-            if (kirli && Time.unscaledTime - sonMesh > 0.5f)
+
+            if (oklusyon != null && kamera != null && t - sonDerinlik > 0.25f)
             {
-                sonMesh = Time.unscaledTime; kirli = false;
-                mesh.Clear();
-                mesh.SetVertices(poz);
-                mesh.SetColors(renk);
-                mesh.SetIndices(indis, 0, poz.Count, MeshTopology.Points, 0, false);
-                mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 200f);
+                sonDerinlik = t;
+                try { DerinlikIsle(); } catch (Exception e) { if (derinlikLog++ < 3) Debug.LogWarning("[ArTarama] derinlik noktasi hatasi: " + e.Message); }
             }
+
+            if (t - sonMesh > 0.4f)
+            {
+                sonMesh = t;
+                foreach (var p in parcalar)
+                {
+                    if (!p.kirli) continue;
+                    p.kirli = false;
+                    p.mesh.SetVertices(p.v, 0, p.n);
+                    p.mesh.SetIndices(indis, 0, p.n, MeshTopology.Points, 0, false);
+                    p.mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 400f);
+                }
+            }
+        }
+
+        void DerinlikIsle()
+        {
+            if (!oklusyon.TryAcquireEnvironmentDepthCpuImage(out XRCpuImage img)) return;
+            XRCpuImage conf = default; bool confVar = false;
+            if (oklusyon.TryAcquireEnvironmentDepthConfidenceCpuImage(out conf)) confVar = true;
+            try
+            {
+                if (!kamera.TryGetIntrinsics(out XRCameraIntrinsics ki)) return;
+                int dw = img.width, dh = img.height;
+                var pl = img.GetPlane(0);
+                bool u16 = img.format == XRCpuImage.Format.DepthUint16;
+                bool f32 = img.format == XRCpuImage.Format.DepthFloat32;
+                if (!u16 && !f32) return;
+                var d = pl.data; int rs = pl.rowStride, ps = pl.pixelStride;
+                NativeArrayByteOkuyucu cf = default; int crs = 0, cps = 1;
+                if (confVar) { var cp = conf.GetPlane(0); cf = new NativeArrayByteOkuyucu { d = cp.data }; crs = cp.rowStride; cps = cp.pixelStride; }
+
+                // orta bolgeden ortanca derinlik (yakinlik uyarisi icin)
+                ortTmp.Clear();
+                for (int j = dh / 4; j < dh * 3 / 4; j += 4)
+                    for (int i = dw / 4; i < dw * 3 / 4; i += 4)
+                    {
+                        float z = Oku(d, rs, ps, i, j, u16);
+                        if (z > 0.05f) ortTmp.Add(z);
+                    }
+                if (ortTmp.Count > 8) { ortTmp.Sort(); OrtancaDerinlik = ortTmp[ortTmp.Count / 2]; }
+
+                if (!DerinlikNoktalari) return;
+                var app = ArApp.Ornek;
+                if (app == null || !app.Takipte || app.AciHizi > 35f || !ArApp.ZeminVar) return;
+
+                var tr = arKamera.transform;
+                float fx = ki.focalLength.x, fy = ki.focalLength.y, cx = ki.principalPoint.x, cy = ki.principalPoint.y;
+                float sx = ki.resolution.x / (float)dw, sy = ki.resolution.y / (float)dh;
+                for (int j = 0; j < dh - 1; j += 2)
+                    for (int i = 0; i < dw - 1; i += 2)
+                    {
+                        float z = Oku(d, rs, ps, i, j, u16);
+                        if (z < 0.3f || z > 4.5f) continue;
+                        if (confVar && cf.d[j * crs + i * cps] < MinGuven * 255f) continue;
+                        float z2 = Oku(d, rs, ps, i + 1, j, u16), z3 = Oku(d, rs, ps, i, j + 1, u16);
+                        if (Mathf.Abs(z2 - z) > 0.12f * z || Mathf.Abs(z3 - z) > 0.12f * z) continue; // kenar / ucan piksel
+                        float px = (i + 0.5f) * sx, py = (j + 0.5f) * sy;
+                        Vector3 yerel = new Vector3((cy - py) / fy * z, (cx - px) / fx * z, z);
+                        Vector3 w = tr.TransformPoint(yerel);
+                        if (!gorulenD.Add(Anahtar(w, DerinVoksel))) continue;
+                        Ekle(w);
+                    }
+            }
+            finally { img.Dispose(); if (confVar) conf.Dispose(); }
+        }
+
+        struct NativeArrayByteOkuyucu { public Unity.Collections.NativeArray<byte> d; }
+
+        static float Oku(Unity.Collections.NativeArray<byte> d, int rs, int ps, int i, int j, bool u16)
+        {
+            int off = j * rs + i * ps;
+            if (u16) return (d[off] | (d[off + 1] << 8)) * 0.001f;
+            byte[] b = { d[off], d[off + 1], d[off + 2], d[off + 3] };
+            float f = BitConverter.ToSingle(b, 0);
+            return float.IsNaN(f) ? 0f : f;
         }
     }
 }
