@@ -1,0 +1,15 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1045 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Scenes:
+  - enabled: 1
+    path: Assets/Scenes/Tarama.unity
+    guid: 39cb0ade7113acd4aa9bcffda92fc7c4
+  m_configObjects:
+    UnityEditor.XR.ARCore.ARCoreSettings: {fileID: 11400000, guid: 32318780fc8c332449e563d7502fb765, type: 2}
+    com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: b049c0808bff1074ea8cdac8c4994f1e, type: 2}
+    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: 189fe942c39db0349b00f0c621341658, type: 2}
+  m_UseUCBPForAssetBundles: 0

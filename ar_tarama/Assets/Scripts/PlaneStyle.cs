@@ -1,0 +1,34 @@
+using UnityEngine;
+using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
+
+namespace ArTarama
+{
+    /// <summary>Duzlem gorsellestirmesi: zemin turkuaz, diger yuzeyler daha soluk.</summary>
+    [RequireComponent(typeof(ARPlane))]
+    public class PlaneStyle : MonoBehaviour
+    {
+        public static bool Goster = true;
+        MeshRenderer r; ARPlane p; MaterialPropertyBlock mpb;
+        static readonly int RenkId = Shader.PropertyToID("_Color");
+
+        void Awake() { r = GetComponent<MeshRenderer>(); p = GetComponent<ARPlane>(); mpb = new MaterialPropertyBlock(); }
+
+        void Update()
+        {
+            if (r == null) return;
+            r.enabled = Goster;
+            if (!Goster) return;
+            Color c;
+            bool zemin = p.alignment == PlaneAlignment.HorizontalUp && ArApp.ZeminVar &&
+                         Mathf.Abs(transform.position.y - ArApp.ZeminY) < 0.15f;
+            if (zemin) c = new Color(0.25f, 0.85f, 0.78f, 0.20f);
+            else if (p.alignment == PlaneAlignment.HorizontalUp) c = new Color(0.45f, 0.65f, 1f, 0.10f);
+            else if (p.alignment == PlaneAlignment.HorizontalDown) c = new Color(0.8f, 0.7f, 1f, 0.06f);
+            else c = new Color(0.7f, 0.85f, 1f, 0.06f);
+            r.GetPropertyBlock(mpb);
+            mpb.SetColor(RenkId, c);
+            r.SetPropertyBlock(mpb);
+        }
+    }
+}
