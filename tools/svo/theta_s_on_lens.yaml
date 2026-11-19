@@ -1,0 +1,29 @@
+# Ricoh Theta S, 1. lens (on), 640x640 kirpim; SVO omni (Scaramuzza ocam) modeli.
+# Uretici: tools/svo/kamera_fit.py. Esit uzaklikli balik gozu r = f*theta (f=180.87 px/rad), ~194 derece gorus.
+# Son iki sayi: gorece maske yaricaplari (kucuk, buyuk), yaricap = yukseklik/2 (320 px) ile carpilir -> 306 px disi maskeli.
+cameras:
+- camera:
+    distortion:
+      parameters:
+        cols: 1
+        rows: 0
+        data: []
+      type: none
+    image_height: 640
+    image_width: 640
+    intrinsics:
+      cols: 1
+      data: [-179.440254772031, -0.06383283471901481, 0.002733276575347538, -5.012327434827002e-06, 1.4117570294343343e-08, 322.42, 319.04, 1.0, 0.0, 0.0, 284.10993162739294, 180.87, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.95625]
+      rows: 24
+    label: cam0
+    line-delay-nanoseconds: 0
+    type: omni
+    mask: theta_s_on_lens_maske.png
+  T_B_C:
+    cols: 4
+    rows: 4
+    data: [ 1., 0., 0., 0.,
+            0., 1., 0., 0.,
+            0., 0., 1., 0.,
+            0., 0., 0., 1.]
+label: theta_s_on_lens

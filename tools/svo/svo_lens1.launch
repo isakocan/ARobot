@@ -1,0 +1,27 @@
+<launch>
+  <!-- Theta S 1. lens (omni/ocam modeli), tek kamera, IMU YOK, rviz YOK.
+       Kullanim: roslaunch /araclar/svo_lens1.launch trace_dir:=/cikti/iz runlc:=true -->
+  <arg name="trace_dir" default="/tmp/svo_trace"/>
+  <arg name="runlc" default="true"/>
+  <arg name="autoreinit" default="true"/>
+  <arg name="voc_name" default="voc_GEN_8X4.yml.gz"/>  <!-- genel amacli sozluk; yol = voc_path + voc_name -->
+  <node pkg="svo_ros" type="svo_node" name="svo" clear_params="true" output="screen">
+    <param name="cam0_topic" value="/cam0/image_raw" type="str"/>
+    <param name="calib_file" value="/araclar/theta_s_on_lens.yaml"/>
+    <param name="use_imu" value="false"/>
+    <param name="trace_dir" value="$(arg trace_dir)"/>
+    <!-- README: balik gozu icin fisheye.yaml -->
+    <rosparam file="$(find svo_ros)/param/fisheye.yaml"/>
+    <!-- IMU yok: olcek belirsiz, sabit baslangic olcegi -->
+    <param name="map_scale" value="1"/>
+    <param name="automatic_reinitialization" value="$(arg autoreinit)"/>
+    <param name="runlc" value="$(arg runlc)"/>
+    <param name="depth_filter_extra_map_points" value="$(arg runlc)"/>
+    <param name="voc_name" value="$(arg voc_name)"/>
+    <param name="voc_path" value="/svo_ws/src/rpg_svo_pro_open/svo_online_loopclosing/vocabularies/"/>
+    <param name="publish_every_nth_img" value="1000000"/>
+    <param name="publish_every_nth_dense_input" value="1000000"/>
+    <!-- trace_statistics=true yedek arka uc olmadan SEGFAULT veriyor (bundle_adjustment_ null); sure /svo/info processing_time ile olculur -->
+    <param name="trace_statistics" value="false"/>
+  </node>
+</launch>
