@@ -3,20 +3,18 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
-using UnityEngine.UI;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 
 namespace ArTarama
 {
-    /// <summary>Arka planda ArUco algilar, ekranda cerceve cizer, sayar, harita konumunu tahmin eder.</summary>
+    /// <summary>Arka planda ArUco algilar, sessizce sayar (ekrana cerceve cizilmez), harita konumunu tahmin eder.</summary>
     public class IsaretYoneticisi : MonoBehaviour
     {
         public AROcclusionManager oklusyon;
         public Camera arKamera;
         public PlanHaritasi plan;
         public KayitYoneticisi kayit;
-        public RectTransform kaplama;
         public const int GerekliAlgilama = 6;
 
         public struct Istek
@@ -43,10 +41,6 @@ namespace ArTarama
         public float OrtMs { get; private set; }
         public bool Mesgul => mesgul;
         public event Action<int> YeniIsaret;
-
-        // ekran cercevesi
-        class Cerceve { public int id; public Image[] kenar = new Image[4]; public Text yazi; public float son; public CanvasGroup grup; public RectTransform kok; }
-        readonly Dictionary<int, Cerceve> cerceveler = new Dictionary<int, Cerceve>();
 
         void Awake()
         {
@@ -103,7 +97,6 @@ namespace ArTarama
         {
             kesin.Clear(); Toplam = 0;
             while (sonuclar.TryDequeue(out _)) { }
-            foreach (var c in cerceveler.Values) c.grup.alpha = 0;
         }
 
         public int Gorulen { get { int n = 0; foreach (var b in plan.Isaretler.Values) if (b.sayi > 0) n++; return n; } }
@@ -132,11 +125,6 @@ namespace ArTarama
                 if (kayit != null) kayit.IsaretSonucu(s.istek.kareIdx, kabul, s.ms);
                 foreach (var a in kabul) Isle(s.istek, a);
             }
-            foreach (var c in cerceveler.Values)
-            {
-                float yas = Time.unscaledTime - c.son;
-                c.grup.alpha = Mathf.Clamp01(1f - (yas - 0.35f) * 3f);
-            }
         }
 
         void Isle(Istek i, ArucoSonuc a)
@@ -146,19 +134,6 @@ namespace ArTarama
             bool yeni = b.sayi == 0;
             b.sayi++; b.sonGorulme = Time.unscaledTime;
             if (yeni) YeniIsaret?.Invoke(a.id);
-
-            // ekran cercevesi
-            var ekran = new Vector2[4]; bool ok = true;
-            for (int k = 0; k < 4; k++)
-            {
-                float px = a.kose[k * 2] * (i.rw / (float)i.w), py = a.kose[k * 2 + 1] * (i.rh / (float)i.h);
-                Vector3 yerel = new Vector3((i.cy - py) / i.fy, (i.cx - px) / i.fx, 1f);
-                Vector3 dunya = arKamera.transform.position + (i.rot * yerel).normalized * 3f;
-                Vector3 sp = arKamera.WorldToScreenPoint(dunya);
-                if (sp.z <= 0) { ok = false; break; }
-                RectTransformUtility.ScreenPointToLocalPointInRectangle(kaplama, sp, null, out ekran[k]);
-            }
-            if (ok) CerceveCiz(a.id, ekran);
 
             // harita konumu (derinlikten)
             if (Time.unscaledTime - b.sonGorulme < 0.5f && ArApp.Ornek != null && ArApp.Ornek.AciHizi < 40f)
@@ -196,43 +171,6 @@ namespace ArTarama
                 vals.Sort(); z = vals[vals.Count / 2];
                 return true;
             }
-        }
-
-        void CerceveCiz(int id, Vector2[] p)
-        {
-            if (!cerceveler.TryGetValue(id, out var c))
-            {
-                c = new Cerceve { id = id };
-                c.kok = UiKur.Obj("IsaretCerceve" + id, kaplama);
-                UiKur.Tam(c.kok);
-                c.grup = c.kok.gameObject.AddComponent<CanvasGroup>(); c.grup.blocksRaycasts = false; c.grup.interactable = false;
-                for (int k = 0; k < 4; k++)
-                {
-                    var im = UiKur.Kutu(c.kok, "K" + k, UiKur.Vurgu, false, false);
-                    im.rectTransform.pivot = new Vector2(0, 0.5f);
-                    c.kenar[k] = im;
-                }
-                c.yazi = UiKur.Metin(c.kok, "Etiket", "", 32, UiKur.Vurgu, TextAnchor.MiddleCenter, FontStyle.Bold);
-                c.yazi.horizontalOverflow = HorizontalWrapMode.Overflow;
-                c.yazi.rectTransform.sizeDelta = new Vector2(240, 44);
-                c.yazi.rectTransform.anchorMin = c.yazi.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-                cerceveler[id] = c;
-            }
-            c.son = Time.unscaledTime;
-            Vector2 mrk = Vector2.zero;
-            for (int k = 0; k < 4; k++)
-            {
-                Vector2 a = p[k], b = p[(k + 1) % 4]; mrk += a * 0.25f;
-                var rt = c.kenar[k].rectTransform;
-                rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-                rt.anchoredPosition = a; Vector2 d = b - a;
-                rt.sizeDelta = new Vector2(d.magnitude, 6f);
-                rt.localRotation = Quaternion.Euler(0, 0, Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg);
-            }
-            float ust = Mathf.Max(p[0].y, p[1].y, p[2].y, p[3].y);
-            c.yazi.rectTransform.anchoredPosition = new Vector2(mrk.x, ust + 36f);
-            plan.Isaretler.TryGetValue(id, out var bb);
-            c.yazi.text = "İşaret " + id + (bb != null && bb.sayi >= GerekliAlgilama ? "  tamam" : "");
         }
     }
 }

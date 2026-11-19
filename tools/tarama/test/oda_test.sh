@@ -1,6 +1,6 @@
 #!/bin/bash
-# Unity'nin kendi Roslyn ve .NET calisma zamanini kullanarak OdaModeli'ni Unity acmadan derler ve calistirir.
-# Kullanim: tools/tarama/test/oda_test.sh [kayit_klasoru [ply]]
+# Unity'nin kendi Roslyn ve .NET calisma zamanini kullanarak oda modeli cekirdegini Unity acmadan derler ve calistirir.
+# Kullanim: tools/tarama/test/oda_test.sh [cikti_klasoru | kayit_klasoru [cikti_klasoru]]
 set -e
 U="${UNITY_EDITOR_DATA:-/c/Program Files/Unity/Hub/Editor/6000.3.26f1/Editor/Data}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -14,6 +14,6 @@ done
 DOTNET="$(cygpath -m "$U/NetCoreRuntime/dotnet.exe")"
 CSC="$(cygpath -m "$U/DotNetSdkRoslyn/csc.dll")"
 "$DOTNET" exec "$CSC" -nologo -nullable:disable "-out:$OUT/oda_cli.dll" -target:exe "${ARGS[@]}" \
-  "$AQ/Scripts/OdaModeli.cs" "$AQ/Scripts/OdaJson.cs" "$AQ/Editor/OdaTestCekirdek.cs" "$(cygpath -m "$HERE")/oda_cli/Program.cs"
+  "$AQ/Scripts/OdaKanit.cs" "$AQ/Scripts/OdaGeo.cs" "$AQ/Scripts/OdaModeli.cs" "$AQ/Scripts/OdaModeli.Duvar.cs" "$AQ/Scripts/OdaModeli.Kutu.cs" "$AQ/Scripts/OdaKoc.cs" "$AQ/Scripts/OdaJson.cs" "$AQ/Editor/OdaTestCekirdek.cs" "$(cygpath -m "$HERE")/oda_cli/Program.cs"
 echo '{"runtimeOptions":{"tfm":"net6.0","framework":{"name":"Microsoft.NETCore.App","version":"6.0.0"}}}' > "$OUT/oda_cli.runtimeconfig.json"
 "$DOTNET" exec --runtimeconfig "$OUT/oda_cli.runtimeconfig.json" "$OUT/oda_cli.dll" "$@"

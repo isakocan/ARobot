@@ -106,7 +106,7 @@ namespace ArTarama
         static void MalzemeleriOlustur()
         {
             Directory.CreateDirectory("Assets/Resources");
-            var nokta = Mal("mat_nokta", Shader.Find("ArTarama/Nokta")); nokta.SetFloat("_Boyut", 7f);
+            var nokta = Mal("mat_nokta", Shader.Find("ArTarama/Nokta")); nokta.SetFloat("_Boyut", 7f);   // v4: ekranda nokta cizilmez; malzeme eski sahnelerle uyum icin duruyor
             var duz = Mal("mat_duzlem", Shader.Find("ArTarama/Duzlem"));
             var gol = Mal("mat_golge", Shader.Find("ArTarama/Golge"));
             var ga = Mal("mat_golgealici", Shader.Find("ArTarama/GolgeAlici")); ga.SetFloat("_Yogunluk", 0.5f);
@@ -204,14 +204,14 @@ namespace ArTarama
             var isaret = uyg.AddComponent<IsaretYoneticisi>();
             var odaY = uyg.AddComponent<OdaYoneticisi>();
 
-            // 3B harita kamerasi (ayri nesne, baslangicta kapali)
-            var hGo = new GameObject("Harita3B");
-            var hkGo = new GameObject("HaritaKamera"); hkGo.transform.SetParent(hGo.transform, false);
+            // Inceleme ekrani kamerasi (ayri nesne, baslangicta kapali)
+            var hGo = new GameObject("Gozden");
+            var hkGo = new GameObject("GozdenKamera"); hkGo.transform.SetParent(hGo.transform, false);
             var hkam = hkGo.AddComponent<Camera>(); hkam.enabled = false;
-            var h3 = hGo.AddComponent<Harita3B>(); h3.kam = hkam;
+            var h3 = hGo.AddComponent<OdaGozden>(); h3.kam = hkam;
             app.oturum = oturum; app.kamera = kamYon; app.oklusyon = okl; app.duzlem = duzlem;
             app.isin = isin; app.nokta = pc; app.arKamera = cam; app.isik = isik;
-            app.bulut = bulut; app.kayit = kayit; app.plan = planH; app.isaret = isaret; app.harita3b = h3; app.probe = probe; app.oda = odaY;
+            app.bulut = bulut; app.kayit = kayit; app.plan = planH; app.isaret = isaret; app.gozden = h3; app.probe = probe; app.oda = odaY;
 
             EditorSceneManager.SaveScene(sahne, SahneYolu);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(SahneYolu, true) };

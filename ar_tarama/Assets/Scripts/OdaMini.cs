@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.Events;
 using UnityEngine.UI;
 
 namespace ArTarama
@@ -10,18 +9,18 @@ namespace ArTarama
     /// </summary>
     public class OdaMini
     {
-        public const float Yukseklik = 640f, AltBosluk = 154f;
+        public const float Yukseklik = 560f, AltBosluk = 150f;
         readonly OdaYoneticisi oda; readonly Camera arKam;
         readonly Camera cam; readonly RenderTexture rt; readonly OdaKatiModel model;
-        readonly Text bilgi, bos, ipucu;
+        readonly Text bilgi, bos;
         public readonly RectTransform kok;
         Vector3 merkez; float mesafe = 8f, yaw; bool basladi; float sonYazi;
         const float Fov = 30f, Egim = 45f;
 
-        public OdaMini(Transform ebeveyn, OdaYoneticisi oda, Camera arKam, UnityAction tikla)
+        public OdaMini(Transform ebeveyn, OdaYoneticisi oda, Camera arKam)
         {
             this.oda = oda; this.arKam = arKam;
-            rt = new RenderTexture(1024, 640, 24, RenderTextureFormat.ARGB32) { name = "OdaMiniRT", antiAliasing = 4, filterMode = FilterMode.Bilinear };
+            rt = new RenderTexture(1024, 560, 24, RenderTextureFormat.ARGB32) { name = "OdaMiniRT", antiAliasing = 4, filterMode = FilterMode.Bilinear };
             rt.Create();
             var go = new GameObject("OdaMiniKamera");
             cam = go.AddComponent<Camera>();
@@ -34,8 +33,8 @@ namespace ArTarama
             model = new OdaKatiModel(OdaYoneticisi.KatmanMini, oda.KatiMateryal, "OdaMiniModel");
 
             // arayuz: yuvarlak cam panel + maske + RenderTexture
-            var panel = UiKur.Kutu(ebeveyn, "OdaPanel", new Color(14 / 255f, 16 / 255f, 19 / 255f, 0.90f), true);
-            panel.raycastTarget = true;
+            var panel = UiKur.Kutu(ebeveyn, "OdaPanel", UiKur.PanelKoyu, true);
+            panel.raycastTarget = false;
             kok = panel.rectTransform;
             kok.anchorMin = new Vector2(0, 0); kok.anchorMax = new Vector2(1, 0); kok.pivot = new Vector2(0.5f, 0);
             kok.anchoredPosition = new Vector2(0, AltBosluk); kok.sizeDelta = new Vector2(-48, Yukseklik);
@@ -44,17 +43,13 @@ namespace ArTarama
             ri.texture = rt; ri.raycastTarget = false;
             UiKur.Tam(ri.rectTransform);
             var kenar = UiKur.Kutu(kok, "KenarUst", UiKur.Kenar, false, false); kenar.sprite = UiKur.YuvarlakKenar(); kenar.type = Image.Type.Sliced; UiKur.Tam(kenar.rectTransform);
-            var b = panel.gameObject.AddComponent<Button>(); b.targetGraphic = panel; b.transition = Selectable.Transition.None;
-            b.onClick.AddListener(tikla);
 
-            var etiket = UiKur.Metin(kok, "Etiket", "ODA MODELİ", 24, UiKur.Soluk, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var etiket = UiKur.Metin(kok, "Etiket", "ODA MODELİ", UiKur.Caption, UiKur.Soluk, TextAnchor.MiddleLeft, FontStyle.Bold);
             UiKur.Yerles(etiket.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(360, 34), new Vector2(30, -34));
-            bilgi = UiKur.Metin(kok, "Bilgi", "", 26, UiKur.MetinRenk, TextAnchor.MiddleRight, FontStyle.Bold);
+            bilgi = UiKur.Metin(kok, "Bilgi", "", UiKur.Body, UiKur.MetinRenk, TextAnchor.MiddleRight, FontStyle.Bold);
             UiKur.Yerles(bilgi.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(520, 34), new Vector2(-30, -34));
             bos = UiKur.Metin(kok, "Bos", "Odayı gezdikçe duvarlar ve eşyalar\nburada belirir", 30, UiKur.Soluk, TextAnchor.MiddleCenter);
             UiKur.Tam(bos.rectTransform, 40f);
-            ipucu = UiKur.Metin(kok, "Ipucu", "Büyütmek için dokun", 22, new Color(UiKur.Soluk.r, UiKur.Soluk.g, UiKur.Soluk.b, 0.85f), TextAnchor.MiddleRight);
-            UiKur.Yerles(ipucu.rectTransform, new Vector2(1, 0), new Vector2(1, 0), new Vector2(360, 30), new Vector2(-30, 26));
         }
 
         public void Yok()
@@ -66,17 +61,20 @@ namespace ArTarama
 
         public void Sifirla() { basladi = false; }
 
+        static int KesinSay(OdaGoruntu g) { int n = 0; foreach (var d in g.Duvarlar) if (d.kesin) n++; foreach (var k in g.Kutular) if (k.kesin) n++; return n; }
+
         public void Guncelle(float dt, bool goster)
         {
             cam.enabled = goster;
             kok.gameObject.SetActive(true);
-            if (!goster) { model.Guncelle(oda, null, false, false, Vector3.zero, 0f, true); return; }
+            if (!goster) { model.Guncelle(oda.Goruntu, null, false, false, Vector3.zero, 0f, true); return; }
 
             Vector3 kp = arKam.transform.position, f = arKam.transform.forward; f.y = 0;
             float uyaw = f.sqrMagnitude > 1e-4f ? Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg : yaw;
-            bool var = oda.ZeminVar && (oda.Duvarlar.Count > 0 || oda.Kutular.Count > 0 || oda.ZeminPoligon.Length >= 6);
-            if (!oda.ZeminVar) { kp.y = ArApp.ZeminVar ? ArApp.ZeminY : kp.y - 1.3f; }
-            model.Guncelle(oda, cam, var, true, kp, uyaw, true);
+            var gor = oda.Goruntu;
+            bool var = gor.ZeminVar && (KesinSay(gor) > 0);
+            if (!gor.ZeminVar) { kp.y = ArApp.ZeminVar ? ArApp.ZeminY : kp.y - 1.3f; }
+            model.Guncelle(gor, cam, var, true, kp, uyaw, true);
 
             Vector3 hedef = model.Dolu ? model.Merkez : kp;
             float R = model.Dolu ? model.Yaricap : 2f;
@@ -93,7 +91,8 @@ namespace ArTarama
             if (Time.unscaledTime - sonYazi > 0.3f)
             {
                 sonYazi = Time.unscaledTime;
-                bilgi.text = oda.Duvarlar.Count == 0 && oda.Kutular.Count == 0 ? "" : oda.Duvarlar.Count + " duvar · " + oda.Kutular.Count + " eşya";
+                int nd = 0, nk = 0; foreach (var d in gor.Duvarlar) if (d.kesin) nd++; foreach (var k2 in gor.Kutular) if (k2.kesin) nk++;
+                bilgi.text = nd + nk == 0 ? "" : nd + " duvar · " + nk + " eşya";
             }
         }
     }

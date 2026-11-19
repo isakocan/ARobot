@@ -11,9 +11,9 @@ using UnityEngine.XR.ARSubsystems;
 
 namespace ArTarama
 {
-    public enum Mod { Baslangic, Tarama, Ozet, Harita }
+    public enum Mod { Baslangic, Tarama, Gozden }
 
-    /// <summary>Ana denetleyici: tarama akisi, durum/yonlendirme, nesne koyma, isik. Arayuz ArApp.Ui.cs, isik ArApp.Isik.cs.</summary>
+    /// <summary>Ana denetleyici: tarama akisi, yonlendirme kocu, nesne koyma, isik. Arayuz ArApp.Ui.cs, isik ArApp.Isik.cs.</summary>
     public partial class ArApp : MonoBehaviour
     {
         public ARSession oturum;
@@ -29,27 +29,26 @@ namespace ArTarama
         public KayitYoneticisi kayit;
         public PlanHaritasi plan;
         public IsaretYoneticisi isaret;
-        public Harita3B harita3b;
+        public OdaGozden gozden;
         public OdaYoneticisi oda;
 
         public static ArApp Ornek { get; private set; }
         public static bool ZeminVar { get; private set; }
         public static float ZeminY { get; private set; }
         public bool Takipte { get; private set; }
+        public bool OncedenTakip => oncedenTakip;
         public long SonZamanNs { get; private set; } = -1;
         public float AciHizi { get; private set; }
         public float HizMs { get; private set; }
         public Mod mod = Mod.Baslangic;
 
-        readonly TaramaAkisi akis = new TaramaAkisi();
+        readonly OdaKoc koc = new OdaKoc();
         readonly List<GameObject> nesneler = new List<GameObject>();
         readonly List<ARRaycastHit> vurus = new List<ARRaycastHit>();
         Quaternion oncekiRot; Vector3 oncekiKonum;
-        float sonLog, fpsSure; int fpsKare; float sonFps = 60f;
+        float fpsSure; int fpsKare; float sonFps = 60f;
         bool oncedenTakip;
         float planBaslatBekle = -1f, sifirlaZamani = -100f;
-        float sonAdimZamani = -10f;
-        string adimLog = "";
 
         void Awake()
         {
@@ -63,6 +62,7 @@ namespace ArTarama
             QualitySettings.shadowCascades = 1;
             QualitySettings.shadowProjection = ShadowProjection.StableFit;
             QualitySettings.pixelLightCount = 2;
+            PlaneStyle.Goster = false;   // v4: AR duzlem agi gosterilmez (golge alici kalir)
             HaptikIzniAnahtari();
             UiHazirla();
         }
@@ -82,13 +82,13 @@ namespace ArTarama
             }
             if (duzlem != null) duzlem.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
             if (probe != null) probe.automaticPlacementRequested = true;
-            if (bulut != null) { bulut.yonetici = nokta; bulut.oklusyon = oklusyon; bulut.kamera = kamera; bulut.arKamera = arKamera; bulut.plan = plan; }
+            if (bulut != null) { bulut.yonetici = nokta; bulut.oklusyon = oklusyon; bulut.kamera = kamera; bulut.arKamera = arKamera; }
             if (plan != null) { plan.duzlem = duzlem; plan.arKamera = arKamera; }
             if (kayit != null) { kayit.kamera = kamera; kayit.oklusyon = oklusyon; kayit.duzlem = duzlem; kayit.nokta = bulut; kayit.arKamera = arKamera; kayit.plan = plan; kayit.isaret = isaret; }
-            if (isaret != null) { isaret.oklusyon = oklusyon; isaret.arKamera = arKamera; isaret.plan = plan; isaret.kayit = kayit; isaret.kaplama = kaplama; }
-            if (harita3b != null) { harita3b.bulut = bulut; harita3b.plan = plan; harita3b.arKamera = arKamera; }
-            if (oda != null) { oda.duzlem = duzlem; oda.bulut = bulut; oda.arKamera = arKamera; oda.plan = plan; oda.kayit = kayit; oda.harita3b = harita3b; }
-            arKamera.cullingMask &= ~((1 << Harita3B.OzelKatman) | (1 << OdaYoneticisi.KatmanMini) | (1 << OdaYoneticisi.KatmanHarita));
+            if (isaret != null) { isaret.oklusyon = oklusyon; isaret.arKamera = arKamera; isaret.plan = plan; isaret.kayit = kayit; isaret.YeniIsaret += IsaretKaydedildi; }
+            if (oda != null) { oda.duzlem = duzlem; oda.oklusyon = oklusyon; oda.kamera = kamera; oda.bulut = bulut; oda.arKamera = arKamera; oda.plan = plan; oda.kayit = kayit; }
+            if (gozden != null) { gozden.katiMateryal = oda != null ? oda.KatiMateryal : null; GozdenUiBagla(); }
+            arKamera.cullingMask &= ~((1 << OdaYoneticisi.KatmanMini) | (1 << OdaYoneticisi.KatmanHarita));
             oncekiRot = arKamera.transform.rotation; oncekiKonum = arKamera.transform.position;
             KayitlariListele();
             GosterMod(Mod.Baslangic);
@@ -109,7 +109,13 @@ namespace ArTarama
             while (true)
             {
                 yield return new WaitForSeconds(4f);
-                Debug.Log($"[ArTarama] durum: mod={mod} oturum={ARSession.state} neden={ARSession.notTrackingReason} kamera=({arKamera.transform.position.x:F2},{arKamera.transform.position.y:F2},{arKamera.transform.position.z:F2}) duzlem={(duzlem != null ? duzlem.trackables.count : 0)} nokta={(bulut != null ? bulut.Sayi : 0)} zemin={(ZeminVar ? ZeminY.ToString("F2") : "yok")} adim={adimLog} kare={(kayit != null ? kayit.KareSayisi : 0)} isaret={(isaret != null ? isaret.Toplam : 0)}({(isaret != null ? isaret.OrtMs : 0):F0}ms) ortDerinlik={(bulut != null ? bulut.OrtancaDerinlik : 0):F2}");
+                string duv = oda != null && oda.Son != null ? oda.Son.KesinDuvar + "/" + oda.Son.duvarlar.Count : "-";
+                string kut = oda != null && oda.Son != null ? oda.Son.KesinKutu + "/" + oda.Son.kutular.Count : "-";
+                Debug.Log("[ArTarama] durum: mod=" + mod + " oturum=" + ARSession.state + " neden=" + ARSession.notTrackingReason +
+                    " zemin=" + (ZeminVar ? ZeminY.ToString("F2") : "yok") + " kare=" + (kayit != null ? kayit.KareSayisi : 0) +
+                    " isaret=" + (isaret != null ? isaret.Toplam : 0) + " ortDerinlik=" + (bulut != null ? bulut.OrtancaDerinlik : 0).ToString("F2") +
+                    " voksel=" + (oda != null ? oda.VokselSayisi : 0) + " isle=" + (oda != null ? oda.IsleMs : 0).ToString("F1") + "ms yapi=" + (oda != null ? oda.YapiMs : 0).ToString("F1") +
+                    "ms duvar=" + duv + " kutu=" + kut + " koc=\"" + koc.Mevcut.yazi + "\"");
             }
         }
 
@@ -157,13 +163,6 @@ namespace ArTarama
                 if (d != null)
                     Debug.Log($"[ArTarama] ISIK destek: dunyaAmbient={d.supportsWorldTrackingAmbientIntensityLightEstimation} dunyaHDR={d.supportsWorldTrackingHDRLightEstimation} parlaklik={d.supportsAverageBrightness} renkSicakligi={d.supportsAverageColorTemperature} renkDuzeltme={d.supportsColorCorrection} lumen={d.supportsAverageIntensityInLumens} yapilandirma={d.supportsCameraConfigurations}");
             }
-            if (probe != null)
-            {
-                var d = probe.descriptor;
-                Debug.Log(d == null || probe.subsystem == null
-                    ? "[ArTarama] ORTAM PROBU: altsistem yok (bu cihazda/ARCore'da desteklenmiyor); yansima SH'den uretilen kupten alinacak"
-                    : $"[ArTarama] ORTAM PROBU destek: otomatik={d.supportsAutomaticPlacement} doku={d.supportsEnvironmentTexture} hdr={d.supportsEnvironmentTextureHDR}");
-            }
         }
 
         // ---------------- mod gecisleri ----------------
@@ -174,16 +173,13 @@ namespace ArTarama
             mod = m;
             if (ekranBaslangic != null) ekranBaslangic.Goster(m == Mod.Baslangic);
             if (ekranHud != null) ekranHud.Goster(m == Mod.Tarama);
-            if (ekranOzet != null) ekranOzet.Goster(m == Mod.Ozet);
-            if (ekranHarita != null) ekranHarita.Goster(m == Mod.Harita);
-            bool haritada = m == Mod.Harita;
-            if (arKamera != null) arKamera.enabled = !haritada;
-            if (harita3b != null) { if (haritada) harita3b.Ac(); else harita3b.Kapat(); }
-            if (kayit != null) kayit.Duraklat = haritada;
+            if (ekranGozden != null) ekranGozden.Goster(m == Mod.Gozden);
+            bool gozdende = m == Mod.Gozden;
+            if (arKamera != null) arKamera.enabled = !gozdende;
+            if (kayit != null) kayit.Duraklat = gozdende;
             if (bulut != null) bulut.Aktif = m == Mod.Tarama && PuruzsuzBaslangicTamam();
-            if (isaret != null && kaplama != null) kaplama.gameObject.SetActive(m == Mod.Tarama);
             if (oda != null) oda.Aktif = m == Mod.Tarama;
-            if (bulut != null && !haritada) bulut.Goster = true;
+            Application.targetFrameRate = gozdende ? 60 : 30;
             if (odaMini != null && m != Mod.Tarama) odaMini.Guncelle(0.016f, false);
         }
 
@@ -191,28 +187,21 @@ namespace ArTarama
 
         public void YeniTarama()
         {
+            if (gozden != null && gozden.Acik) gozden.Kapat();
             if (kayit != null && kayit.Kayitta) kayit.Durdur(false);
             TemizleHepsi(true);
-            kayit.AdimNotu = "";
             kayit.Baslat();
-            akis.Sifirla();
-            adimLog = "0";
+            koc.Sifirla();
             GosterMod(Mod.Tarama);
-            sonAdimZamani = Time.unscaledTime;
-            AdimArayuzunuYenile(true);
-            Toast("Tarama başladı, kayıt otomatik");
         }
 
-        /// <summary>Sifirla: oturum, bulut, harita ve kayit klasoru silinir, 1. adima donulur.</summary>
+        /// <summary>Sifirla: oturum, kanit izgarasi ve kayit klasoru silinir, bastan baslanir.</summary>
         public void SifirlaTarama()
         {
             TemizleHepsi(true);
             if (kayit != null) { kayit.Sil(); kayit.Baslat(); }
-            akis.Sifirla();
-            adimLog = "0";
-            sonAdimZamani = Time.unscaledTime;
-            AdimArayuzunuYenile(true);
-            Toast("Tarama silindi, baştan başla");
+            koc.Sifirla();
+            Toast("Tarama silindi, baştan başlayabilirsin");
         }
 
         void TemizleHepsi(bool oturumuSifirla)
@@ -222,7 +211,6 @@ namespace ArTarama
             oncedenTakip = false;
             if (bulut != null) bulut.Temizle();
             if (plan != null) plan.Temizle();
-            if (harita3b != null) harita3b.Temizle();
             if (oda != null) oda.Temizle();
             if (odaMini != null) odaMini.Sifirla();
             if (isaret != null) isaret.Sifirla();
@@ -230,31 +218,25 @@ namespace ArTarama
             planBaslatBekle = Time.unscaledTime;
             ZeminVar = false;
             if (bulut != null) bulut.Aktif = false;
+            isaretChipGoruldu.Clear();
         }
 
-        public void Bitir(bool tamam)
+        /// <summary>Bitir: kayit kapanir, oda.json yazilir, inceleme ekrani acilir.</summary>
+        public void Bitir()
         {
+            var s = oda != null ? oda.Son : null;
             if (kayit != null && kayit.Kayitta)
             {
-                kayit.AdimNotu = adimLog;
                 if (oda != null) oda.Kaydet();   // oda.json son hali (klasor hala acik)
-                kayit.Durdur(tamam);
+                kayit.Durdur(true);
             }
-            OzetiDoldur();
-            GosterMod(Mod.Ozet);
-        }
-
-        public void HaritayiAc()
-        {
-            haritaOncesi = mod == Mod.Harita ? haritaOncesi : mod;
-            GosterMod(Mod.Harita);
-            HaritaAcildi();
-        }
-
-        Mod haritaOncesi = Mod.Tarama;
-        public void HaritadanDon()
-        {
-            GosterMod(haritaOncesi == Mod.Harita ? Mod.Tarama : haritaOncesi);
+            if (s == null || (s.KesinDuvar == 0 && s.KesinKutu == 0))
+            {
+                GosterMod(Mod.Baslangic); KayitlariListele();
+                Toast("Henüz duvar ya da eşya bulunamadı");
+                return;
+            }
+            GozdenAc(OdaGoruntu.Sonuctan(s), kayit != null ? kayit.Oda : "Oda");
         }
 
         // ---------------- ana dongu ----------------
@@ -282,8 +264,7 @@ namespace ArTarama
             if (mod == Mod.Tarama && bulut != null) bulut.Aktif = PuruzsuzBaslangicTamam() && Takipte;
 
             if (mod == Mod.Tarama) TaramaGuncelle(dt);
-            else if (mod == Mod.Harita) HaritaGuncelle();
-            else if (mod == Mod.Baslangic || mod == Mod.Ozet) { /* arka planda sadece AR */ }
+            else if (mod == Mod.Gozden) GozdenGuncelle();
 
             ToastGuncelle();
             if (mod == Mod.Tarama && !ModalAcik) DokunmaIsle();
@@ -295,7 +276,7 @@ namespace ArTarama
             if (fpsSure >= 5f)
             {
                 sonFps = fpsKare / fpsSure;
-                Debug.Log($"[ArTarama] FPS ort={sonFps:F1} (5 sn) mod={mod} nokta={(bulut != null ? bulut.Sayi : 0)}");
+                Debug.Log($"[ArTarama] FPS ort={sonFps:F1} (5 sn) mod={mod} voksel={(oda != null ? oda.VokselSayisi : 0)}");
                 fpsSure = 0; fpsKare = 0;
             }
         }
@@ -312,47 +293,40 @@ namespace ArTarama
             ZeminVar = var; ZeminY = var ? y : 0f;
         }
 
-        // ---------------- tarama adimlari ----------------
+        // ---------------- tarama: yonlendirme kocu ----------------
+        float sonKocZamani;
+        KocMesaj kocMesaj = new KocMesaj();
+
         void TaramaGuncelle(float dt)
         {
-            bool isaretBitti = isaretAdimiBitti || (isaret != null && isaret.HepsiTamam);
-            akis.Isle(dt, arKamera.transform, ZeminVar, ZeminY, AciHizi, Takipte, 0f, isaretBitti);
-            // adim tamamlama
-            if (akis.Mevcut < TaramaAkisi.AdimSayisi && Time.unscaledTime - sonAdimZamani > 1.0f && !ModalAcik)
+            if (Time.unscaledTime - sonKocZamani >= 0.2f)
             {
-                if (akis.AdimKosuluSaglandi(akis.Mevcut, isaretBitti))
-                    AdimiBitir(false);
+                sonKocZamani = Time.unscaledTime;
+                var tr = arKamera.transform; var f = tr.forward;
+                float yaw = Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg; if (yaw < 0) yaw += 360f;
+                float pitch = Mathf.Asin(Mathf.Clamp(f.y, -1f, 1f)) * Mathf.Rad2Deg;
+                if (new Vector2(f.x, f.z).magnitude < 0.35f)   // telefon cok dik: ust yonunden yaw
+                {
+                    Vector3 u = tr.up; yaw = Mathf.Atan2(u.x, u.z) * Mathf.Rad2Deg; if (f.y < 0) yaw += 180f; yaw = (yaw + 720f) % 360f;
+                }
+                int neden = 0;
+                switch (ARSession.notTrackingReason)
+                {
+                    case NotTrackingReason.ExcessiveMotion: neden = 1; break;
+                    case NotTrackingReason.InsufficientLight: neden = 2; break;
+                    case NotTrackingReason.InsufficientFeatures: neden = 3; break;
+                    case NotTrackingReason.Relocalizing: neden = 4; break;
+                    case NotTrackingReason.Initializing: neden = 5; break;
+                }
+                var gi = new KocGirdi
+                {
+                    takipte = Takipte, oncedenTakip = oncedenTakip, neden = neden, hizli = AciHizi > 75f || HizMs > 0.7f,
+                    ortancaDerinlik = bulut != null ? bulut.OrtancaDerinlik : -1f, guvenOrani = oda != null ? oda.GuvenOrani : -1f,
+                    kx = tr.position.x, ky = tr.position.y, kz = tr.position.z, yaw = yaw, pitch = pitch, zaman = Time.unscaledTime, sonuc = oda != null ? oda.Son : null
+                };
+                kocMesaj = koc.Guncelle(gi);
             }
-            adimLog = akis.Mevcut.ToString();
             TaramaArayuzuGuncelle(dt);
-        }
-
-        bool isaretAdimiBitti;
-
-        public void AdimiBitir(bool atlandi)
-        {
-            int m = akis.Mevcut;
-            if (m >= TaramaAkisi.AdimSayisi) return;
-            akis.Tamamlandi[m] = true; akis.Atlandi[m] = atlandi;
-            if (!atlandi) { Haptik(); BasariGoster(); }
-            akis.Mevcut = m + 1;
-            sonAdimZamani = Time.unscaledTime;
-            AdimArayuzunuYenile(false);
-            if (akis.Mevcut >= TaramaAkisi.AdimSayisi) Toast("Tüm adımlar tamam, taramayı bitirebilirsin");
-        }
-
-        public void AdimaGeri()
-        {
-            if (akis.Mevcut <= 0) return;
-            if (akis.Mevcut >= TaramaAkisi.AdimSayisi) akis.Mevcut = TaramaAkisi.AdimSayisi;
-            akis.Mevcut = Mathf.Max(0, akis.Mevcut - 1);
-            int m = akis.Mevcut;
-            akis.Tamamlandi[m] = false; akis.Atlandi[m] = false;
-            int k = TaramaAkisi.KategoriDe(m);
-            if (k >= 0) System.Array.Clear(akis.Ilerleme[k], 0, TaramaAkisi.Sektor);
-            if (m == TaramaAkisi.Isaret) isaretAdimiBitti = false;
-            sonAdimZamani = Time.unscaledTime;
-            AdimArayuzunuYenile(false);
         }
 
         // ---------------- dokunma / nesne koyma ----------------
@@ -392,7 +366,7 @@ namespace ArTarama
                 if (Mathf.Abs(h.pose.position.y - ZeminY) > 0.15f) continue;
                 var yerel = p.transform.InverseTransformPoint(h.pose.position);
                 if (KenarMesafesi(p.boundary, new Vector2(yerel.x, yerel.z)) < 0.25f) continue;
-                if (oda != null && !oda.AcikZeminMi(h.pose.position)) continue;   // kutu/duvar yakininda konmaz
+                if (oda != null && !oda.AcikZeminMi(h.pose.position)) continue;   // bos zemin kaniti yok / kutu-duvar yakininda konmaz
                 if (DerinlikEngelli(sp, h.pose.position)) continue;
                 pose = h.pose;
                 return true;

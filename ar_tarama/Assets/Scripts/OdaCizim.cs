@@ -5,8 +5,9 @@ using UnityEngine.Rendering;
 namespace ArTarama
 {
     /// <summary>
-    /// AR goruntusunun ustune RoomPlan tarzi canli oda cizgileri: duvar tabani/tavan kenari/koseler ince beyaz parlayan cizgi,
-    /// duvarlar cok hafif beyaz, esyalar yari saydam kutu. Cizgiler kamera yonlu seritlerdir (ArTarama/OdaCizgi, ekran uzayinda sabit kalinlik).
+    /// AR goruntusunun ustune RoomPlan tarzi canli oda cizgileri. Kesin duvar: net beyaz zemin/tavan cizgisi, dikey kose cizgileri,
+    /// kose isaretleri, cok hafif ton; kesinlesince cizilerek acilir. Aday duvar: ince kesik cizgi. Kesin kutu: net beyaz kenar +
+    /// cok hafif dolgu, yumusak belirme. Aday kutu: yalniz soluk kose ayraclari. Cizgiler kamera yonlu seritlerdir (ArTarama/OdaCizgi).
     /// </summary>
     public class OdaArCizim
     {
@@ -41,6 +42,8 @@ namespace ArTarama
 
         public void Temizle() { mCizgi.Clear(); mDolgu.Clear(); }
 
+        static float Yum(float x) { x = Mathf.Clamp01(x); return x * x * (3f - 2f * x); }
+
         public void Guncelle(OdaYoneticisi y, Camera kam, bool goster)
         {
             rc.enabled = rd.enabled = goster;
@@ -48,28 +51,47 @@ namespace ArTarama
             cv.Clear(); co.Clear(); cu.Clear(); cc.Clear(); ci.Clear(); dv.Clear(); dc.Clear(); di.Clear(); koseler.Clear();
             camPos = kam.transform.position; camFwd = kam.transform.forward;
             float simdi = Time.unscaledTime;
-            float zy = y.GZeminY, yuk = Mathf.Max(1.5f, y.GTavanY - y.GZeminY);
-            mc.SetFloat("_Genislik", Mathf.Max(2.2f, 3f * Screen.height / 2400f));
-            mc.SetFloat("_Parilti", Mathf.Max(7f, 11f * Screen.height / 2400f));
+            var g = y.Goruntu;
+            float zy = g.GZeminY, yuk = Mathf.Max(1.5f, g.GTavanY - g.GZeminY);
+            mc.SetFloat("_Genislik", Mathf.Max(2.2f, 3.2f * Screen.height / 2400f));
+            mc.SetFloat("_Parilti", Mathf.Max(3.5f, 6f * Screen.height / 2400f));
+            float tavanA = g.TavanTahmin ? 0.5f : 0.8f;
 
-            foreach (var d in y.Duvarlar)
+            foreach (var d in g.Duvarlar)
             {
-                float ac = d.Acilis(simdi), h = yuk * ac, fade = Mathf.Clamp01(ac * 2.5f);
                 var a0 = new Vector3(d.ax, zy, d.az); var b0 = new Vector3(d.bx, zy, d.bz);
-                var a1 = a0 + Vector3.up * h; var b1 = b0 + Vector3.up * h;
-                Cizgi(a0, b0, fade);                   // zemin kenari
-                Cizgi(a1, b1, 0.85f * fade);           // tavan kenari
-                if (Yeni(d.ax, d.az)) Cizgi(a0, a1, fade);   // dikey kose cizgileri (ortak koseler bir kez)
-                if (Yeni(d.bx, d.bz)) Cizgi(b0, b1, fade);
-                Dolgu(a0, b0, b1, a1, new Color(1f, 1f, 1f, 0.06f * fade));
+                if (!d.kesin)
+                {
+                    float al = 0.22f + 0.13f * d.ilerleme;     // ~%35
+                    Kesik(a0, b0, al, 0.7f);
+                    Kesik(a0 + Vector3.up * yuk, b0 + Vector3.up * yuk, al * 0.7f, 0.6f);
+                    continue;
+                }
+                float ac = d.Acilis(simdi);
+                float p1 = Yum(ac / 0.5f), p2 = Yum((ac - 0.3f) / 0.4f), p3 = Yum((ac - 0.6f) / 0.4f);
+                var m0 = (a0 + b0) * 0.5f;
+                Cizgi(Vector3.Lerp(m0, a0, p1), Vector3.Lerp(m0, b0, p1), 0.95f, 1f);             // zemin
+                float h = yuk * p2;
+                var a1 = a0 + Vector3.up * h; var b1 = b0 + Vector3.up * h; var m1 = (a1 + b1) * 0.5f;
+                if (p3 > 0f) Cizgi(Vector3.Lerp(m1, a1, p3), Vector3.Lerp(m1, b1, p3), tavanA, 1f);   // tavan kenari
+                if (d.aKose && Yeni(d.ax, d.az)) Cizgi(a0, a1, 0.8f * p2, 1f);                        // dikey kose cizgileri
+                if (d.bKose && Yeni(d.bx, d.bz)) Cizgi(b0, b1, 0.8f * p2, 1f);
+                // kose isaretleri: zeminde iki yone kisa kalin ayrac (iki duvar birlesince L olur)
+                Vector3 e = (b0 - a0); float L = e.magnitude; if (L > 0.05f)
+                {
+                    e /= L; float kol = Mathf.Min(0.2f, L * 0.3f) * p1;
+                    if (d.aKose) Cizgi(a0, a0 + e * kol, 1f, 2.1f);
+                    if (d.bKose) Cizgi(b0, b0 - e * kol, 1f, 2.1f);
+                }
+                Dolgu(a0, b0, b1, a1, new Color(1f, 1f, 1f, 0.035f * p2));
             }
 
-            foreach (var b in y.Kutular)
+            foreach (var b in g.Kutular)
             {
-                float s = b.Olcek(simdi), v = b.Gorunurluk(simdi);
-                float tab = b.cy - b.sy * 0.5f;
                 double r = b.aci * Mathf.Deg2Rad;
                 var u = new Vector3((float)System.Math.Cos(r), 0, (float)System.Math.Sin(r)); var w = new Vector3(-u.z, 0, u.x);
+                float s = b.Olcek(simdi), v = b.Gorunurluk(simdi);
+                float tab = b.cy - b.sy * 0.5f;
                 float hx = b.sx * 0.5f * s, hz = b.sz * 0.5f * s, hy = b.sy * s;
                 var taban = new Vector3(b.cx, tab, b.cz);
                 var p = new Vector3[8];
@@ -79,14 +101,30 @@ namespace ArTarama
                     p[i] = taban + u * (sx * hx) + w * (sz * hz);
                     p[i + 4] = p[i] + Vector3.up * hy;
                 }
-                // halka sirasi: 0(-,-) 1(+,-) 2(+,+) 3(-,+)
-                for (int i = 0; i < 4; i++)
+                if (b.kesin)
                 {
-                    int j = (i + 1) % 4;
-                    Cizgi(p[i], p[j], 0.9f * v); Cizgi(p[i + 4], p[j + 4], 0.9f * v); Cizgi(p[i], p[i + 4], 0.9f * v);
-                    Dolgu(p[i], p[j], p[j + 4], p[i + 4], new Color(1f, 1f, 1f, 0.11f * v));
+                    for (int i = 0; i < 4; i++)
+                    {
+                        int j = (i + 1) % 4;
+                        Cizgi(p[i], p[j], 0.9f * v, 0.9f); Cizgi(p[i + 4], p[j + 4], 0.9f * v, 0.9f); Cizgi(p[i], p[i + 4], 0.9f * v, 0.9f);
+                        Dolgu(p[i], p[j], p[j + 4], p[i + 4], new Color(1f, 1f, 1f, 0.06f * v));
+                    }
+                    Dolgu(p[4], p[5], p[6], p[7], new Color(1f, 1f, 1f, 0.09f * v));
                 }
-                Dolgu(p[4], p[5], p[6], p[7], new Color(1f, 1f, 1f, 0.14f * v));
+                else
+                {
+                    float kol = Mathf.Min(0.10f, 0.3f * Mathf.Min(b.sx, Mathf.Min(b.sz, b.sy)));
+                    float al = 0.30f + 0.15f * b.ilerleme;
+                    for (int i = 0; i < 8; i++)
+                    {
+                        int n1 = (i & 3) == 3 ? i - 3 : i + 1, n2 = (i & 3) == 0 ? i + 3 : i - 1, n3 = i < 4 ? i + 4 : i - 4;
+                        foreach (int n in new[] { n1, n2, n3 })
+                        {
+                            Vector3 dir = (p[n] - p[i]); float l = dir.magnitude; if (l < 1e-4f) continue;
+                            Cizgi(p[i], p[i] + dir / l * Mathf.Min(kol, l * 0.5f), al, 0.8f);
+                        }
+                    }
+                }
             }
 
             mCizgi.Clear();
@@ -105,11 +143,19 @@ namespace ArTarama
 
         bool Yeni(float x, float z)
         {
-            foreach (var k in koseler) if ((k.x - x) * (k.x - x) + (k.y - z) * (k.y - z) < 0.05f * 0.05f) return false;
+            foreach (var k in koseler) if ((k.x - x) * (k.x - x) + (k.y - z) * (k.y - z) < 0.06f * 0.06f) return false;
             koseler.Add(new Vector2(x, z)); return true;
         }
 
-        void Cizgi(Vector3 a, Vector3 b, float alfa)
+        /// <summary>Kesik cizgi: 9 cm cizgi + 9 cm bosluk.</summary>
+        void Kesik(Vector3 a, Vector3 b, float alfa, float gen)
+        {
+            Vector3 e = b - a; float L = e.magnitude; if (L < 0.05f) return; e /= L;
+            const float cz = 0.09f, bs = 0.09f;
+            for (float t = 0; t < L; t += cz + bs) Cizgi(a + e * t, a + e * Mathf.Min(L, t + cz), alfa, gen);
+        }
+
+        void Cizgi(Vector3 a, Vector3 b, float alfa, float gen)
         {
             if (alfa <= 0.003f) return;
             const float yakin = 0.12f;
@@ -118,10 +164,10 @@ namespace ArTarama
             if (da < 0) a = Vector3.Lerp(a, b, -da / (db - da)); else if (db < 0) b = Vector3.Lerp(b, a, -db / (da - db));
             var c = new Color(1f, 1f, 1f, alfa);
             int n = cv.Count;
-            cv.Add(a); co.Add(b); cu.Add(new Vector2(0, -1)); cc.Add(c);
-            cv.Add(a); co.Add(b); cu.Add(new Vector2(0, 1)); cc.Add(c);
-            cv.Add(b); co.Add(a); cu.Add(new Vector2(1, 1)); cc.Add(c);     // b ucunda yan isareti ters (ustten dogru serit)
-            cv.Add(b); co.Add(a); cu.Add(new Vector2(1, -1)); cc.Add(c);
+            cv.Add(a); co.Add(b); cu.Add(new Vector2(gen, -1)); cc.Add(c);
+            cv.Add(a); co.Add(b); cu.Add(new Vector2(gen, 1)); cc.Add(c);
+            cv.Add(b); co.Add(a); cu.Add(new Vector2(gen, 1)); cc.Add(c);
+            cv.Add(b); co.Add(a); cu.Add(new Vector2(gen, -1)); cc.Add(c);
             ci.Add(n); ci.Add(n + 1); ci.Add(n + 2); ci.Add(n); ci.Add(n + 2); ci.Add(n + 3);
         }
 
@@ -135,8 +181,8 @@ namespace ArTarama
     }
 
     /// <summary>
-    /// Duz golgeli katı oda modeli (alt mini panel ve 3B harita): zemin poligonu, ince duvar panelleri (ust kenari koyu),
-    /// esya kutulari ve istege bagli kullanici noktasi + yon konisi. Her ornek kendi katmaninda cizilir.
+    /// Duz golgeli katı oda modeli (alt mini panel ve inceleme ekrani): koyu zemin, kalin beyaz duvarlar (ust kenar parlak),
+    /// acik renk kutular ve istege bagli kullanici noktasi + yon konisi. Yalniz KESIN geometri cizilir.
     /// </summary>
     public class OdaKatiModel
     {
@@ -148,9 +194,11 @@ namespace ArTarama
         public Vector3 Merkez { get; private set; }
         public float Yaricap { get; private set; } = 2f;
         public bool Dolu { get; private set; }
+        public Bounds Sinir { get; private set; }
+        public const float DuvarKalinlik = 0.10f;
 
-        static readonly Color32 ZeminRenk = new Color32(228, 232, 238, 255), DuvarYan = new Color32(196, 202, 212, 255), DuvarUst = new Color32(64, 72, 86, 255),
-            KutuUst = new Color32(250, 252, 255, 255), KutuYan = new Color32(206, 220, 244, 255);
+        static readonly Color32 ZeminRenk = new Color32(46, 52, 60, 255), DuvarYan = new Color32(214, 218, 225, 255), DuvarUst = new Color32(250, 251, 253, 255),
+            KutuUst = new Color32(255, 255, 255, 255), KutuYan = new Color32(186, 204, 214, 255);
         static readonly Color32 Vurgu = new Color32(0x43, 0xD9, 0xBE, 255), Koni = new Color32(0x8F, 0xEC, 0xDD, 255), Hale = new Color32(255, 255, 255, 255);
 
         public OdaKatiModel(int katman, Material mat, string ad)
@@ -165,7 +213,7 @@ namespace ArTarama
         public void Yok() { Object.Destroy(go); Object.Destroy(mesh); }
 
         /// <summary>Modeli yeniden uretir. kam: duvar kesme (yakin duvarlari alcaltma) icin bakis kamerasi.</summary>
-        public void Guncelle(OdaYoneticisi y, Camera kam, bool goster, bool kullanici, Vector3 kPos, float kYaw, bool kesmeli)
+        public void Guncelle(OdaGoruntu y, Camera kam, bool goster, bool kullanici, Vector3 kPos, float kYaw, bool kesmeli)
         {
             mr.enabled = goster;
             if (!goster) return;
@@ -173,50 +221,48 @@ namespace ArTarama
             float zy = y.GZeminY, yuk = Mathf.Max(1.5f, y.GTavanY - y.GZeminY);
             float simdi = Time.unscaledTime, dt = Mathf.Max(Time.unscaledDeltaTime, 0.001f);
 
-            // sinirlar
             bool bos = true; Bounds bnd = new Bounds();
             System.Action<Vector3> kap = p => { if (bos) { bnd = new Bounds(p, Vector3.zero); bos = false; } else bnd.Encapsulate(p); };
             var zp = y.ZeminPoligon;
             for (int i = 0; i + 1 < zp.Length; i += 2) kap(new Vector3(zp[i], zy, zp[i + 1]));
-            foreach (var d in y.Duvarlar) { kap(new Vector3(d.ax, zy, d.az)); kap(new Vector3(d.bx, zy + yuk, d.bz)); }
-            foreach (var b in y.Kutular) kap(new Vector3(b.cx, b.cy, b.cz));
+            foreach (var d in y.Duvarlar) if (d.kesin) { kap(new Vector3(d.ax, zy, d.az)); kap(new Vector3(d.bx, zy + yuk, d.bz)); }
+            foreach (var b in y.Kutular) if (b.kesin) kap(new Vector3(b.cx, b.cy, b.cz));
             if (kullanici) kap(kPos);
-            Dolu = !bos;
+            Dolu = !bos; Sinir = bnd;
             if (!bos) { Merkez = new Vector3(bnd.center.x, zy + yuk * 0.25f, bnd.center.z); Yaricap = Mathf.Max(1.6f, 0.5f * new Vector2(bnd.size.x, bnd.size.z).magnitude + 0.2f); }
             float olcek = Mathf.Clamp(Yaricap * 0.06f, 0.07f, 0.28f);
 
-            // zemin (bukey poligon, merkezden yelpaze)
+            // zemin (basit coklu gen: kulak kesme)
             int zn = zp.Length / 2;
             if (zn >= 3)
             {
-                float mx = 0, mz = 0; for (int i = 0; i < zn; i++) { mx += zp[i * 2]; mz += zp[i * 2 + 1]; }
-                mx /= zn; mz /= zn;
-                var m0 = new Vector3(mx, zy, mz);
-                for (int i = 0; i < zn; i++)
-                {
-                    int j = (i + 1) % zn;
-                    Uc(m0, new Vector3(zp[j * 2], zy, zp[j * 2 + 1]), new Vector3(zp[i * 2], zy, zp[i * 2 + 1]), Vector3.up, ZeminRenk);
-                }
+                var pl = new List<double[]>(); for (int i = 0; i < zn; i++) pl.Add(new double[] { zp[i * 2], zp[i * 2 + 1] });
+                var tri = OdaGeo.Ucgenle(pl);
+                for (int i = 0; i + 2 < tri.Count; i += 3)
+                    Uc(new Vector3(zp[tri[i] * 2], zy, zp[tri[i] * 2 + 1]), new Vector3(zp[tri[i + 2] * 2], zy, zp[tri[i + 2] * 2 + 1]), new Vector3(zp[tri[i + 1] * 2], zy, zp[tri[i + 1] * 2 + 1]), Vector3.up, ZeminRenk);
             }
 
-            // duvarlar
+            // duvarlar: ic yuz cizgide, kalinlik disa dogru
             Vector3 bf = kam != null ? kam.transform.forward : Vector3.forward; bf.y = 0f; if (bf.sqrMagnitude > 1e-4f) bf.Normalize();
             foreach (var d in y.Duvarlar)
             {
+                if (!d.kesin) continue;
                 float ac = d.Acilis(simdi);
                 Vector3 a = new Vector3(d.ax, zy, d.az), b = new Vector3(d.bx, zy, d.bz);
                 Vector3 e = b - a; float len = e.magnitude; if (len < 0.05f) continue; e /= len;
                 Vector3 nn = new Vector3(d.nx, 0, d.nz);
                 float hedef = 1f;
-                if (kesmeli && kam != null && Vector3.Dot(nn, bf) > 0.30f) hedef = 0.16f;   // kameraya yakin duvar alcalir (maket kesiti)
+                if (kesmeli && kam != null && Vector3.Dot(nn, bf) > 0.30f) hedef = 0.14f;   // kameraya yakin duvar alcalir (maket kesiti)
                 kesme.TryGetValue(d.id, out float kv); if (kv <= 0f) kv = 1f;
                 kv += (hedef - kv) * (1f - Mathf.Exp(-6f * dt)); kesme[d.id] = kv;
-                Kutu((a + b) * 0.5f, e, nn, len * 0.5f + 0.03f, 0.03f, yuk * kv * ac, DuvarUst, DuvarYan);
+                Vector3 orta = (a + b) * 0.5f - nn * (DuvarKalinlik * 0.5f);
+                Kutu(orta, e, nn, len * 0.5f + DuvarKalinlik * 0.5f, DuvarKalinlik * 0.5f, yuk * kv * Mathf.Max(ac, 0.02f), DuvarUst, DuvarYan);
             }
 
             // esyalar
             foreach (var b in y.Kutular)
             {
+                if (!b.kesin) continue;
                 float s = b.Olcek(simdi);
                 double r = b.aci * Mathf.Deg2Rad;
                 var u = new Vector3((float)System.Math.Cos(r), 0, (float)System.Math.Sin(r)); var w = new Vector3(-u.z, 0, u.x);

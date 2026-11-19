@@ -8,8 +8,9 @@ namespace ArTarama
     public static class UiKur
     {
         // ---- renk belirteclari ----
-        public static readonly Color Panel = new Color(18 / 255f, 20 / 255f, 24 / 255f, 0.78f);
-        public static readonly Color PanelKoyu = new Color(14 / 255f, 16 / 255f, 19 / 255f, 0.94f);
+        public const int Title = 46, Body = 32, Caption = 26;   // tek yazi olcegi (1080 genislikli referans)
+        public static readonly Color Panel = new Color(16 / 255f, 18 / 255f, 22 / 255f, 0.85f);
+        public static readonly Color PanelKoyu = new Color(16 / 255f, 18 / 255f, 22 / 255f, 0.92f);
         public static readonly Color Cam = new Color(1f, 1f, 1f, 0.07f);
         public static readonly Color Kenar = new Color(1f, 1f, 1f, 0.11f);
         public static readonly Color Vurgu = new Color(0x43 / 255f, 0xD9 / 255f, 0xBE / 255f, 1f);
@@ -22,7 +23,7 @@ namespace ArTarama
         public static readonly Color Siyah60 = new Color(0f, 0f, 0f, 0.60f);
 
         static Font font;
-        static Sprite yuvarlak, yuvarlakKenar, daire, halka, ok, tik, chevronAsagi, chevronSag, carpi, ucgen, yenile;
+        static Sprite yuvarlak, yuvarlakKenar, daire, halka, ok, tik, chevronAsagi, chevronSag, carpi, ucgen, yenile, uyariS, bilgiS, bekleS;
 
         public static Font Yazi
         {
@@ -188,6 +189,55 @@ namespace ArTarama
             return ucgen;
         }
 
+
+        /// <summary>Uyari ucgeni (icinde unlem oyugu).</summary>
+        public static Sprite UyariIkon()
+        {
+            if (uyariS != null) return uyariS;
+            const int n = 96;
+            uyariS = Uret(n, (x, y) =>
+            {
+                // tepe (48,84), taban (10,16)-(86,16); yuvarlatilmis kenar yaklasigi icin mesafe tabanli
+                float ty = (y - 16f) / 68f; if (ty < 0f || ty > 1f) return 0f;
+                float yarim = (1f - ty) * 38f;
+                float tri = Mathf.Clamp01(yarim - Mathf.Abs(x - 48f) - 1f + 0.5f);
+                float cubuk = Mathf.Clamp01(5f - Seg(new Vector2(x, y), new Vector2(48, 34), new Vector2(48, 56)) + 0.5f);
+                float nokta = Mathf.Clamp01(5.5f - Vector2.Distance(new Vector2(x, y), new Vector2(48, 25)) + 0.5f);
+                return tri * (1f - Mathf.Max(cubuk, nokta));
+            });
+            return uyariS;
+        }
+
+        /// <summary>Bilgi dairesi (icinde 'i' oyugu).</summary>
+        public static Sprite BilgiIkon()
+        {
+            if (bilgiS != null) return bilgiS;
+            const int n = 96;
+            bilgiS = Uret(n, (x, y) =>
+            {
+                float d = Mathf.Clamp01(46f - Vector2.Distance(new Vector2(x, y), new Vector2(48, 48)) + 0.5f);
+                float cubuk = Mathf.Clamp01(5.5f - Seg(new Vector2(x, y), new Vector2(48, 28), new Vector2(48, 50)) + 0.5f);
+                float nokta = Mathf.Clamp01(6f - Vector2.Distance(new Vector2(x, y), new Vector2(48, 68)) + 0.5f);
+                return d * (1f - Mathf.Max(cubuk, nokta));
+            });
+            return bilgiS;
+        }
+
+        /// <summary>Saat (bekle): halka + iki ibre.</summary>
+        public static Sprite BekleIkon()
+        {
+            if (bekleS != null) return bekleS;
+            const int n = 96;
+            bekleS = Uret(n, (x, y) =>
+            {
+                var p = new Vector2(x, y); float d = Vector2.Distance(p, new Vector2(48, 48));
+                float halka2 = Mathf.Clamp01(5f - Mathf.Abs(d - 38f) + 0.5f);
+                float ib = Mathf.Max(Mathf.Clamp01(4.5f - Seg(p, new Vector2(48, 48), new Vector2(48, 72)) + 0.5f), Mathf.Clamp01(4.5f - Seg(p, new Vector2(48, 48), new Vector2(64, 40)) + 0.5f));
+                return Mathf.Max(halka2, ib);
+            });
+            return bekleS;
+        }
+
         public static Sprite Yenile()
         {
             if (yenile != null) return yenile;
@@ -316,8 +366,8 @@ namespace ArTarama
 
         public static Yumusak Ekle(GameObject go, bool baslangicAcik, Vector2 kayma = default)
         {
-            var y = go.GetComponent<Yumusak>() ?? go.AddComponent<Yumusak>();
-            y.grup = go.GetComponent<CanvasGroup>() ?? go.AddComponent<CanvasGroup>();
+            var y = go.GetComponent<Yumusak>(); if (y == null) y = go.AddComponent<Yumusak>();
+            y.grup = go.GetComponent<CanvasGroup>(); if (y.grup == null) y.grup = go.AddComponent<CanvasGroup>();
             y.kayma = kayma;
             y.hedef = baslangicAcik ? 1f : 0f;
             y.grup.alpha = y.hedef; y.grup.blocksRaycasts = baslangicAcik; y.grup.interactable = baslangicAcik;
