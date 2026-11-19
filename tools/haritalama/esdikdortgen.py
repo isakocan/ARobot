@@ -92,7 +92,8 @@ def kare_cevir(kare, T):
 
 def kareleri_oku(h264, bas, bitis):
     ff = imageio_ffmpeg.get_ffmpeg_exe()
-    cmd = [ff, "-v", "error", "-r", str(FPS), "-i", h264, "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
+    bicim = ["-f", "mjpeg"] if h264.endswith(".mjpg") else []
+    cmd = [ff, "-v", "error", "-r", str(FPS), *bicim, "-i", h264, "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=KARE_G * KARE_Y * 3 * 4)
     n = KARE_G * KARE_Y * 3
     i = 0
@@ -170,8 +171,10 @@ def main():
     a = ap.parse_args()
 
     h264 = os.path.join(a.kayit, "goruntu.h264")
+    if not os.path.isfile(h264):  # ham ölçüm kayıtları JPEG kareler halinde
+        h264 = os.path.join(a.kayit, "kareler.mjpg")
     if not os.path.isfile(h264):
-        sys.exit("goruntu.h264 yok: " + h264)
+        sys.exit("goruntu.h264 / kareler.mjpg yok: " + a.kayit)
     cikis = os.path.join(a.kayit, "harita")
     os.makedirs(cikis, exist_ok=True)
     W = a.genislik
