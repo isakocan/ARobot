@@ -30,6 +30,7 @@ namespace ArTarama
         public PlanHaritasi plan;
         public IsaretYoneticisi isaret;
         public Harita3B harita3b;
+        public OdaYoneticisi oda;
 
         public static ArApp Ornek { get; private set; }
         public static bool ZeminVar { get; private set; }
@@ -86,7 +87,8 @@ namespace ArTarama
             if (kayit != null) { kayit.kamera = kamera; kayit.oklusyon = oklusyon; kayit.duzlem = duzlem; kayit.nokta = bulut; kayit.arKamera = arKamera; kayit.plan = plan; kayit.isaret = isaret; }
             if (isaret != null) { isaret.oklusyon = oklusyon; isaret.arKamera = arKamera; isaret.plan = plan; isaret.kayit = kayit; isaret.kaplama = kaplama; }
             if (harita3b != null) { harita3b.bulut = bulut; harita3b.plan = plan; harita3b.arKamera = arKamera; }
-            arKamera.cullingMask &= ~(1 << Harita3B.OzelKatman);
+            if (oda != null) { oda.duzlem = duzlem; oda.bulut = bulut; oda.arKamera = arKamera; oda.plan = plan; oda.kayit = kayit; oda.harita3b = harita3b; }
+            arKamera.cullingMask &= ~((1 << Harita3B.OzelKatman) | (1 << OdaYoneticisi.KatmanMini) | (1 << OdaYoneticisi.KatmanHarita));
             oncekiRot = arKamera.transform.rotation; oncekiKonum = arKamera.transform.position;
             KayitlariListele();
             GosterMod(Mod.Baslangic);
@@ -180,6 +182,9 @@ namespace ArTarama
             if (kayit != null) kayit.Duraklat = haritada;
             if (bulut != null) bulut.Aktif = m == Mod.Tarama && PuruzsuzBaslangicTamam();
             if (isaret != null && kaplama != null) kaplama.gameObject.SetActive(m == Mod.Tarama);
+            if (oda != null) oda.Aktif = m == Mod.Tarama;
+            if (bulut != null && !haritada) bulut.Goster = true;
+            if (odaMini != null && m != Mod.Tarama) odaMini.Guncelle(0.016f, false);
         }
 
         bool PuruzsuzBaslangicTamam() { return Time.unscaledTime - sifirlaZamani > 1.0f; }
@@ -218,6 +223,8 @@ namespace ArTarama
             if (bulut != null) bulut.Temizle();
             if (plan != null) plan.Temizle();
             if (harita3b != null) harita3b.Temizle();
+            if (oda != null) oda.Temizle();
+            if (odaMini != null) odaMini.Sifirla();
             if (isaret != null) isaret.Sifirla();
             Temizle();
             planBaslatBekle = Time.unscaledTime;
@@ -230,6 +237,7 @@ namespace ArTarama
             if (kayit != null && kayit.Kayitta)
             {
                 kayit.AdimNotu = adimLog;
+                if (oda != null) oda.Kaydet();   // oda.json son hali (klasor hala acik)
                 kayit.Durdur(tamam);
             }
             OzetiDoldur();
@@ -263,6 +271,7 @@ namespace ArTarama
             if (Takipte) oncedenTakip = true;
 
             ZeminuGuncelle();
+            if (oda != null) oda.ArGoster = mod == Mod.Tarama && Takipte;
             IsikGuncelle();
             FpsOlc(dt);
 
@@ -383,6 +392,7 @@ namespace ArTarama
                 if (Mathf.Abs(h.pose.position.y - ZeminY) > 0.15f) continue;
                 var yerel = p.transform.InverseTransformPoint(h.pose.position);
                 if (KenarMesafesi(p.boundary, new Vector2(yerel.x, yerel.z)) < 0.25f) continue;
+                if (oda != null && !oda.AcikZeminMi(h.pose.position)) continue;   // kutu/duvar yakininda konmaz
                 if (DerinlikEngelli(sp, h.pose.position)) continue;
                 pose = h.pose;
                 return true;

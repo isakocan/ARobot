@@ -34,7 +34,7 @@ namespace ArTarama
         readonly Image[] pusArka = new Image[TaramaAkisi.Sektor], pusOn = new Image[TaramaAkisi.Sektor];
         readonly Image[] chipArka = new Image[6]; readonly Text[] chipYazi = new Text[6], chipSayi = new Text[6]; readonly Image[] chipTik = new Image[6];
         Text chipIpucu;
-        PlanGorunumu mini; Text miniYon;
+        OdaMini odaMini;
         // toast
         CanvasGroup toastGrup; Text toastYazi; float toastBitis;
         // basari
@@ -47,7 +47,7 @@ namespace ArTarama
         PlanGorunumu buyuk; RectTransform bodyRoot, harita3bAlan; Text haritaBilgi; Image sekme2b, sekme3b; Text sekme2bYazi, sekme3bYazi;
         GameObject alt2b, alt3b; bool haritaIkiB = true;
         readonly HaritaDokunma dokunma2b = new HaritaDokunma();
-        Image yukseklikArka, duzlemArka; Text yukseklikYazi, duzlemYazi;
+        Image yukseklikArka, duzlemArka, noktaArka; Text yukseklikYazi, duzlemYazi, noktaYazi;
         // durum
         string kocMesaji = ""; float kocDegisim = -10f; Color kocRenk;
         float sonUiGuncelleme;
@@ -187,9 +187,10 @@ namespace ArTarama
             UiKur.Ankor(kocYazi.rectTransform, Vector2.zero, Vector2.one, new Vector2(66, 4), new Vector2(-20, -4));
             kocYazi.horizontalOverflow = HorizontalWrapMode.Wrap;
 
-            istatYazi = UiKur.Metin(hud, "Istat", "", 25, new Color(UiKur.MetinRenk.r, UiKur.MetinRenk.g, UiKur.MetinRenk.b, 0.85f), TextAnchor.MiddleRight);
-            UiKur.Yerles(istatYazi.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(760, 36), new Vector2(-30, -12 - 236 - 14 - 76 - 10));
-            Golge(istatYazi);
+            var istatPill = UiKur.Kutu(hud, "IstatPill", UiKur.Panel, true);
+            UiKur.Yerles(istatPill.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(560, 50), new Vector2(-24, -12 - 236 - 14 - 76 - 10));
+            istatYazi = UiKur.Metin(istatPill.transform, "Istat", "", 25, UiKur.MetinRenk, TextAnchor.MiddleCenter);
+            UiKur.Tam(istatYazi.rectTransform, 6f);
 
             // ---- yon oku ----
             yonKok = UiKur.Obj("Yon", hud);
@@ -207,7 +208,7 @@ namespace ArTarama
 
             // ---- pusula ----
             var pk = UiKur.Obj("Pusula", hud);
-            UiKur.Yerles(pk, new Vector2(0, 0), new Vector2(0, 0), new Vector2(252, 252), new Vector2(24, 24 + 116 + 20));
+            UiKur.Yerles(pk, new Vector2(0, 0), new Vector2(0, 0), new Vector2(252, 252), new Vector2(24, OdaMini.AltBosluk + OdaMini.Yukseklik + 16));
             pusulaGrup = Yumusak.Ekle(pk.gameObject, false);
             var pd = UiKur.Nokta(pk, "Arka", new Color(UiKur.Panel.r, UiKur.Panel.g, UiKur.Panel.b, 0.80f), 252); UiKur.Tam(pd.rectTransform);
             pusulaHalka = UiKur.Obj("Halka", pk);
@@ -225,7 +226,7 @@ namespace ArTarama
 
             // ---- isaret etiketleri ----
             var ck = UiKur.Obj("Chipler", hud);
-            UiKur.Yerles(ck, new Vector2(0, 0), new Vector2(0, 0), new Vector2(420, 6 * 72), new Vector2(24, 24 + 116 + 20));
+            UiKur.Yerles(ck, new Vector2(0, 0), new Vector2(0, 0), new Vector2(420, 6 * 72), new Vector2(24, OdaMini.AltBosluk + OdaMini.Yukseklik + 16));
             chipGrup = Yumusak.Ekle(ck.gameObject, false);
             for (int i = 0; i < 6; i++)
             {
@@ -245,23 +246,15 @@ namespace ArTarama
             UiKur.Yerles(chipIpucu.rectTransform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(520, 110), new Vector2(4, 0));
             Golge(chipIpucu);
 
-            // ---- minimap ----
-            mini = PlanGorunumu.Olustur(hud, "Minimap", plan, arKamera, isaret, true);
-            mini.basYukari = true; mini.ppm = 40f;
-            UiKur.Yerles(mini.kok, new Vector2(1, 0), new Vector2(1, 0), new Vector2(324, 324), new Vector2(-24, 24 + 116 + 20));
-            mini.kok.GetComponent<Image>().raycastTarget = true;
-            var mb = mini.kok.gameObject.AddComponent<Button>(); mb.targetGraphic = mini.kok.GetComponent<Image>();
-            var mcb = mb.colors; mcb.pressedColor = new Color(0.8f, 0.8f, 0.8f, 1f); mb.colors = mcb; mb.transition = Selectable.Transition.ColorTint;
-            mb.onClick.AddListener(HaritayiAc);
-            var yonBtn = UiKur.Dugme(mini.kok, "YonKip", "Ön", UiKur.DugmeStili.Ikincil, out Image yonArka2, out miniYon, 24);
-            UiKur.Yerles(yonArka2.rectTransform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(104, 46), new Vector2(12, 12));
-            yonBtn.onClick.AddListener(() => { mini.basYukari = !mini.basYukari; miniYon.text = mini.basYukari ? "Ön" : "Kuzey"; });
+            // ---- canli oda modeli paneli (minimap yerine) ----
+            odaMini = new OdaMini(hud, oda, arKamera, HaritayiAc);
 
             // ---- alt bar ----
             var bar = UiKur.Kutu(hud, "AltBar", UiKur.Panel, true); bar.raycastTarget = true;
             var rb = bar.rectTransform;
             rb.anchorMin = new Vector2(0, 0); rb.anchorMax = new Vector2(1, 0); rb.pivot = new Vector2(0.5f, 0);
             rb.anchoredPosition = new Vector2(0, 24); rb.sizeDelta = new Vector2(-48, 116);
+            KenariDisla(bar);
             var yatay = bar.gameObject.AddComponent<HorizontalLayoutGroup>();
             yatay.padding = new RectOffset(14, 14, 14, 14); yatay.spacing = 12;
             yatay.childForceExpandWidth = true; yatay.childForceExpandHeight = true; yatay.childControlWidth = true; yatay.childControlHeight = true;
@@ -367,7 +360,7 @@ namespace ArTarama
                 bittiGrup.Goster(m == TaramaAkisi.Isaret && isaretBulundu);
                 if (bitti) { bitirArka.color = UiKur.Vurgu; bitirYazi.color = UiKur.Koyu; }
             }
-            mini.Guncelle();
+            odaMini.Guncelle(dt, true);
         }
 
         float IsaretOrani()
@@ -750,7 +743,7 @@ namespace ArTarama
             // 2B gorunum
             buyuk = PlanGorunumu.Olustur(bodyRoot, "Plan2B", plan, arKamera, isaret, true);
             UiKur.Tam(buyuk.kok);
-            buyuk.basYukari = false; buyuk.kullaniciyiTakipEt = false; buyuk.ppm = 60f;
+            buyuk.basYukari = false; buyuk.kullaniciyiTakipEt = false; buyuk.ppm = 60f; buyuk.oda = oda;
             dokunma2b.alan = bodyRoot;
 
             // ust cubuk
@@ -789,10 +782,19 @@ namespace ArTarama
             yr.onClick.AddListener(() => { harita3b.YukseklikRengi = !harita3b.YukseklikRengi; harita3b.ModAyarla(); SekmeGorunumu(); });
             var dz = UiKur.Dugme(alt3b.transform, "Duzlem", "Düzlemler", UiKur.DugmeStili.Ikincil, out duzlemArka, out duzlemYazi, 30);
             dz.onClick.AddListener(() => { harita3b.DuzlemGoster = !harita3b.DuzlemGoster; PlaneStyle.Goster = harita3b.DuzlemGoster; SekmeGorunumu(); });
+            var nk = UiKur.Dugme(alt3b.transform, "Nokta", "Nokta bulutu", UiKur.DugmeStili.Ikincil, out noktaArka, out noktaYazi, 30);
+            nk.onClick.AddListener(() => { harita3b.NoktaGoster = !harita3b.NoktaGoster; if (bulut != null) bulut.Goster = harita3b.NoktaGoster; SekmeGorunumu(); });
             var mr = UiKur.Dugme(alt3b.transform, "Merkez", "Merkezle", UiKur.DugmeStili.Ikincil, 30);
             mr.onClick.AddListener(() => harita3b.Merkezle());
             alt3b.SetActive(false);
             return y;
+        }
+
+        /// <summary>Kutu'nun kenar cocugu yatay yerlesimde bos bir dugme yuvasi olusturuyordu: yerlesimden cikar.</summary>
+        static void KenariDisla(Image kutu)
+        {
+            var k = kutu.transform.Find("Kenar");
+            if (k != null) k.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
         }
 
         GameObject AltCubuk(Transform ebeveyn, string ad)
@@ -801,6 +803,7 @@ namespace ArTarama
             var rb = bar.rectTransform;
             rb.anchorMin = new Vector2(0, 0); rb.anchorMax = new Vector2(1, 0); rb.pivot = new Vector2(0.5f, 0);
             rb.anchoredPosition = new Vector2(0, 24); rb.sizeDelta = new Vector2(-48, 112);
+            KenariDisla(bar);
             var yatay = bar.gameObject.AddComponent<HorizontalLayoutGroup>();
             yatay.padding = new RectOffset(14, 14, 14, 14); yatay.spacing = 12;
             yatay.childForceExpandWidth = true; yatay.childForceExpandHeight = true; yatay.childControlWidth = true; yatay.childControlHeight = true;
@@ -819,13 +822,14 @@ namespace ArTarama
             bool b2 = haritaIkiB;
             buyuk.kok.gameObject.SetActive(b2);
             alt2b.SetActive(b2); alt3b.SetActive(!b2);
-            if (harita3b != null) harita3b.kam.cullingMask = b2 ? 0 : ((1 << NoktaBulutu.HaritaKatmani) | (1 << Harita3B.OzelKatman));
+            if (harita3b != null) harita3b.MaskeUygula(b2);
             sekme2b.color = b2 ? UiKur.Vurgu : new Color(1, 1, 1, 0); sekme2bYazi.color = b2 ? UiKur.Koyu : UiKur.MetinRenk;
             sekme3b.color = !b2 ? UiKur.Vurgu : new Color(1, 1, 1, 0); sekme3bYazi.color = !b2 ? UiKur.Koyu : UiKur.MetinRenk;
             if (harita3b != null)
             {
                 yukseklikArka.color = harita3b.YukseklikRengi ? UiKur.VurguYumusak : new Color(1, 1, 1, 0.10f);
                 duzlemArka.color = harita3b.DuzlemGoster ? UiKur.VurguYumusak : new Color(1, 1, 1, 0.10f);
+                noktaArka.color = harita3b.NoktaGoster ? UiKur.VurguYumusak : new Color(1, 1, 1, 0.10f);
                 PlaneStyle.Goster = harita3b.DuzlemGoster;
             }
         }
@@ -842,7 +846,8 @@ namespace ArTarama
         {
             haritaIkiB = true;
             PlaneStyle.Goster = true;
-            if (harita3b != null) { harita3b.DuzlemGoster = true; harita3b.dokunmaAlani = bodyRoot; }
+            if (harita3b != null) { harita3b.DuzlemGoster = true; harita3b.NoktaGoster = false; harita3b.dokunmaAlani = bodyRoot; }
+            if (bulut != null) bulut.Goster = false;   // 3B haritada ham noktalar varsayilan kapali, "Nokta bulutu" dugmesiyle acilir
             SekmeGorunumu();
             Haritayisigdir();
             canvasOlcek = kok.rect.width / Screen.width;
@@ -865,7 +870,7 @@ namespace ArTarama
             if (Time.unscaledTime - sonUiGuncelleme > 0.3f)
             {
                 sonUiGuncelleme = Time.unscaledTime;
-                haritaBilgi.text = Say(bulut != null ? bulut.Sayi : 0) + " nokta   ·   " + (haritaIkiB ? "sürükle, iki parmakla yakınlaştır" : "bir parmak döndür, iki parmak kaydır");
+                haritaBilgi.text = (oda != null ? oda.Duvarlar.Count + " duvar · " + oda.Kutular.Count + " eşya   ·   " : "") + Say(bulut != null ? bulut.Sayi : 0) + " nokta   ·   " + (haritaIkiB ? "sürükle, iki parmakla yakınlaştır" : "bir parmak döndür, iki parmak kaydır");
             }
         }
     }

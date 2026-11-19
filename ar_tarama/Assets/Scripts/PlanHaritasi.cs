@@ -199,6 +199,9 @@ namespace ArTarama
         public float ppm = 40f;          // piksel / metre
         public Vector2 bakis;            // dunya x,z merkez (basYukari=false iken)
         public bool kullaniciyiTakipEt = true;
+        public OdaYoneticisi oda;
+        readonly List<Image> duvarCizgi = new List<Image>(), kutuResim = new List<Image>();
+        readonly List<Text> duvarYazi = new List<Text>();
 
         RawImage resim; Image kullanici, koni, iz2;
         readonly List<Image> kutular = new List<Image>(); readonly List<Text> etiketler = new List<Text>();
@@ -281,6 +284,61 @@ namespace ArTarama
                 kristalNoktalar[i].rectTransform.anchoredPosition = (new Vector2(plan.Kristaller[i].x, plan.Kristaller[i].z) - plan.Merkez) * ppm;
             }
             for (int i = plan.Kristaller.Count; i < kristalNoktalar.Count; i++) kristalNoktalar[i].gameObject.SetActive(false);
+
+            OdaKatmani(karsi);
+        }
+
+        static string Metre(float m) { return m.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture).Replace('.', ','); }
+
+        /// <summary>Oda modeli: duvarlar kalin cizgi + olcu yazisi, esyalar dolu yuvarlak dikdortgen.</summary>
+        void OdaKatmani(Quaternion karsi)
+        {
+            int nd = oda != null ? oda.Duvarlar.Count : 0, nk = oda != null ? oda.Kutular.Count : 0;
+            while (kutuResim.Count < nk)
+            {
+                var kt = UiKur.Kutu(icerik, "OdaKutu" + kutuResim.Count, new Color(1f, 1f, 1f, 0.55f), true);
+                kutuResim.Add(kt);
+            }
+            for (int i = 0; i < kutuResim.Count; i++)
+            {
+                kutuResim[i].gameObject.SetActive(i < nk);
+                if (i >= nk) continue;
+                var b = oda.Kutular[i];
+                var rt = kutuResim[i].rectTransform;
+                rt.sizeDelta = new Vector2(b.sx * ppm, b.sz * ppm);
+                rt.anchoredPosition = (new Vector2(b.cx, b.cz) - plan.Merkez) * ppm;
+                rt.localRotation = Quaternion.Euler(0, 0, b.aci);
+            }
+            while (duvarCizgi.Count < nd)
+            {
+                var w = UiKur.Kutu(icerik, "OdaDuvar" + duvarCizgi.Count, Color.white, false, false);
+                duvarCizgi.Add(w);
+                var et = UiKur.Metin(icerik, "OdaOlcu" + duvarYazi.Count, "", 26, UiKur.MetinRenk, TextAnchor.MiddleCenter, FontStyle.Bold);
+                et.rectTransform.sizeDelta = new Vector2(180, 36); et.horizontalOverflow = HorizontalWrapMode.Overflow;
+                var sh = et.gameObject.AddComponent<Shadow>(); sh.effectColor = new Color(0, 0, 0, 0.7f); sh.effectDistance = new Vector2(2, -2);
+                duvarYazi.Add(et);
+            }
+            for (int i = 0; i < duvarCizgi.Count; i++)
+            {
+                bool var = i < nd;
+                duvarCizgi[i].gameObject.SetActive(var); duvarYazi[i].gameObject.SetActive(var);
+                if (!var) continue;
+                var d = oda.Duvarlar[i];
+                float len = d.Uzunluk;
+                Vector2 mid = new Vector2((d.ax + d.bx) * 0.5f, (d.az + d.bz) * 0.5f);
+                float ang = Mathf.Atan2(d.bz - d.az, d.bx - d.ax) * Mathf.Rad2Deg;
+                var rt = duvarCizgi[i].rectTransform;
+                rt.sizeDelta = new Vector2(len * ppm, 9f);
+                rt.anchoredPosition = (mid - plan.Merkez) * ppm;
+                rt.localRotation = Quaternion.Euler(0, 0, ang);
+                var yz = duvarYazi[i];
+                yz.text = len >= 0.7f ? Metre(len) + " m" : "";
+                // yazi duvarin dis tarafinda (ic normalin tersi), okunur kalsin diye ters donduruluyor
+                Vector2 ofs = new Vector2(-d.nx, -d.nz) * (30f / ppm);
+                yz.rectTransform.anchoredPosition = (mid + ofs - plan.Merkez) * ppm;
+                yz.rectTransform.localRotation = karsi;
+            }
+            kullanici.transform.SetAsLastSibling();
         }
     }
 }

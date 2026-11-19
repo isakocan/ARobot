@@ -62,6 +62,7 @@ namespace ArTarama
         public bool Acik { get; private set; }
         public bool YukseklikRengi = true;
         public bool DuzlemGoster = true;
+        public bool NoktaGoster;   // ham nokta bulutu 3B haritada varsayilan kapali: oda modeli on planda
 
         float yaw = 35f, pitch = 55f, mesafe = 8f;
         Vector3 hedef;
@@ -78,7 +79,7 @@ namespace ArTarama
             piramit = Cizgi("Piramit", UiKur.Vurgu, 0.018f);
             piramit.loop = false;
             kam.enabled = false;
-            kam.cullingMask = (1 << NoktaBulutu.HaritaKatmani) | (1 << OzelKatman);
+            kam.cullingMask = Maske(false);
             kam.clearFlags = CameraClearFlags.SolidColor;
             kam.backgroundColor = new Color(0.047f, 0.055f, 0.067f, 1f);
             kam.nearClipPlane = 0.05f; kam.farClipPlane = 300f; kam.depth = 20; kam.allowHDR = false; kam.allowMSAA = false;
@@ -113,6 +114,10 @@ namespace ArTarama
             Shader.SetGlobalFloat("_NoktaMod", 0f);
             Shader.SetGlobalFloat("_NoktaBoyut", 7f);
         }
+
+        /// <summary>3B gorunum katmanlari: nokta/duzlem (8), cizgiler (9) ve katı oda modeli (12). 2B sekmesinde hicbiri cizilmez.</summary>
+        public static int Maske(bool ikiB) { return ikiB ? 0 : ((1 << NoktaBulutu.HaritaKatmani) | (1 << OzelKatman) | (1 << OdaYoneticisi.KatmanHarita)); }
+        public void MaskeUygula(bool ikiB) { kam.cullingMask = Maske(ikiB); }
 
         public void ModAyarla() { Shader.SetGlobalFloat("_NoktaMod", YukseklikRengi ? 1f : 0f); }
 
