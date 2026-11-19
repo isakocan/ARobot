@@ -1,6 +1,7 @@
 # stella_vslam_dense ayarı: Theta S, kalibre dikişle üretilmiş 1280x640 eşdikdörtgen (esdikdortgen.py), 15 fps.
 # Taban: depodaki example/dense/dense_hd.yaml. Değişenler yalnızca kamera boyutu/fps ve maske
-# (robot gövdesi maske.png ile verilir, dikdörtgen maske yok).
+# (robot gövdesi maske.png ile verilir, dikdörtgen maske yok) ve PatchMatch tam çözünürlükte (1280x640):
+# parke kaydında 640x320e göre 3,3 kat nokta ve daha keskin yapı verdi (gevşek süzgeç ise gürültü ekledi).
 
 Camera:
   name: "Theta S 1280x640"
@@ -35,8 +36,8 @@ SocketPublisher:
 
 PatchMatch:
   enabled: true
-  cols: 640
-  rows: 320
+  cols: 1280
+  rows: 640
   min_patch_std_dev: 0
   patch_size: 7
   patchmatch_iterations: 4
