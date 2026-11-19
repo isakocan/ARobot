@@ -46,7 +46,7 @@ namespace ArTarama
         public const int MinGuven = 128;
         public const int MaksVoksel = 2500000;
 
-        long[] anahtar; float[] L; byte[] vurus; ushort[] ilk, son; byte[] bin; int[] vk, bk;
+        long[] anahtar; float[] L; byte[] vurus; ushort[] ilk, son; int[] bin; int[] vk, bk;
         int kap, mask, sayi, kare;
         const long Bos = long.MinValue;
 
@@ -62,7 +62,7 @@ namespace ArTarama
         {
             kap = c; mask = c - 1; sayi = 0;
             anahtar = new long[c]; for (int i = 0; i < c; i++) anahtar[i] = Bos;
-            L = new float[c]; vurus = new byte[c]; ilk = new ushort[c]; son = new ushort[c]; bin = new byte[c]; vk = new int[c]; bk = new int[c];
+            L = new float[c]; vurus = new byte[c]; ilk = new ushort[c]; son = new ushort[c]; bin = new int[c]; vk = new int[c]; bk = new int[c];
         }
 
         public void Sifirla() { Ayir(1 << 18); kare = 0; }
@@ -137,7 +137,8 @@ namespace ArTarama
         public float SonGorulme(int slot) { return son[slot] * 0.1f; }
         public float IlkGorulme(int slot) { return ilk[slot] == ushort.MaxValue ? float.MaxValue : ilk[slot] * 0.1f; }
 
-        public static int BinSay(int m) { int n = 0; while (m != 0) { n += m & 1; m >>= 1; } return n; }
+        /// <summary>Bakis yonu dilimi sayisi (32 dilim, her biri 11,25 derece).</summary>
+        public static int BinSay(int m) { uint u = (uint)m; int n = 0; while (u != 0) { n += (int)(u & 1u); u >>= 1; } return n; }
 
         public bool Dolu(int slot) { return L[slot] > DoluEsik && vurus[slot] >= MinVurus && BinSay(bin[slot]) >= MinBin; }
         public bool BosMu(int slot) { return L[slot] < BosEsik; }
@@ -176,9 +177,10 @@ namespace ArTarama
                     f.YerelYon(u, v, out float lx, out float ly);
                     float wx = mat[0] * lx + mat[1] * ly + mat[2], wy = mat[3] * lx + mat[4] * ly + mat[5], wz = mat[6] * lx + mat[7] * ly + mat[8];
                     ex[m] = f.px + wx * d; ey[m] = f.py + wy * d; ez[m] = f.pz + wz * d;
-                    // bakis yonu: isin yaw'i, 8 dilim
+                    // bakis yonu: isin yaw'i, 32 dilim (11,25 derece). 8 dilimde (45 derece) bir voksel icin
+                    // kullanicinin 1-1,5 m yana yurumesi gerekiyordu; kesinlesme 15-45 sn suruyordu.
                     double yaw = Math.Atan2(wx, wz); if (yaw < 0) yaw += 2 * Math.PI;
-                    eb[m] = (int)(yaw / (Math.PI / 4)) & 7;
+                    eb[m] = (int)(yaw / (Math.PI / 16)) & 31;
                     m++;
                 }
             // gecis 1: vuruslar (her voksel kare basina bir kez)
@@ -186,7 +188,7 @@ namespace ArTarama
             {
                 int s = BulEkle(Anah(Ind(ex[r]), Ind(ey[r]), Ind(ez[r])));
                 if (s < 0) continue;
-                bin[s] |= (byte)(1 << eb[r]);
+                bin[s] |= 1 << eb[r];
                 if (vk[s] == kare) continue;
                 vk[s] = kare;
                 float nl = L[s] + VurusArtis; L[s] = nl > LMaks ? LMaks : nl;

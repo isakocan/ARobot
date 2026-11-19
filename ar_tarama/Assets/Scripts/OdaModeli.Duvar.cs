@@ -158,6 +158,41 @@ namespace ArTarama
             }
         }
 
+        /// <summary>
+        /// Ayni duvarin iki durumu (ornegin erken kesinlesen bir parca ve sonra gelen tam duvar) bire indirilir.
+        /// Eslestirme bire bir oldugu icin bir aday yalniz birini besler; digeri destegi bos olmadigindan hic silinmez,
+        /// cift duvar kalirdi. Kalan: once kesin olan, sonra uzun olan; uclar iki parcanin birlesimine uzatilir.
+        /// </summary>
+        void DurumlariBirlestir()
+        {
+            bool degisti = true;
+            while (degisti)
+            {
+                degisti = false;
+                for (int i = 0; i < duvarDurum.Count && !degisti; i++)
+                    for (int j = i + 1; j < duvarDurum.Count && !degisti; j++)
+                    {
+                        var a = duvarDurum[i]; var b = duvarDurum[j];
+                        if (!Eslesir(a.ax, a.az, a.bx, a.bz, b.ax, b.az, b.bx, b.bz, 12, 0.15, 0.3, out _)) continue;
+                        bool aKalir = a.kesin != b.kesin ? a.kesin : a.Uz >= b.Uz;
+                        var k = aKalir ? a : b; var g = aKalir ? b : a;
+                        double dx = k.bx - k.ax, dz = k.bz - k.az, L = Math.Sqrt(dx * dx + dz * dz);
+                        if (L < 1e-6) continue;
+                        dx /= L; dz /= L;
+                        double t0 = 0, t1 = L;
+                        double ta = (g.ax - k.ax) * dx + (g.az - k.az) * dz, tb = (g.bx - k.ax) * dx + (g.bz - k.az) * dz;
+                        t0 = Math.Min(t0, Math.Min(ta, tb)); t1 = Math.Max(t1, Math.Max(ta, tb));
+                        double ox = k.ax, oz = k.az;
+                        k.ax = ox + dx * t0; k.az = oz + dz * t0; k.bx = ox + dx * t1; k.bz = oz + dz * t1;
+                        k.bin |= g.bin; k.seen = Math.Max(k.seen, g.seen); k.planAlan = Math.Max(k.planAlan, g.planAlan); k.occ |= g.occ;
+                        k.kayip = Math.Min(k.kayip, g.kayip);
+                        if (g.kesin && !k.kesin) { k.kesin = true; k.kesinZaman = g.kesinZaman; }
+                        duvarDurum.Remove(g);
+                        degisti = true;
+                    }
+            }
+        }
+
         // --------------------------------------------------------------------------------- ana akis
         void DuvarlariGuncelle(OdaSonuc s, IList<OdaDuzlem> planlar, Dictionary<long, Hucre> hucre, float zaman, float dt)
         {
@@ -206,6 +241,7 @@ namespace ArTarama
                 if (!d.kesin && d.kayip >= 3) duvarDurum.RemoveAt(i);
                 else if (d.kesin && d.kayip >= 2 && DestekBos(d)) duvarDurum.RemoveAt(i);
             }
+            DurumlariBirlestir();
 
             // ---- durum makinesi ----
             foreach (var d in duvarDurum)

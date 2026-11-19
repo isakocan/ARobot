@@ -103,8 +103,8 @@ namespace ArTarama
         public float TavanMin = 1.9f, TavanVarsayilan = 2.6f;
         public float DuvarSpan = 1.2f;                  // duvar kolonu icin en az dikey yayilim
         public float MinDuvarUzunluk = 0.6f;
-        public float DuvarOnaySure = 2.5f; public int DuvarOnayBin = 2; public float BuyukPlanAlan = 2.0f;
-        public float KutuOnaySure = 3.0f; public int KutuOnayArdisik = 3; public int KutuOnayBin = 2; public float KutuIoU = 0.6f;
+        public float DuvarOnaySure = 2.5f; public int DuvarOnayBin = 3; public float BuyukPlanAlan = 2.0f;
+        public float KutuOnaySure = 3.0f; public int KutuOnayArdisik = 3; public int KutuOnayBin = 3; public float KutuIoU = 0.6f;
         public float KutuMinAlan = 0.05f, KutuMinYukseklik = 0.2f, KutuMinKenar = 0.15f;
         public float DuvarBandi = 0.12f;
         public float ManhattanDuvar = 12f, ManhattanKutu = 15f;
