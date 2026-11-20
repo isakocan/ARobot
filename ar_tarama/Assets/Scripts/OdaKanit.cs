@@ -65,7 +65,7 @@ namespace ArTarama
             L = new float[c]; vurus = new byte[c]; ilk = new ushort[c]; son = new ushort[c]; bin = new int[c]; vk = new int[c]; bk = new int[c];
         }
 
-        public void Sifirla() { Ayir(1 << 18); kare = 0; }
+        public void Sifirla() { Ayir(1 << 18); kare = 0; Sutun.Clear(); SutunNokta = 0; }
 
         public static long Anah(int ix, int iy, int iz)
         {
@@ -172,10 +172,15 @@ namespace ArTarama
                 {
                     int i = v * f.w + u;
                     float d = f.d[i];
-                    if (!(d >= MinMenzil && d <= MaksMenzil)) continue;
-                    if (f.g != null && f.g[i] < MinGuven) continue;
+                    if (!(d >= MinMenzil && d <= SutunMenzil)) continue;
                     f.YerelYon(u, v, out float lx, out float ly);
                     float wx = mat[0] * lx + mat[1] * ly + mat[2], wy = mat[3] * lx + mat[4] * ly + mat[5], wz = mat[6] * lx + mat[7] * ly + mat[8];
+                    // Sutun histogrami: TUM guven degerleri. Beyaz duvarlarda ARCore guveni cok dusuk (gercek taramada
+                    // medyan 8/255); yuksek guven esigi duvarlarin neredeyse hepsini atiyordu. Tek kare gurultusu (~10 cm)
+                    // binlerce noktanin istatistiginde ortalanir (OdaModeli.Bant).
+                    SutunEkle(f.px + wx * d, f.py + wy * d, f.pz + wz * d);
+                    if (d > MaksMenzil) continue;
+                    if (f.g != null && f.g[i] < MinGuven) continue;
                     ex[m] = f.px + wx * d; ey[m] = f.py + wy * d; ez[m] = f.pz + wz * d;
                     // bakis yonu: isin yaw'i, 32 dilim (11,25 derece). 8 dilimde (45 derece) bir voksel icin
                     // kullanicinin 1-1,5 m yana yurumesi gerekiyordu; kesinlesme 15-45 sn suruyordu.
@@ -230,6 +235,25 @@ namespace ArTarama
                 else { iz += stz; tmz += tdz; }
             }
         }
+
+        // ------------------------------------------------------------------------------------ sutun histogrami
+        /// <summary>XZ hucre (5 cm) basina mutlak yukseklik katmanlari (10 cm, SutunAlt..SutunAlt+SutunKatman*0,1 m) icin nokta sayisi.</summary>
+        public const float SutunAlt = -1.5f, SutunKat = 0.10f, SutunMenzil = 5.0f;
+        public const int SutunKatman = 55;
+        public readonly Dictionary<long, ushort[]> Sutun = new Dictionary<long, ushort[]>();
+        public long SutunNokta;
+
+        void SutunEkle(float x, float y, float z)
+        {
+            int k = (int)Math.Floor((y - SutunAlt) / SutunKat);
+            if (k < 0 || k >= SutunKatman) return;
+            long a = OdaSonuc.Anah2(Ind(x), Ind(z));
+            if (!Sutun.TryGetValue(a, out var h)) { h = new ushort[SutunKatman]; Sutun[a] = h; }
+            if (h[k] < 65535) h[k]++;
+            SutunNokta++;
+        }
+
+        public static int SutunKatmani(float y) { return (int)Math.Floor((y - SutunAlt) / SutunKat); }
 
         // ------------------------------------------------------------------------------------ yardimcilar (yapi katmani)
         /// <summary>Tum dolu vokselleri sirayla verir (yinelemeli dongu icin kapasite + Var + Dolu).</summary>

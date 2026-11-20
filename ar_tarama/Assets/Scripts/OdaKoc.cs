@@ -99,8 +99,9 @@ namespace ArTarama
             // 2) mesafe (yerde/tavanda bakarken uyarma)
             if (Math.Abs(g.pitch) < 40f && g.ortancaDerinlik > 0f)
             {
-                if (g.ortancaDerinlik < 0.6f) return M("Biraz uzaklaş", KocSimge.Uyari, 2, true);
-                if (g.ortancaDerinlik > 3.6f || (g.guvenOrani >= 0f && g.guvenOrani < 0.25f)) return M("Biraz yaklaş", KocSimge.Uyari, 2, true);
+                // Not: dusuk derinlik guveni beyaz duvarlarda olagan (gercek taramada medyan 8/255); "yaklas" icin kullanilmaz.
+                if (g.ortancaDerinlik < 0.5f) return M("Biraz geri çekil", KocSimge.Yuru, 2);
+                if (g.ortancaDerinlik > 4.5f) return M("Duvara biraz yaklaş", KocSimge.Yuru, 2);
             }
 
             // 3) onaya yakin aday gorus alaninda
@@ -117,7 +118,7 @@ namespace ArTarama
 
             // 4) zemin / tavan (yalniz egme)
             if (s == null || !s.zeminVar) return M("Telefonu hafifçe zemine doğru eğ", KocSimge.Egim, 4);
-            if (!s.tavanGercek && s.duvarKapsamaTum >= 0.4f && s.duvarlar.Count >= 2) return M("Şimdi tavana doğru eğ", KocSimge.Egim, 4);
+            if (!s.tavanGercek && s.duvarKapsamaTum >= 0.4f && s.duvarlar.Count >= 2) return M("Telefonu biraz yukarı eğ, tavanı tara", KocSimge.Egim, 4);
 
             // 7) oda tamam (5 ve 6'dan once: oda bittiyse yon/yer onerisi anlamsiz)
             if (s.dongu || s.duvarKapsamaKesin >= 0.85f) return M("Oda tamamlanmak üzere. Bitirmek için Bitir'e dokun.", KocSimge.Tamam, 7);
@@ -125,19 +126,24 @@ namespace ArTarama
             // baslangic metni: ilk saniyeler
             if (g.zaman - baslangic < 8f && GorulenSayi < 3 && s.KesinDuvar == 0) return M(Baslangic, KocSimge.Bilgi, 0);
 
-            // 5) yon kapsama
-            int sayi = GorulenSayi;
-            if (sayi < Bin)
+            // 5) yon kapsama: duvari HENUZ BULUNMAMIS yonler (telefonun dondugu acilar degil; s.yonDuvar)
+            if (s.yonDuvar != null && s.yonDuvar.Length == Bin)
             {
-                double en = 1e9, enFark = 0;
+                double en = 1e9, enFark = 0; int eksik = 0;
                 for (int b = 0; b < Bin; b++)
                 {
-                    if (Gorulen[b]) continue;
+                    if (s.yonDuvar[b]) continue;
+                    eksik++;
                     double f = Fark((b + 0.5) * 360.0 / Bin, g.yaw);
                     if (Math.Abs(f) < en) { en = Math.Abs(f); enFark = f; }
                 }
-                var m = M(enFark >= 0 ? "Yavaşça sağa çevir" : "Yavaşça sola çevir", KocSimge.Don, 5);
-                m.donus = enFark >= 0 ? 1 : -1; return m;
+                if (eksik > 0)
+                {
+                    if (en <= 25) return M("Bu taraf taranıyor, telefonu yavaşça gezdir", KocSimge.Bekle, 5);
+                    if (en >= 135) { var ma = M("Arkana dön, o taraftaki duvar henüz bulunmadı", KocSimge.Don, 5); ma.donus = enFark >= 0 ? 1 : -1; return ma; }
+                    var m = M(enFark >= 0 ? "Sağa dön, o taraftaki duvar henüz bulunmadı" : "Sola dön, o taraftaki duvar henüz bulunmadı", KocSimge.Don, 5);
+                    m.donus = enFark >= 0 ? 1 : -1; return m;
+                }
             }
 
             // 6) yerel kapsama doygun: kesfedilmemis yone ilerle

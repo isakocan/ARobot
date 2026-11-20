@@ -360,6 +360,7 @@ namespace ArTarama
         public static Kosu Calistir(SimOda oda, List<SimKare> yol, List<OdaDuzlem> planlar, Random r)
         {
             var k = Yeni();
+            k.model.KutularAcik = true;   // uygulamada kapali; sentetik testte kutu kodu denetlenmeye devam etsin
             foreach (var kare in yol) Besle(k, OdaSim.Render(oda, kare, r), planlar);
             return k;
         }

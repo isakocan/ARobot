@@ -9,7 +9,7 @@ namespace ArTarama
     /// </summary>
     public class OdaMini
     {
-        public const float Yukseklik = 560f, AltBosluk = 150f;
+        public const float Yukseklik = 400f, AltBosluk = 150f;   // 560 ekranin dortte birini kapliyordu
         readonly OdaYoneticisi oda; readonly Camera arKam;
         readonly Camera cam; readonly RenderTexture rt; readonly OdaKatiModel model;
         readonly Text bilgi, bos;

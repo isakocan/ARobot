@@ -41,8 +41,11 @@ namespace ArTarama
         public float GZeminY, GTavanY; public bool TavanTahmin; public bool ZeminVar;
         public float[] ZeminPoligon = new float[0];
         public float Alan;
+        /// <summary>Taranan zemin (15 cm kaba hucre merkezleri, x,z ciftleri): AR'da hafifce boyanir ki kullanici neresinin tarandigini gorsun.</summary>
+        public float[] ZeminBoya = new float[0];
+        public const float BoyaHucre = 0.15f;
 
-        public void Temizle() { Duvarlar.Clear(); Kutular.Clear(); ZeminVar = false; ZeminPoligon = new float[0]; Alan = 0; }
+        public void Temizle() { Duvarlar.Clear(); Kutular.Clear(); ZeminVar = false; ZeminPoligon = new float[0]; Alan = 0; ZeminBoya = new float[0]; }
 
         /// <summary>Sonuctan animasyonsuz (tamamlanmis) gosterim; yalniz kesin nesneler.</summary>
         public static OdaGoruntu Sonuctan(OdaSonuc s)
@@ -268,6 +271,23 @@ namespace ArTarama
             g.ZeminVar = s.zeminVar; g.ZeminPoligon = s.zeminPoligon; g.Alan = s.alan; g.TavanTahmin = s.TavanTahmin;
             if (!s.zeminVar) return;
             if (ilk) { g.GZeminY = s.zeminY; g.GTavanY = s.tavanY; }
+            {
+                var kaba = new Dictionary<long, int>();
+                foreach (long k in s.zeminTaranan)
+                {
+                    int ix = (int)((k >> 21) & 0x1FFFFF) - 1048576, iz = (int)(k & 0x1FFFFF) - 1048576;
+                    long kk = OdaSonuc.Anah2(Mathf.FloorToInt(ix * KanitIzgarasi.V / OdaGoruntu.BoyaHucre), Mathf.FloorToInt(iz * KanitIzgarasi.V / OdaGoruntu.BoyaHucre));
+                    kaba.TryGetValue(kk, out int c0); kaba[kk] = c0 + 1;
+                }
+                var bl = new List<float>(kaba.Count * 2);
+                foreach (var kv in kaba)
+                {
+                    if (kv.Value < 3) continue;
+                    int cx = (int)((kv.Key >> 21) & 0x1FFFFF) - 1048576, cz = (int)(kv.Key & 0x1FFFFF) - 1048576;
+                    bl.Add((cx + 0.5f) * OdaGoruntu.BoyaHucre); bl.Add((cz + 0.5f) * OdaGoruntu.BoyaHucre);
+                }
+                g.ZeminBoya = bl.ToArray();
+            }
 
             for (int i = g.Duvarlar.Count - 1; i >= 0; i--)
             {

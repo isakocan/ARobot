@@ -63,6 +63,9 @@ namespace ArTarama
         public bool yonVar; public float baskinAci;   // Manhattan ana yonu (derece, [0,90))
         public int voksel, surum; public float zaman;
         public HashSet<long> zeminSerbest = new HashSet<long>();   // bos zemin hucreleri (5 cm), Anah2
+        public HashSet<long> zeminTaranan = new HashSet<long>();   // derinlikte zemin gorulen hucreler (5 cm), Anah2: ekranda boyanir
+        public float taramaAlani;                     // taranan zemin (m2)
+        public bool[] yonDuvar = new bool[16];        // kullanicidan 16 yonde (yaw dilimi) duvar bulundu mu
         public float acikAlan;                        // kesfedilmis bos zemin alani (m2)
         public float[] sinir = new float[0];          // kesfedilmemis bolgeye komsu bos zemin hucreleri (x,z, 25 cm)
         public float duvarKapsamaKesin, duvarKapsamaTum;   // kullanicidan 16 yonde duvar bulunan yonlerin orani
@@ -131,10 +134,10 @@ namespace ArTarama
         public void Sifirla()
         {
             sonDuvarId = 0; sonKutuId = 0; surum = 0; sonZaman = float.NaN;
-            duvarDurum.Clear(); kutuDurum.Clear(); izgara.Sifirla();
+            duvarDurum.Clear(); kutuDurum.Clear(); izgara.Sifirla(); BantSifirla();
         }
 
-        public void Isle(DerinlikKaresi f) { izgara.Isle(f); }
+        public void Isle(DerinlikKaresi f) { izgara.Isle(f); IzEkle(f.px, f.pz); }
 
         class Hucre
         {
@@ -240,11 +243,11 @@ namespace ArTarama
             // ---------- bos zemin, kesif siniri ----------
             ZeminKesif(s, dilim);
 
-            // ---------- duvarlar ----------
-            DuvarlariGuncelle(s, planlar, hucre, zaman, dt);
+            // ---------- duvarlar (bant yontemi; tum guven degerleri), tavan yedegi, taranan zemin, kesif siniri ----------
+            BantGuncelle(s, zy0, zaman);
 
-            // ---------- kutular ----------
-            KutulariGuncelle(s, hucre, zaman, dt);
+            // ---------- kutular: gercek veride gurultu yuzunden rastgele kutu cikiyordu; duvar/zemin/tavan oturana kadar kapali ----------
+            if (KutularAcik) KutulariGuncelle(s, hucre, zaman, dt);
 
             // ---------- zemin poligonu, kapsama ----------
             ZeminPoligonu(s);
@@ -316,6 +319,7 @@ namespace ArTarama
                 foreach (var d in s.duvarlar)
                     if (OdaGeo.IsinParca(ox, oz, dx, dz, d.ax, d.az, d.bx, d.bz) > 0) { t = true; if (d.kesin) k = true; }
                 if (k) kk++; if (t) kt++;
+                s.yonDuvar[b] = t;
             }
             s.duvarKapsamaKesin = kk / 16f; s.duvarKapsamaTum = kt / 16f;
         }

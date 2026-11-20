@@ -57,6 +57,18 @@ namespace ArTarama
             mc.SetFloat("_Parilti", Mathf.Max(3.5f, 6f * Screen.height / 2400f));
             float tavanA = g.TavanTahmin ? 0.5f : 0.8f;
 
+            // taranan zemin: hafif turkuaz boya (taranmamis yer bos kalir; kullanici neresinin eksik oldugunu gorur)
+            {
+                var zb = g.ZeminBoya; float hh = OdaGoruntu.BoyaHucre * 0.5f - 0.01f, yb = zy + 0.008f;
+                var renk = new Color(0.26f, 0.85f, 0.75f, 0.12f);
+                for (int i = 0; i + 1 < zb.Length; i += 2)
+                {
+                    float x = zb[i], z = zb[i + 1];
+                    if ((x - camPos.x) * (x - camPos.x) + (z - camPos.z) * (z - camPos.z) > 36f) continue;
+                    Dolgu(new Vector3(x - hh, yb, z - hh), new Vector3(x + hh, yb, z - hh), new Vector3(x + hh, yb, z + hh), new Vector3(x - hh, yb, z + hh), renk);
+                }
+            }
+
             foreach (var d in g.Duvarlar)
             {
                 var a0 = new Vector3(d.ax, zy, d.az); var b0 = new Vector3(d.bx, zy, d.bz);
