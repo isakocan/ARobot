@@ -192,6 +192,11 @@ namespace ArTarama
             odaBtn.onClick.AddListener(() => { if (ub.tetiklendi) { ub.tetiklendi = false; return; } OdaTikleriYenile(); ModalGoster(modalOda, true); });
             var le0 = odaBtn.gameObject.AddComponent<LayoutElement>(); le0.flexibleWidth = 1.7f;
 
+            // ARCore gorunumu: oda modelini gizleyip ARCore'un kendi buldugu duzlemleri gosterir (karsilastirma icin)
+            var arcBtn = UiKur.Dugme(bar.transform, "ARCore", "ARCore", UiKur.DugmeStili.Ikincil, out _, out Text arcYazi, UiKur.Body);
+            arcBtn.onClick.AddListener(() => { PlaneStyle.ArcoreGorunum = !PlaneStyle.ArcoreGorunum; arcYazi.color = PlaneStyle.ArcoreGorunum ? UiKur.Vurgu : UiKur.MetinRenk; Haptik(10); });
+            var leA = arcBtn.gameObject.AddComponent<LayoutElement>(); leA.flexibleWidth = 1f;
+
             var sifBtn = UiKur.Dugme(bar.transform, "Sifirla", "Sıfırla", UiKur.DugmeStili.Ikincil, UiKur.Body);
             sifBtn.onClick.AddListener(() => OnayGoster("Tarama silinsin mi?", "Bu taramanın kaydı ve oda modeli silinir, baştan başlarsın.", "Sil", true, SifirlaTarama));
             var le1 = sifBtn.gameObject.AddComponent<LayoutElement>(); le1.flexibleWidth = 1f;

@@ -253,7 +253,7 @@ namespace ArTarama
             if (Takipte) oncedenTakip = true;
 
             ZeminuGuncelle();
-            if (oda != null) oda.ArGoster = mod == Mod.Tarama && Takipte;
+            if (oda != null) oda.ArGoster = mod == Mod.Tarama && Takipte && !PlaneStyle.ArcoreGorunum;
             IsikGuncelle();
             FpsOlc(dt);
 

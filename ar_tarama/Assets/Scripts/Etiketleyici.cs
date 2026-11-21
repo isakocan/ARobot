@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Unity.Collections;
@@ -11,14 +12,17 @@ using Debug = UnityEngine.Debug;
 namespace ArTarama
 {
     /// <summary>
-    /// Telefonda SegFormer-B0 (ADE20K) bolutleme: kamera goruntusu dik (portre) cevrilip 512x512'ye olceklenir, model
-    /// GPU'da (yoksa CPU) calisir, sinif = argmax (grafa eklenmis; yalniz 128x128 tamsayi geri okunur). Sonuc OdaEtiket
-    /// grup kodlarina cevrilir ve sensor yonundeki derinlik izgarasina ornekleyen Etiket(u,v) ile verilir.
-    /// tools/tarama/etiketle.py ile ayni on isleme (bilgisayardaki kayit etiketlemesiyle ayni sonuc).
+    /// Telefonda SegFormer-B0 (ADE20K) bolutleme: kamera goruntusu dik (portre) cevrilip 192x320'ye (dik en-boy orani)
+    /// olceklenir, model GPU'da calisir, sinif = argmax (grafa eklenmis; yalniz 48x80 tamsayi geri okunur).
+    /// GPU ayni zamanda kamera goruntusunu ciziyor: modeli tek seferde calistirmak ekrani ~0,9 sn donduruyordu (telefonda
+    /// olculdu, 512x512). Bu yuzden katmanlar karelere yayilir (ScheduleIterable), etiket ~1 sn'de bir gelir, ekran akici kalir.
+    /// 192x320 bilgisayarda 512x512 ile ayni isabeti verdi (zemin etiketinin derinlikte zemine oturma orani 0,634 / 0,638).
     /// </summary>
     public class Etiketleyici : MonoBehaviour
     {
-        public const int Boy = 512, Cikis = 128;
+        public const int DikG = 192, DikY = 320;                    // dik goruntu: genislik (sutun) x yukseklik (satir)
+        public const int CikG = DikG / 4, CikY = DikY / 4;          // model cikisi 1/4
+        public const int HedefKare = 30;                            // bir etiketleme kac kareye yayilir
 
         // ADE20K sinif -> OdaEtiket grubu (tools/tarama/etiketle.py GRUP tablosundan uretildi)
         static readonly byte[] Grup =
@@ -36,7 +40,8 @@ namespace ArTarama
         public string Arka { get; private set; } = "";
 
         Worker worker;
-        float[] giris = new float[3 * Boy * Boy];
+        float[] giris = new float[3 * DikG * DikY];
+        int katmanSay = 200;                                        // isinmada sayilir
         byte[] rgba = new byte[0];
 
         void Awake()
@@ -53,10 +58,30 @@ namespace ArTarama
                 var m2 = g.Compile(am);
                 var arka = SystemInfo.supportsComputeShaders ? BackendType.GPUCompute : BackendType.CPU;
                 worker = new Worker(m2, arka); Arka = arka.ToString();
-                Hazir = true;
-                Debug.Log("[ArTarama] SegFormer hazir, arka uc: " + Arka);
+                Debug.Log("[ArTarama] SegFormer yuklendi, arka uc: " + Arka + "; isinma basliyor");
+                StartCoroutine(Isin());
             }
             catch (Exception e) { Debug.LogWarning("[ArTarama] SegFormer yuklenemedi: " + e.Message); Hazir = false; }
+        }
+
+        /// <summary>Ilk calistirmada GPU golgelendiricileri derlenir (telefonda ~14 sn surdu): taramadan once, karelere yayarak.</summary>
+        IEnumerator Isin()
+        {
+            var sw = Stopwatch.StartNew(); int n = 0;
+            using (var t = new Tensor<float>(new TensorShape(1, 3, DikY, DikG), giris))
+            {
+                var it = worker.ScheduleIterable(t);
+                while (true)
+                {
+                    bool devam;
+                    try { devam = it.MoveNext(); } catch (Exception e) { Debug.LogWarning("[ArTarama] SegFormer isinma hatasi: " + e.Message); yield break; }
+                    if (!devam) break;
+                    n++; if (n % 4 == 0) yield return null;
+                }
+            }
+            katmanSay = Math.Max(1, n);
+            Hazir = true;
+            Debug.Log("[ArTarama] SegFormer hazir: " + n + " katman, isinma " + sw.ElapsedMilliseconds + " ms");
         }
 
         void OnDestroy() { worker?.Dispose(); worker = null; }
@@ -87,7 +112,7 @@ namespace ArTarama
         /// <summary>Sonuc: sensor yonundeki (w x h) izgaraya orneklenmis grup etiketleri.</summary>
         public class Sonuc
         {
-            public byte[] dik;               // Cikis x Cikis, dik goruntu yonunde
+            public byte[] dik;               // CikY satir x CikG sutun, dik goruntu yonunde
             public ScreenOrientation yon;
             public byte[] Izgaraya(int w, int h)
             {
@@ -96,8 +121,8 @@ namespace ArTarama
                     for (int u = 0; u < w; u++)
                     {
                         SensordenDike(yon, (u + 0.5f) / w, (v + 0.5f) / h, out float yn, out float xn);
-                        int r = Mathf.Clamp((int)(yn * Cikis), 0, Cikis - 1), c = Mathf.Clamp((int)(xn * Cikis), 0, Cikis - 1);
-                        e[v * w + u] = dik[r * Cikis + c];
+                        int r = Mathf.Clamp((int)(yn * CikY), 0, CikY - 1), c = Mathf.Clamp((int)(xn * CikG), 0, CikG - 1);
+                        e[v * w + u] = dik[r * CikG + c];
                     }
                 return e;
             }
@@ -126,51 +151,58 @@ namespace ArTarama
             }
             finally { img.Dispose(); }
             Mesgul = true;
-            Calistir(w, h, Screen.orientation, bitti);
+            StartCoroutine(Calistir(w, h, Screen.orientation, bitti));
             return true;
         }
 
-        async void Calistir(int w, int h, ScreenOrientation yon, Action<Sonuc> bitti)
+        IEnumerator Calistir(int w, int h, ScreenOrientation yon, Action<Sonuc> bitti)
         {
             var sw = Stopwatch.StartNew();
-            try
+            var kaynak = rgba; var g = giris;
+            var on = Task.Run(() => OnIsle(kaynak, w, h, yon, g));
+            while (!on.IsCompleted) yield return null;
+            if (on.IsFaulted) { Debug.LogWarning("[ArTarama] SegFormer on isleme hatasi: " + on.Exception?.Message); Mesgul = false; yield break; }
+            var t0 = sw.Elapsed.TotalMilliseconds;
+            var t = new Tensor<float>(new TensorShape(1, 3, DikY, DikG), g);
+            IEnumerator it;
+            try { it = worker.ScheduleIterable(t); } catch (Exception e) { Debug.LogWarning("[ArTarama] SegFormer hatasi: " + e.Message); t.Dispose(); Mesgul = false; yield break; }
+            int adim = Math.Max(1, (katmanSay + HedefKare - 1) / HedefKare), k = 0;
+            while (true)
             {
-                var kaynak = rgba; var g = giris;
-                await Task.Run(() => OnIsle(kaynak, w, h, yon, g));
-                var t0 = sw.Elapsed.TotalMilliseconds;
-                using (var t = new Tensor<float>(new TensorShape(1, 3, Boy, Boy), g))
-                {
-                    worker.Schedule(t);
-                    var cik = worker.PeekOutput() as Tensor<int>;
-                    using (var kopya = await cik.ReadbackAndCloneAsync())
-                    {
-                        var ar = kopya.DownloadToArray();
-                        ModelMs = (float)(sw.Elapsed.TotalMilliseconds - t0);
-                        var dik = new byte[Cikis * Cikis];
-                        int m = Math.Min(dik.Length, ar.Length);
-                        for (int i = 0; i < m; i++) { int c = ar[i]; dik[i] = c >= 0 && c < Grup.Length ? Grup[c] : (byte)0; }
-                        SonMs = (float)sw.Elapsed.TotalMilliseconds; Sayi++;
-                        if (Sayi == 1 || Sayi % 20 == 0) Debug.Log("[ArTarama] SegFormer " + Arka + ": toplam " + SonMs.ToString("F0") + " ms, model " + ModelMs.ToString("F0") + " ms");
-                        bitti?.Invoke(new Sonuc { dik = dik, yon = yon });
-                    }
-                }
+                bool devam;
+                try { devam = it.MoveNext(); } catch (Exception e) { Debug.LogWarning("[ArTarama] SegFormer hatasi: " + e.Message); t.Dispose(); Mesgul = false; yield break; }
+                if (!devam) break;
+                if (++k % adim == 0) yield return null;
             }
-            catch (Exception e) { Debug.LogWarning("[ArTarama] SegFormer hatasi: " + e.Message); }
-            finally { Mesgul = false; }
+            t.Dispose();
+            var cik = worker.PeekOutput() as Tensor<int>;
+            if (cik == null) { Mesgul = false; yield break; }
+            cik.ReadbackRequest();
+            while (!cik.IsReadbackRequestDone()) yield return null;
+            int[] ar;
+            try { ar = cik.DownloadToArray(); } catch (Exception e) { Debug.LogWarning("[ArTarama] SegFormer okuma hatasi: " + e.Message); Mesgul = false; yield break; }
+            ModelMs = (float)(sw.Elapsed.TotalMilliseconds - t0);
+            var dik = new byte[CikG * CikY];
+            int m = Math.Min(dik.Length, ar.Length);
+            for (int i = 0; i < m; i++) { int c = ar[i]; dik[i] = c >= 0 && c < Grup.Length ? Grup[c] : (byte)0; }
+            SonMs = (float)sw.Elapsed.TotalMilliseconds; Sayi++;
+            if (Sayi == 1 || Sayi % 20 == 0) Debug.Log("[ArTarama] SegFormer " + Arka + ": toplam " + SonMs.ToString("F0") + " ms (karelere yayili), model " + ModelMs.ToString("F0") + " ms, fps " + (1f / Mathf.Max(1e-3f, Time.smoothDeltaTime)).ToString("F0"));
+            Mesgul = false;
+            try { bitti?.Invoke(new Sonuc { dik = dik, yon = yon }); } catch (Exception e) { Debug.LogWarning("[ArTarama] etiket isleme hatasi: " + e.Message); }
         }
 
         static void OnIsle(byte[] rgba, int w, int h, ScreenOrientation yon, float[] g)
         {
             const float m0 = 0.485f, m1 = 0.456f, m2 = 0.406f, s0 = 1f / 0.229f, s1 = 1f / 0.224f, s2 = 1f / 0.225f, k = 1f / 255f;
-            int pl = Boy * Boy;
-            for (int i = 0; i < Boy; i++)
+            int pl = DikG * DikY;
+            for (int i = 0; i < DikY; i++)
             {
-                float yn = (i + 0.5f) / Boy;
-                for (int j = 0; j < Boy; j++)
+                float yn = (i + 0.5f) / DikY;
+                for (int j = 0; j < DikG; j++)
                 {
-                    DiktenSensore(yon, yn, (j + 0.5f) / Boy, out float un, out float vn);
+                    DiktenSensore(yon, yn, (j + 0.5f) / DikG, out float un, out float vn);
                     int x = Math.Min(w - 1, (int)(un * w)), y = Math.Min(h - 1, (int)(vn * h));
-                    int o = (y * w + x) * 4, d = i * Boy + j;
+                    int o = (y * w + x) * 4, d = i * DikG + j;
                     g[d] = (rgba[o] * k - m0) * s0;
                     g[pl + d] = (rgba[o + 1] * k - m1) * s1;
                     g[2 * pl + d] = (rgba[o + 2] * k - m2) * s2;
