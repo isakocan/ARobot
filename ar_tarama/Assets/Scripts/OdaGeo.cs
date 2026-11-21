@@ -92,6 +92,14 @@ namespace ArTarama
             return ua > 1e-9 ? (float)(ia / ua) : 0f;
         }
 
+        /// <summary>Iki dondurulmus dikdortgenin kesisim alaninin kucuk olanin alanina orani.</summary>
+        public static float KucugeOran(OdaKutu a, OdaKutu b)
+        {
+            var pa = new float[8]; var pb = new float[8]; a.Koseler(pa); b.Koseler(pb);
+            double m = Math.Min((double)a.sx * a.sz, (double)b.sx * b.sz);
+            return m > 1e-9 ? (float)(Kesisim(pa, pb) / m) : 0f;
+        }
+
         static double Kesisim(float[] a, float[] b)
         {
             var poly = new List<double[]>();

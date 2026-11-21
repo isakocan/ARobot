@@ -699,6 +699,7 @@ namespace ArTarama
             yaz("etiketli=" + s.etiketli + " etiketli nokta=" + k.model.izgara.EtiketNokta + " esya voksel=" + k.model.izgara.Esya.Count);
             yaz("zemin var=" + s.zeminVar + " y=" + F(s.zeminY, 3) + " tavan y=" + F(s.tavanY, 3) + " gercek=" + s.tavanGercek + " (tahmin=" + s.TavanTahmin + ")");
             yaz("duvar: " + s.duvarlar.Count + " (kesin " + s.KesinDuvar + "), kutu: " + s.kutular.Count + " (kesin " + s.KesinKutu + "), bos zemin alani: " + F(s.acikAlan) + " m2, sinir hucresi: " + s.sinir.Length / 2);
+            yaz("zemin farki (etiket - ARCore): " + F(k.model.ZeminFark) + " m, tavan-zemin: " + F(s.tavanY - s.zeminY) + " m");
             foreach (var d in s.duvarlar) yaz("  duvar " + d.id + " " + (d.kesin ? "kesin" : "aday") + " ilerleme=" + F(d.ilerleme) + " (" + F(d.ax) + "," + F(d.az) + ")->(" + F(d.bx) + "," + F(d.bz) + ") uz=" + F(d.Uzunluk));
             foreach (var kk in s.kutular) yaz("  kutu " + kk.id + " " + kk.TurAdi + " " + (kk.kesin ? "kesin" : "aday") + " ilerleme=" + F(kk.ilerleme) + " merkez=(" + F(kk.cx) + "," + F(kk.cy) + "," + F(kk.cz) + ") boyut=" + F(kk.sx) + "x" + F(kk.sy) + "x" + F(kk.sz) + " aci=" + F(kk.aci, 1));
             yaz("sure: butunlestirme " + OdaSentetik.OzetAl(k.isleMs) + "; yapi " + OdaSentetik.OzetAl(k.guncMs));

@@ -163,6 +163,12 @@ namespace ArTarama
                 foreach (var p in planlar)
                     if (p.tur == 0 && p.sinir != null && p.sinir.Length >= 9) { zy0 = Math.Min(zy0, OrtY(p.sinir)); zv = true; }
             if (!zv) return s;
+            // etiketli zemin noktalari varsa zemin yuksekligi onlarin tepesidir (ARCore'un en alcak duzlemi kayabilir)
+            if (izgara.EtiketNokta > 20000)
+            {
+                float ze = HistTepe(izgara.ZeminYHist, zy0 - 0.4f, zy0 + 0.4f, 1500);
+                if (!float.IsNaN(ze)) { ZeminFark = ze - zy0; zy0 = ze; }
+            }
             s.zeminVar = true; s.zeminY = zy = zy0;
             int iy0 = KanitIzgarasi.Ind(zy0);
 
