@@ -24,6 +24,7 @@
     "com.unity.modules.unitywebrequesttexture": "1.0.0",
     "com.unity.modules.unitywebrequestwww": "1.0.0",
     "com.unity.modules.xr": "1.0.0",
+    "com.unity.ai.inference": "2.6.1",
     "com.unity.xr.arfoundation": "6.7.1",
     "com.unity.xr.arcore": "6.7.1",
     "com.unity.inputsystem": "1.20.1",

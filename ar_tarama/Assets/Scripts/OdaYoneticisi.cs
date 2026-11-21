@@ -78,6 +78,10 @@ namespace ArTarama
         public Camera arKamera;
         public PlanHaritasi plan;
         public KayitYoneticisi kayit;
+        public Etiketleyici etiket;
+        public const float EtiketAraligi = 0.5f;
+        float sonEtiket;
+        public int EtiketliKare { get; private set; }
 
         public const int KatmanAr = 10, KatmanMini = 11, KatmanHarita = 12;
         public const float KareAraligi = 0.25f, YapiAraligi = 1.0f, KayitAraligi = 10f;
@@ -111,6 +115,7 @@ namespace ArTarama
 
         void Awake()
         {
+            if (etiket == null) { etiket = GetComponent<Etiketleyici>(); if (etiket == null) etiket = gameObject.AddComponent<Etiketleyici>(); }
             ar = new OdaArCizim(Resources.Load<Material>("mat_oda_cizgi"), Resources.Load<Material>("mat_oda_dolgu"));
             oturumBasi = Time.unscaledTime;
             is_ = new Thread(Calis) { IsBackground = true, Name = "OdaYapisi" };
@@ -132,7 +137,7 @@ namespace ArTarama
         public void Temizle()
         {
             nesil++; model = new OdaModeli(); bekleyen = null; Son = null; Goruntu.Temizle(); oturumBasi = Time.unscaledTime;
-            sonKare = sonYapi = 0f; KareSayisi = 0; VokselSayisi = 0;
+            sonKare = sonYapi = sonEtiket = 0f; KareSayisi = 0; EtiketliKare = 0; VokselSayisi = 0;
             if (ar != null) ar.Temizle();
         }
 
@@ -151,10 +156,28 @@ namespace ArTarama
             if (!Aktif) return;
             float t = Time.unscaledTime;
             bool takipte = ArApp.Ornek != null && ArApp.Ornek.Takipte;
-            if (takipte && oklusyon != null && kamera != null && t - sonKare >= KareAraligi && bekleyenIs < 6)
+            // etiketli kare (~2 Hz): derinlik ve kamera goruntusu ayni anda alinir; SegFormer bitince kare etiketleriyle islenir.
+            // Ara karelerde (4 Hz) yalniz derinlik islenir.
+            if (takipte && oklusyon != null && kamera != null && etiket != null && etiket.Hazir && !etiket.Mesgul && t - sonEtiket >= EtiketAraligi && bekleyenIs < 6)
+            {
+                sonEtiket = t;
+                try
+                {
+                    var f = KareOku();
+                    if (f != null)
+                    {
+                        int bu = nesil;
+                        bool basladi = etiket.Baslat(kamera, r => { if (bu != nesil) return; f.e = r.Izgaraya(GW, GH); EtiketliKare++; Gonder(f); });
+                        if (!basladi) Gonder(f);
+                        sonKare = t;
+                    }
+                }
+                catch (Exception e) { if (hataLog++ < 3) Debug.LogWarning("[ArTarama] etiketli kare hatasi: " + e.Message); }
+            }
+            else if (takipte && oklusyon != null && kamera != null && t - sonKare >= KareAraligi && bekleyenIs < 6)
             {
                 sonKare = t;
-                try { KareAl(); } catch (Exception e) { if (hataLog++ < 3) Debug.LogWarning("[ArTarama] derinlik karesi hatasi: " + e.Message); }
+                try { var f = KareOku(); if (f != null) Gonder(f); } catch (Exception e) { if (hataLog++ < 3) Debug.LogWarning("[ArTarama] derinlik karesi hatasi: " + e.Message); }
             }
             if (takipte && duzlem != null && t - sonYapi >= YapiAraligi && bekleyenIs < 6)
             {
@@ -176,16 +199,16 @@ namespace ArTarama
         // ------------------------------------------------------------------------------------------ derinlik karesi
         const int GW = 80, GH = 45;
 
-        void KareAl()
+        DerinlikKaresi KareOku()
         {
-            if (!oklusyon.TryAcquireEnvironmentDepthCpuImage(out XRCpuImage img)) return;
+            if (!oklusyon.TryAcquireEnvironmentDepthCpuImage(out XRCpuImage img)) return null;
             XRCpuImage conf = default; bool confVar = false;
             try
             {
                 if (oklusyon.TryAcquireEnvironmentDepthConfidenceCpuImage(out conf)) confVar = true;
-                if (!kamera.TryGetIntrinsics(out XRCameraIntrinsics ki)) return;
+                if (!kamera.TryGetIntrinsics(out XRCameraIntrinsics ki)) return null;
                 bool u16 = img.format == XRCpuImage.Format.DepthUint16, f32 = img.format == XRCpuImage.Format.DepthFloat32;
-                if (!u16 && !f32) return;
+                if (!u16 && !f32) return null;
                 int dw = img.width, dh = img.height;
                 var pl = img.GetPlane(0); var d = pl.data; int rs = pl.rowStride, ps = pl.pixelStride;
                 Unity.Collections.NativeArray<byte> cd = default; int crs = 0, cps = 1;
@@ -215,18 +238,23 @@ namespace ArTarama
                     }
                 }
                 GuvenOrani = gecerli > 50 ? guvenli / (float)gecerli : -1f;
-                var m = model; int bu = nesil; KareSayisi++;
-                Interlocked.Increment(ref bekleyenIs);
-                kuyruk.Add(() =>
-                {
-                    if (bu != nesil) return;
-                    var sw = System.Diagnostics.Stopwatch.StartNew();
-                    m.Isle(f);
-                    sw.Stop();
-                    IsleMs = IsleMs <= 0 ? (float)sw.Elapsed.TotalMilliseconds : Mathf.Lerp(IsleMs, (float)sw.Elapsed.TotalMilliseconds, 0.1f);
-                });
+                return f;
             }
             finally { img.Dispose(); if (confVar) conf.Dispose(); }
+        }
+
+        void Gonder(DerinlikKaresi f)
+        {
+            var m = model; int bu = nesil; KareSayisi++;
+            Interlocked.Increment(ref bekleyenIs);
+            kuyruk.Add(() =>
+            {
+                if (bu != nesil) return;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                m.Isle(f);
+                sw.Stop();
+                IsleMs = IsleMs <= 0 ? (float)sw.Elapsed.TotalMilliseconds : Mathf.Lerp(IsleMs, (float)sw.Elapsed.TotalMilliseconds, 0.1f);
+            });
         }
 
         void YapiIsiGonder()

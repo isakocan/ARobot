@@ -26,7 +26,7 @@ namespace ArTarama
 
     /// <summary>
     /// Yonlendirme kocu (saf C#, test edilebilir): tek satirlik kibar mesaj, oncelik sirasina gore, en az 1,5 sn aralikla degisir.
-    /// 1 izleme sorunu, 2 mesafe, 3 "bekle", 4 zemin/tavan egimi, 7 oda tamam, 5 yon kapsama, 6 yer degistir.
+    /// 1 izleme sorunu, 2 mesafe, 3 "bekle", 4 zemin/tavan egimi, 7 oda tamam, 5 duvari bulunmamis yon, 8 taranmamis zemin, 6 yer degistir.
     /// </summary>
     public class OdaKoc
     {
@@ -110,9 +110,6 @@ namespace ArTarama
                 string bekle = null;
                 foreach (var d in s.duvarlar)
                     if (!d.kesin && d.ilerleme >= 0.5f && Gorunur(g, (d.ax + d.bx) * 0.5f, (d.az + d.bz) * 0.5f)) { bekle = Takili(g, 100000 + d.id, d.ilerleme); break; }
-                if (bekle == null)
-                    foreach (var k in s.kutular)
-                        if (!k.kesin && k.ilerleme >= 0.5f && Gorunur(g, k.cx, k.cz)) { bekle = Takili(g, 200000 + k.id, k.ilerleme); break; }
                 if (bekle != null) return M(bekle, bekle.StartsWith("Biraz") ? KocSimge.Yuru : KocSimge.Bekle, 3);
             }
 
@@ -120,8 +117,9 @@ namespace ArTarama
             if (s == null || !s.zeminVar) return M("Telefonu hafifçe zemine doğru eğ", KocSimge.Egim, 4);
             if (!s.tavanGercek && s.duvarKapsamaTum >= 0.4f && s.duvarlar.Count >= 2) return M("Telefonu biraz yukarı eğ, tavanı tara", KocSimge.Egim, 4);
 
-            // 7) oda tamam (5 ve 6'dan once: oda bittiyse yon/yer onerisi anlamsiz)
-            if (s.dongu || s.duvarKapsamaKesin >= 0.85f) return M("Oda tamamlanmak üzere. Bitirmek için Bitir'e dokun.", KocSimge.Tamam, 7);
+            // 7) oda tamam: duvarlar kapandi ve oda icindeki zeminin cogu (esya/duvar disi) goruldu
+            bool duvarTamam = s.dongu || s.duvarKapsamaKesin >= 0.85f;
+            if (duvarTamam && (s.zeminKapsama < 0f || s.zeminKapsama >= 0.8f)) return M("Oda tamamlandı. Bitirmek için Bitir'e dokun.", KocSimge.Tamam, 7);
 
             // baslangic metni: ilk saniyeler
             if (g.zaman - baslangic < 8f && GorulenSayi < 3 && s.KesinDuvar == 0) return M(Baslangic, KocSimge.Bilgi, 0);
@@ -142,6 +140,26 @@ namespace ArTarama
                     if (en <= 25) return M("Bu taraf taranıyor, telefonu yavaşça gezdir", KocSimge.Bekle, 5);
                     if (en >= 135) { var ma = M("Arkana dön, o taraftaki duvar henüz bulunmadı", KocSimge.Don, 5); ma.donus = enFark >= 0 ? 1 : -1; return ma; }
                     var m = M(enFark >= 0 ? "Sağa dön, o taraftaki duvar henüz bulunmadı" : "Sola dön, o taraftaki duvar henüz bulunmadı", KocSimge.Don, 5);
+                    m.donus = enFark >= 0 ? 1 : -1; return m;
+                }
+            }
+
+            // 5b) zemin kapsama (kat plani icin): cevrede taranmamis zemin olan en yakin yon
+            {
+                double en = 1e9, enFark = 0; float enOran = 0;
+                for (int b = 0; b < Bin; b++)
+                {
+                    float o = s.yonZeminEksik[b]; if (o < 0.5f) continue;
+                    double f = Fark((b + 0.5) * 360.0 / Bin, g.yaw);
+                    double maliyet = Math.Abs(f) - 40.0 * o;   // cok eksik olan yon biraz one gecer
+                    if (maliyet < en) { en = maliyet; enFark = f; enOran = o; }
+                }
+                if (enOran > 0f)
+                {
+                    if (Math.Abs(enFark) <= 30)
+                        return g.pitch > -25f ? M("Telefonu biraz aşağı eğ, önündeki zemini göster", KocSimge.Egim, 8)
+                                              : M("Zemin taranıyor, telefonu yavaşça sağa sola gezdir", KocSimge.Bekle, 8);
+                    var m = M(Math.Abs(enFark) >= 135 ? "Arkana dön, oradaki zemin henüz taranmadı" : enFark >= 0 ? "Sağa dön, oradaki zemin henüz taranmadı" : "Sola dön, oradaki zemin henüz taranmadı", KocSimge.Don, 8);
                     m.donus = enFark >= 0 ? 1 : -1; return m;
                 }
             }

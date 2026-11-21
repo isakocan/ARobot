@@ -69,6 +69,8 @@ namespace ArTarama
         public float taramaAlani;                     // taranan zemin (m2)
         public bool etiketli;                         // SegFormer etiketleri kullanildi
         public bool[] yonDuvar = new bool[16];        // kullanicidan 16 yonde (yaw dilimi) duvar bulundu mu
+        public float[] yonZeminEksik = new float[16]; // kullanicidan 16 yonde 0,7-2,5 m arasi taranmamis zemin orani (0..1)
+        public float zeminKapsama = -1f;              // oda poligonu icinde (esya/duvar disi) taranmis zemin orani; poligon yoksa -1
         public float acikAlan;                        // kesfedilmis bos zemin alani (m2)
         public float[] sinir = new float[0];          // kesfedilmemis bolgeye komsu bos zemin hucreleri (x,z, 25 cm)
         public float duvarKapsamaKesin, duvarKapsamaTum;   // kullanicidan 16 yonde duvar bulunan yonlerin orani
@@ -137,10 +139,10 @@ namespace ArTarama
         public void Sifirla()
         {
             sonDuvarId = 0; sonKutuId = 0; surum = 0; sonZaman = float.NaN;
-            duvarDurum.Clear(); kutuDurum.Clear(); izgara.Sifirla(); BantSifirla(); esyaDurum.Clear();
+            duvarDurum.Clear(); kutuDurum.Clear(); izgara.Sifirla(); BantSifirla(); ornekler.Clear(); oncekiMasa.Clear(); zeminBilinen = false;
         }
 
-        public void Isle(DerinlikKaresi f) { izgara.Isle(f); IzEkle(f.px, f.pz); }
+        public void Isle(DerinlikKaresi f) { izgara.Isle(f); IzEkle(f.px, f.pz); GozlemleriCikar(f); }
 
         class Hucre
         {
@@ -257,7 +259,7 @@ namespace ArTarama
 
             // ---------- kutular: gercek veride gurultu yuzunden rastgele kutu cikiyordu; duvar/zemin/tavan oturana kadar kapali ----------
             if (KutularAcik) KutulariGuncelle(s, hucre, zaman, dt);
-            else if (s.etiketli) EsyaGuncelle(s, zy0, zaman);   // SegFormer: yalniz esya etiketli noktalardan, turuyle
+            else if (s.etiketli) EsyaGuncelle(s, zy0, planlar, zaman);   // SegFormer: yalniz esya etiketli noktalardan, turuyle
 
             // ---------- zemin poligonu, kapsama ----------
             ZeminPoligonu(s);
@@ -332,6 +334,71 @@ namespace ArTarama
                 s.yonDuvar[b] = t;
             }
             s.duvarKapsamaKesin = kk / 16f; s.duvarKapsamaTum = kt / 16f;
+            ZeminKapsama(s);
+        }
+
+        /// <summary>Kat plani icin zeminin nerelerinin taranmadigi: kullanicinin cevresinde 16 yonde ve oda poligonunda.</summary>
+        void ZeminKapsama(OdaSonuc s)
+        {
+            const float H = 0.15f;
+            var kaba = new HashSet<long>();
+            foreach (long k in s.zeminTaranan)
+            {
+                int ix = (int)((k >> 21) & 0x1FFFFF) - 1048576, iz = (int)(k & 0x1FFFFF) - 1048576;
+                kaba.Add(OdaSonuc.Anah2((int)Math.Floor(ix * KanitIzgarasi.V / H), (int)Math.Floor(iz * KanitIzgarasi.V / H)));
+            }
+            bool poly = s.zeminKapali && s.zeminPoligon.Length >= 6;
+            Func<float, float, bool> bilinen = (x, z) =>
+            {
+                int cx = (int)Math.Floor(x / H), cz = (int)Math.Floor(z / H);
+                for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) if (kaba.Contains(OdaSonuc.Anah2(cx + dx, cz + dz))) return true;
+                foreach (var k in s.kutular) if (k.kesin && OdaSonuc.KutuMesafesi(k, x, z) < 0.1f) return true;
+                foreach (var d in s.duvarlar) if (d.kesin && OdaSonuc.DuvarMesafesi(d, x, z) < 0.25f) return true;
+                return false;
+            };
+            Func<float, float, bool> odada = (x, z) =>
+            {
+                if (poly) return IcindeMi(s.zeminPoligon, x, z);
+                foreach (var d in s.duvarlar) { if (!d.kesin) continue; double t = OdaGeo.IsinParca(s.kameraX, s.kameraZ, x - s.kameraX, z - s.kameraZ, d.ax, d.az, d.bx, d.bz); if (t > 0 && t < 1) return false; }
+                return true;
+            };
+            float ox = s.kameraX, oz = s.kameraZ;
+            for (int b = 0; b < 16; b++)
+            {
+                double a = (b + 0.5) * Math.PI / 8, dx = Math.Sin(a), dz = Math.Cos(a);
+                int n = 0, eksik = 0;
+                for (float r = 0.7f; r <= 2.5f; r += 0.3f)
+                {
+                    float x = ox + (float)(dx * r), z = oz + (float)(dz * r);
+                    if (!odada(x, z)) break;
+                    n++; if (!bilinen(x, z)) eksik++;
+                }
+                s.yonZeminEksik[b] = n == 0 ? 0f : eksik / (float)n;
+            }
+            if (poly)
+            {
+                float x0 = float.MaxValue, x1 = float.MinValue, z0 = float.MaxValue, z1 = float.MinValue;
+                for (int i = 0; i + 1 < s.zeminPoligon.Length; i += 2) { x0 = Math.Min(x0, s.zeminPoligon[i]); x1 = Math.Max(x1, s.zeminPoligon[i]); z0 = Math.Min(z0, s.zeminPoligon[i + 1]); z1 = Math.Max(z1, s.zeminPoligon[i + 1]); }
+                int n = 0, b2 = 0;
+                for (float z = z0 + 0.15f; z < z1; z += 0.3f)
+                    for (float x = x0 + 0.15f; x < x1; x += 0.3f)
+                    {
+                        if (!IcindeMi(s.zeminPoligon, x, z)) continue;
+                        n++; if (bilinen(x, z)) b2++;
+                    }
+                s.zeminKapsama = n > 0 ? b2 / (float)n : -1f;
+            }
+        }
+
+        static bool IcindeMi(float[] p, float x, float z)
+        {
+            bool ic = false; int m = p.Length / 2;
+            for (int i = 0, j = m - 1; i < m; j = i++)
+            {
+                float xi = p[i * 2], zi = p[i * 2 + 1], xj = p[j * 2], zj = p[j * 2 + 1];
+                if ((zi > z) != (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) ic = !ic;
+            }
+            return ic;
         }
     }
 }

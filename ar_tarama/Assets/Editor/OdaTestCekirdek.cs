@@ -587,15 +587,15 @@ namespace ArTarama
             a = g(); a.takipte = false; a.neden = 2; dene("izleme kaybi (isik az)", a, "Ortam biraz karanlık, ışığı açabilirsin", 1);
             a = g(); a.takipte = false; a.neden = 4; dene("izleme kaybi (yeniden konumlan)", a, "Kamerayı az önceki yere çevir", 1);
             a = g(); a.hizli = true; dene("hizli donus", a, "Daha yavaş hareket et", 1);
-            a = g(); a.ortancaDerinlik = 0.4f; dene("cok yakin (medyan 0,4 m)", a, "Biraz uzaklaş", 2);
-            a = g(); a.ortancaDerinlik = 3.9f; dene("cok uzak (medyan 3,9 m)", a, "Biraz yaklaş", 2);
+            a = g(); a.ortancaDerinlik = 0.4f; dene("cok yakin (medyan 0,4 m)", a, "Biraz geri çekil", 2);
+            a = g(); a.ortancaDerinlik = 4.8f; dene("cok uzak (medyan 4,8 m)", a, "Duvara biraz yaklaş", 2);
             a = g(); a.sonuc = new OdaSonuc { zeminVar = false }; dene("zemin yok", a, "Telefonu hafifçe zemine doğru eğ", 4);
             var s5 = new OdaSonuc { zeminVar = true, tavanGercek = false, voksel = 100, duvarKapsamaTum = 0.5f };
             s5.duvarlar.Add(new OdaDuvar { id = 1, ax = 0, az = 3, bx = 3, bz = 3, kesin = true }); s5.duvarlar.Add(new OdaDuvar { id = 2, ax = 3, az = 3, bx = 3, bz = 0, kesin = true });
-            a = g(); a.sonuc = s5; dene("duvarlar yonlerin %50'sini kapsiyor, tavan yok", a, "Şimdi tavana doğru eğ", 4);
+            a = g(); a.sonuc = s5; dene("duvarlar yonlerin %50'sini kapsiyor, tavan yok", a, "Telefonu biraz yukarı eğ, tavanı tara", 4);
             var s6 = new OdaSonuc { zeminVar = true, tavanGercek = true, voksel = 100 }; s6.duvarlar.Add(new OdaDuvar { id = 1, ax = 0, az = 3, bx = 2, bz = 3, kesin = false, ilerleme = 0.7f });
             a = g(); a.sonuc = s6; a.kx = 1; a.kz = 0; a.yaw = 0; dene("aday duvar gorus alaninda, onaya yakin", a, "Burada bir saniye bekle", 3);
-            a = g(); a.sonuc = new OdaSonuc { zeminVar = true, tavanGercek = true, voksel = 100, dongu = true, duvarKapsamaKesin = 1f }; dene("duvarlar kapali dongu", a, "Oda tamamlanmak üzere. Bitirmek için Bitir'e dokun.", 7);
+            a = g(); a.sonuc = new OdaSonuc { zeminVar = true, tavanGercek = true, voksel = 100, dongu = true, duvarKapsamaKesin = 1f }; dene("duvarlar kapali dongu", a, "Oda tamamlandı. Bitirmek için Bitir'e dokun.", 7);
             // yon kapsama: kaplanan dilimler disinda
             {
                 var koc = new OdaKoc(); var gi = g(); gi.zaman = 100f;
@@ -603,11 +603,11 @@ namespace ArTarama
                 koc.Guncelle(gi);
                 for (int y = 0; y <= 90; y += 6) { gi = g(); gi.zaman = 120f; gi.yaw = y; koc.Guncelle(gi); }
                 gi = g(); gi.zaman = 130f; gi.yaw = 90f; var m = koc.Guncelle(gi);
-                bool ok = m.kural == 5 && m.yazi.StartsWith("Yavaşça");
+                bool ok = m.kural == 5 && m.yazi.StartsWith("Bu taraf");
                 yaz("yon kapsama: 0-90 derece tarandi, bakis 90 -> \"" + m.yazi + "\" [kural " + m.kural + ", kenar oku " + (m.donus > 0 ? "sag" : "sol") + "]" + (ok ? "" : "  <-- BEKLENEN kural 5"));
                 if (!ok) { hata++; yaz("HATA: koc kapsama"); }
                 // tum dilimler dolu + sinir hucreleri + 6 sn onaysiz -> ilerle
-                var s7 = new OdaSonuc { zeminVar = true, tavanGercek = true, voksel = 100, sinir = new[] { 4f, 0f, 5f, 1f } };
+                var s7 = new OdaSonuc { zeminVar = true, tavanGercek = true, voksel = 100, sinir = new[] { 4f, 0f, 5f, 1f } }; for (int b = 0; b < 16; b++) s7.yonDuvar[b] = true;
                 for (int y = 0; y < 360; y += 8) { gi = g(); gi.zaman = 140f + y * 0.01f; gi.yaw = y; gi.sonuc = s7; koc.Guncelle(gi); }
                 gi = g(); gi.zaman = 160f; gi.yaw = 0; gi.sonuc = s7; m = koc.Guncelle(gi);
                 ok = m.kural == 6 && m.okVar;

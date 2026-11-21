@@ -72,13 +72,7 @@ namespace ArTarama
             foreach (var d in g.Duvarlar)
             {
                 var a0 = new Vector3(d.ax, zy, d.az); var b0 = new Vector3(d.bx, zy, d.bz);
-                if (!d.kesin)
-                {
-                    float al = 0.22f + 0.13f * d.ilerleme;     // ~%35
-                    Kesik(a0, b0, al, 0.7f);
-                    Kesik(a0 + Vector3.up * yuk, b0 + Vector3.up * yuk, al * 0.7f, 0.6f);
-                    continue;
-                }
+                if (!d.kesin) continue;   // sakin gorunum: aday duvar gosterilmez, yalniz kesinlesen cizilerek belirir
                 float ac = d.Acilis(simdi);
                 float p1 = Yum(ac / 0.5f), p2 = Yum((ac - 0.3f) / 0.4f), p3 = Yum((ac - 0.6f) / 0.4f);
                 var m0 = (a0 + b0) * 0.5f;
@@ -100,6 +94,7 @@ namespace ArTarama
 
             foreach (var b in g.Kutular)
             {
+                if (!b.kesin) continue;
                 double r = b.aci * Mathf.Deg2Rad;
                 var u = new Vector3((float)System.Math.Cos(r), 0, (float)System.Math.Sin(r)); var w = new Vector3(-u.z, 0, u.x);
                 float s = b.Olcek(simdi), v = b.Gorunurluk(simdi);

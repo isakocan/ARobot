@@ -6,7 +6,7 @@ Cikti: her kare icin etiket_XXXXXX.bin (derinlik izgarasi boyutunda, 80x45 varsa
 Grup kodlari (C# OdaEtiket ile ayni):
   0 bilinmiyor/diger, 1 duvar, 2 zemin, 3 tavan, 4 acilis (kapi/pencere/perde/jaluzi), 5 insan (yok sayilir),
   10 sandalye, 11 masa, 12 koltuk, 13 yatak, 14 dolap/raf, 15 ekran/bilgisayar, 16 diger esya
-Goruntu sensor yonunde (manzara) kayitli; modele dik (portre) cevrilerek verilir, sonuc geri cevrilir.
+JPG dikey ters kayitli (Unity), once duzeltilir; goruntu sensor yonunde (manzara); modele dik (portre) cevrilerek verilir, sonuc geri cevrilir.
 """
 import argparse
 import glob
@@ -78,6 +78,9 @@ def main():
     kontrol = []
     for n, k in enumerate(kareler):
         im = cv2.imdecode(np.fromfile(os.path.join(a.kayit, k["jpg"]), np.uint8), cv2.IMREAD_COLOR)
+        # Unity EncodeArrayToJPG satir 0'i alta yazar: kayitli JPG, ham kamera/derinlik tamponuna gore dikey ters.
+        # (olculdu: ters cevrilmeden zemin etiketi derinlikte zemine %59, cevrilince %66 oturuyor)
+        im = im[::-1].copy()
         c = calistir(oturum, tab, im, k.get("display_orientation", "Portrait"))
         dw, dh = k["depth_w"], k["depth_h"]
         # derinlik izgarasi merkezleri: (u+0.5)/dw ayni goruntu kesitine denk (ayni sensor yonu, ayni gorus alani)
