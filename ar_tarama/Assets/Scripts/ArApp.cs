@@ -265,6 +265,7 @@ namespace ArTarama
 
             if (mod == Mod.Tarama) TaramaGuncelle(dt);
             else if (mod == Mod.Gozden) GozdenGuncelle();
+            NesneGorunurlugu();
 
             ToastGuncelle();
             if (mod == Mod.Tarama && !ModalAcik) DokunmaIsle();
@@ -420,6 +421,21 @@ namespace ArTarama
             nesneler.Add(kok);
             if (plan != null) plan.Kristaller.Add(pose.position);
             Haptik(15);
+        }
+
+        /// <summary>Konan nesneler duvar arkasinda (baska odada) ya da 9 m'den uzaktaysa cizilmez.</summary>
+        void NesneGorunurlugu()
+        {
+            if (oda == null || arKamera == null) return;
+            var kp = arKamera.transform.position;
+            foreach (var g in nesneler)
+            {
+                if (g == null || g.transform.childCount == 0) continue;
+                var p = g.transform.position;
+                bool gor = (p - kp).sqrMagnitude < 81f && oda.Gorunurluk(p) > 0.5f;
+                var c = g.transform.GetChild(0).gameObject;
+                if (c.activeSelf != gor) c.SetActive(gor);
+            }
         }
 
         void Temizle()

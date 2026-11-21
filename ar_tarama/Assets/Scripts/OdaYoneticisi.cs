@@ -112,7 +112,7 @@ namespace ArTarama
         Thread is_; BlockingCollection<Action> kuyruk = new BlockingCollection<Action>(new ConcurrentQueue<Action>());
         volatile int bekleyenIs;
         volatile bool dur;
-        OdaArCizim ar;
+        OdaArCizim ar; ZeminCizim zc;
         Material matKati;
         public Material KatiMateryal { get { if (matKati == null) matKati = Resources.Load<Material>("mat_oda_kati"); return matKati; } }
         int hataLog;
@@ -122,6 +122,7 @@ namespace ArTarama
         {
             if (EtiketKullan && etiket == null) { etiket = GetComponent<Etiketleyici>(); if (etiket == null) etiket = gameObject.AddComponent<Etiketleyici>(); }
             ar = new OdaArCizim(Resources.Load<Material>("mat_oda_cizgi"), Resources.Load<Material>("mat_oda_dolgu"));
+            zc = new ZeminCizim(Resources.Load<Material>("mat_oda_dolgu"));
             oturumBasi = Time.unscaledTime;
             is_ = new Thread(Calis) { IsBackground = true, Name = "OdaYapisi" };
             is_.Start();
@@ -137,13 +138,14 @@ namespace ArTarama
             }
         }
 
-        void OnDestroy() { dur = true; try { kuyruk.CompleteAdding(); } catch { } if (ar != null) ar.Yok(); }
+        void OnDestroy() { dur = true; try { kuyruk.CompleteAdding(); } catch { } if (ar != null) ar.Yok(); if (zc != null) zc.Yok(); }
 
         public void Temizle()
         {
             nesil++; zemin = new ZeminHaritasi(); bekleyen = null; ZSon = null; Goruntu.Temizle(); oturumBasi = Time.unscaledTime;
             sonKare = sonYapi = sonEtiket = 0f; KareSayisi = 0; EtiketliKare = 0; VokselSayisi = 0;
             if (ar != null) ar.Temizle();
+            if (zc != null) zc.Temizle();
         }
 
         // ------------------------------------------------------------------------------------------ sorgular
@@ -154,6 +156,9 @@ namespace ArTarama
             if (s == null || !s.zeminVar) return false;
             return s.AcikMi(p.x, p.z, 0.25f);
         }
+
+        /// <summary>0..1: nokta kullanicinin bulundugu yerden gorunuyor mu (arada duvar yok)? Bilgi yoksa 1.</summary>
+        public float Gorunurluk(Vector3 p) { return zc != null ? zc.Gorus.Gorunur(p.x, p.z) : 1f; }
 
         // ------------------------------------------------------------------------------------------ dongu
         void Update()
@@ -184,7 +189,8 @@ namespace ArTarama
                 sonKare = t;
                 try { var f = KareOku(); if (f != null) Gonder(f); } catch (Exception e) { if (hataLog++ < 3) Debug.LogWarning("[ArTarama] derinlik karesi hatasi: " + e.Message); }
             }
-            if (takipte && duzlem != null && t - sonYapi >= YapiAraligi && bekleyenIs < 6)
+            // harita buyudukce guncelleme uzar: aralik en az 1 sn, guncelleme suresinin 3 kati (is parcacigi tikanmasin)
+            if (takipte && duzlem != null && t - sonYapi >= Mathf.Max(YapiAraligi, YapiMs * 0.003f) && bekleyenIs < 6)
             {
                 sonYapi = t; YapiIsiGonder();
             }
@@ -199,6 +205,7 @@ namespace ArTarama
         {
             if (ar == null || arKamera == null) return;
             ar.Guncelle(this, arKamera, Aktif && ArGoster && ZeminVar);
+            if (zc != null) zc.Guncelle(ZSon, Goruntu.GZeminY, arKamera, Aktif && ArGoster);
         }
 
         // ------------------------------------------------------------------------------------------ derinlik karesi
@@ -303,7 +310,7 @@ namespace ArTarama
             g.ZeminVar = s.zeminVar; g.Alan = s.alan; g.Duvarlar.Clear(); g.Kutular.Clear();
             if (!s.zeminVar) return;
             if (ilk) { g.GZeminY = s.zeminY; g.GTavanY = s.zeminY + 2.5f; }
-            g.AcikBoya = Kaba(s.acik, 2); g.EngelBoya = Kaba(s.engel, 2);
+            // zemin boyasi artik ZeminCizim'de (birlesik, yumusak kenarli); kare boya kapali
         }
 
         /// <summary>5 cm hucreleri 10 cm kaba hucrelere toplar (en az 'min' ince hucre), merkezleri x,z ciftleri olarak verir.</summary>

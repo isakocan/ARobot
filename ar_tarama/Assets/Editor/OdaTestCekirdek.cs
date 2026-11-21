@@ -717,9 +717,10 @@ namespace ArTarama
                 zh.Isle(f);
             }
             // son kare sonrasi bir son guncelleme
+            zh.Guncelle(planlar, k.model.izgara.SonZaman + 0.5f);
             var sw0 = Stopwatch.StartNew();
             var zs = zh.Guncelle(planlar, k.model.izgara.SonZaman + 1f);
-            yaz("ZEMIN: y=" + F(zs.zeminY, 3) + " acik=" + F(zs.alan) + " m2, engel hucre=" + zs.engel.Count + ", bilinen=" + zs.bilinen.Count + ", sinir=" + zs.sinir.Length / 2 + ", guncelleme " + sw0.ElapsedMilliseconds + " ms, hucre " + zh.HucreSayisi);
+            yaz("ZEMIN: y=" + F(zs.zeminY, 3) + " acik=" + F(zs.alan) + " m2, duvar hucre=" + zs.duvar.Count + ", ucgen=" + zs.acikUcgen.Length / 6 + "+" + zs.engelUcgen.Length / 6 + ", engel hucre=" + zs.engel.Count + ", bilinen=" + zs.bilinen.Count + ", sinir=" + zs.sinir.Length / 2 + ", guncelleme " + sw0.ElapsedMilliseconds + " ms, hucre " + zh.HucreSayisi);
             { var sb = new StringBuilder("engel yk (2cm): "); for (int q = 0; q < 30; q++) sb.Append(zh.TeshisYk[q]).Append(' '); yaz(sb.ToString()); }
             Directory.CreateDirectory(ciktiDir);
             ZeminPng(zs, Path.Combine(ciktiDir, "zemin_ustten.png"));

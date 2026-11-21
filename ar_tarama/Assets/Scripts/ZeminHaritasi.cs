@@ -19,6 +19,10 @@ namespace ArTarama
     {
         public bool zeminVar; public float zeminY;
         public HashSet<long> acik = new HashSet<long>(), engel = new HashSet<long>(), bilinen = new HashSet<long>();
+        public HashSet<long> duvar = new HashSet<long>();     // uzun engel (1 m ustunde de nokta var): gorusu keser
+        // yumusatilmis gosterim (ZeminGeo): 5 cm alanlar ve 10 cm kafeste kontur ucgenleri (x,z), acik zemin kenar parcalari
+        public float[] fa = new float[0], fe = new float[0]; public int gx0, gz0, gw, gh;
+        public float[] acikUcgen = new float[0], engelUcgen = new float[0], acikKenar = new float[0];
         public float alan;                              // acik zemin, m2
         public float[] yonEksik = new float[16];        // kullanicidan 16 yonde 0,5-3 m arasi taranmamis zemin orani (engele kadar)
         public float[] sinir = new float[0];            // taranmamis alana komsu acik zemin (25 cm kaba hucre merkezleri, x,z)
@@ -48,16 +52,38 @@ namespace ArTarama
 
         public static void Coz(long k, out int ix, out int iz) { ix = (int)((k >> 21) & 0x1FFFFF) - 1048576; iz = (int)(k & 0x1FFFFF) - 1048576; }
 
-        /// <summary>Kusbakisi RGBA goruntu (satir 0 = en kucuk z, sutun 0 = en kucuk x; Unity Texture2D sirasi). 1 piksel = 1 hucre.</summary>
+        /// <summary>Kusbakisi RGBA goruntu (satir 0 = en kucuk z, sutun 0 = en kucuk x; Unity Texture2D sirasi). 1 piksel = 1 hucre.
+        /// Yumusatilmis alanlardan: kenarlar yumusak, kucuk lekeler yok.</summary>
         public byte[] Resim(out int W, out int H, out float ox, out float oz, int pay = 4)
         {
-            int ax = x0 - pay, az = z0 - pay; W = Math.Max(1, x1 - x0 + 1 + 2 * pay); H = Math.Max(1, z1 - z0 + 1 + 2 * pay);
-            ox = ax * V; oz = az * V;
+            if (fa.Length == 0) Yumusat();
+            W = Math.Max(1, gw); H = Math.Max(1, gh); ox = gx0 * V; oz = gz0 * V;
             var p = new byte[W * H * 4];
-            foreach (long k in bilinen) Boya(p, W, H, k, ax, az, 60, 70, 80, 150);       // gorulmus ama acik degil (kenar payi)
-            foreach (long k in acik) Boya(p, W, H, k, ax, az, 67, 217, 190, 235);
-            foreach (long k in engel) Boya(p, W, H, k, ax, az, 214, 218, 225, 255);
+            for (int i = 0; i < W * H; i++)
+            {
+                float a = Yum(fa[i]), e = Yum(fe[i]);
+                // acik zemin turkuaz, engel acik gri (ustte)
+                float r = 67, g = 217, b = 190, al = a * 235f;
+                if (e > 0f) { r = r + (214 - r) * e; g = g + (218 - g) * e; b = b + (225 - b) * e; al = Math.Max(al, e * 255f); }
+                if (al < 1f) continue;
+                int o = i * 4; p[o] = (byte)r; p[o + 1] = (byte)g; p[o + 2] = (byte)b; p[o + 3] = (byte)Math.Min(255f, al);
+            }
             return p;
+        }
+
+        static float Yum(float x) { x = (x - 0.35f) / 0.3f; if (x <= 0f) return 0f; if (x >= 1f) return 1f; return x * x * (3f - 2f * x); }
+
+        /// <summary>Gosterim icin alanlar ve konturlar (arka plan is parcaciginda, Guncelle sonunda; JSON okununca da).</summary>
+        public void Yumusat()
+        {
+            SinirHesapla();
+            gx0 = x0 - 6; gz0 = z0 - 6; gw = x1 - x0 + 13; gh = z1 - z0 + 13;
+            if (gw * gh > 4000000) { gw = Math.Min(gw, 2000); gh = Math.Min(gh, 2000); }
+            fa = ZeminGeo.Alan(acik, gx0, gz0, gw, gh); fe = ZeminGeo.Alan(engel, gx0, gz0, gw, gh);
+            var u = new List<float>(); var k = new List<float>(); var e = new List<float>();
+            ZeminGeo.Kontur(fa, gw, gh, gx0, gz0, 2, 0.5f, u, k);
+            ZeminGeo.Kontur(fe, gw, gh, gx0, gz0, 2, 0.5f, e, null);
+            acikUcgen = u.ToArray(); acikKenar = k.ToArray(); engelUcgen = e.ToArray();
         }
 
         static void Boya(byte[] p, int W, int H, long k, int ax, int az, byte r, byte g, byte b, byte a)
@@ -94,7 +120,7 @@ namespace ArTarama
             s.zeminY = (float)Sayi(j, "zemin_y"); s.alan = (float)Sayi(j, "alan_m2");
             Doldur(Dizi(j, "acik"), s.acik); Doldur(Dizi(j, "engel"), s.engel); Doldur(Dizi(j, "bilinen"), s.bilinen);
             var iz = Dizi(j, "iz"); s.iz = new float[iz.Count]; for (int i = 0; i < iz.Count; i++) s.iz[i] = (float)iz[i];
-            s.SinirHesapla();
+            s.Yumusat();
             return s;
         }
 
@@ -153,7 +179,7 @@ namespace ArTarama
         public const int EngelMinKare = 3;
         public static int GuvenEsik = 128; public static bool SadeceGuvenli = true;   // gercek kayitlarda dusuk guvenli noktalar yurunen yolu bile engel yapiyordu
 
-        class Hucre { public int zemin, engel, yol; public int kz = -1, ke = -1; public bool plan; }
+        class Hucre { public int zemin, engel, yol, uzun; public int kz = -1, ke = -1, ku = -1; public bool plan; }
         readonly Dictionary<long, Hucre> h = new Dictionary<long, Hucre>();
         readonly List<float> izX = new List<float>(), izZ = new List<float>();
         readonly float[] mat = new float[9];
@@ -223,8 +249,15 @@ namespace ArTarama
                         var c = Al(OdaSonuc.Anah2(ZeminSonuc.Ind(x), ZeminSonuc.Ind(z)));
                         if (c.kz != kare) { c.kz = kare; c.zemin++; }
                     }
-                    else if (yk >= EngelAlt && yk <= EngelUst)
+                    else if (yk >= EngelAlt && yk <= 2.3f)
                     {
+                        // uzun engel (duvar, dolap, kapi kasasi): 1 m ustundeki noktalar zemin gurultusu olamaz, dusuk guvende de sayilir
+                        if (yk >= 1.0f && (f.g == null || f.g[i] >= 10))
+                        {
+                            var cu = Al(OdaSonuc.Anah2(ZeminSonuc.Ind(x), ZeminSonuc.Ind(z)));
+                            if (cu.ku != kare) { cu.ku = kare; cu.uzun++; }
+                        }
+                        if (yk > EngelUst) continue;
                         // dusuk guvenli ARCore derinligi kareden kareye ~10 cm oynuyor (gercek kayitta olculdu): zemin noktalari
                         // engel gibi gorunmesin diye engel kaniti yalniz guvenli noktadan ya da zeminden belirgin yuksekten (20 cm+)
                         byte gv = f.g != null ? f.g[i] : (byte)255;
@@ -276,26 +309,36 @@ namespace ArTarama
             var zeminKaba = new HashSet<long>();
             foreach (var kv in h) if (kv.Value.zemin >= 1 || kv.Value.yol > 0) { ZeminSonuc.Coz(kv.Key, out int ix, out int iz); zeminKaba.Add(OdaSonuc.Anah2(FloorDiv(ix, 3), FloorDiv(iz, 3))); }
             // siniflandirma
+            var bilAday = new HashSet<long>();
             foreach (var kv in h)
             {
                 var c = kv.Value;
                 bool planKanit = false;
                 if (c.plan) { ZeminSonuc.Coz(kv.Key, out int ix, out int iz); int cx = FloorDiv(ix, 3), cz = FloorDiv(iz, 3); for (int dz = -1; dz <= 1 && !planKanit; dz++) for (int dx = -1; dx <= 1; dx++) if (zeminKaba.Contains(OdaSonuc.Anah2(cx + dx, cz + dz))) { planKanit = true; break; } }
                 bool bil = planKanit || c.zemin >= 2 || c.yol > 0;
-                bool eng = c.engel >= EngelMinKare && c.engel * 2 >= c.zemin && !(c.yol > 0 && c.engel < 10);
+                bool duv = c.uzun >= EngelMinKare && c.yol == 0;
+                bool eng = duv || (c.engel >= EngelMinKare && c.engel * 2 >= c.zemin && !(c.yol > 0 && c.engel < 10));
+                if (duv) s.duvar.Add(kv.Key);
                 if (eng) s.engel.Add(kv.Key);
                 else if (bil) s.bilinen.Add(kv.Key);
+                if (bil) bilAday.Add(kv.Key);
             }
+            // temizlik: tek tuk engel lekeleri (4 hucreden kucuk) gurultudur
+            var atilan = new HashSet<long>();
+            ZeminGeo.KucukleriAt(s.engel, 4, atilan);
+            foreach (long k in atilan) { s.duvar.Remove(k); if (bilAday.Contains(k)) s.bilinen.Add(k); }
             foreach (long k in s.bilinen)
             {
                 ZeminSonuc.Coz(k, out int ix, out int iz); bool yakin = false;
                 for (int dz = -1; dz <= 1 && !yakin; dz++) for (int dx = -1; dx <= 1; dx++) if (s.engel.Contains(OdaSonuc.Anah2(ix + dx, iz + dz))) { yakin = true; break; }
                 if (!yakin) s.acik.Add(k);
             }
+            // temizlik: 0,08 m2'den kucuk acik zemin parcalari guvenilmez (esya arasindaki bosluk gurultusu)
+            ZeminGeo.KucukleriAt(s.acik, 32, null);
             s.alan = s.acik.Count * V * V;
             var iz2 = new float[izX.Count * 2]; for (int i = 0; i < izX.Count; i++) { iz2[i * 2] = izX[i]; iz2[i * 2 + 1] = izZ[i]; }
             s.iz = iz2;
-            s.SinirHesapla();
+            s.Yumusat();
             YonEksik(s);
             return s;
         }
@@ -324,22 +367,27 @@ namespace ArTarama
 
         static float OrtY(float[] sinir) { double t = 0; int m = sinir.Length / 3; for (int i = 0; i < m; i++) t += sinir[i * 3 + 1]; return (float)(t / m); }
 
+        /// <summary>Poligon icindeki hucreler: satir tarama (her satirda kenar kesisimleri siralanip araliklar doldurulur).</summary>
         static List<long> PoligonHucreleri(float[] p)
         {
-            int m = p.Length / 3; float x0 = float.MaxValue, x1 = float.MinValue, z0 = float.MaxValue, z1 = float.MinValue;
-            for (int i = 0; i < m; i++) { x0 = Math.Min(x0, p[i * 3]); x1 = Math.Max(x1, p[i * 3]); z0 = Math.Min(z0, p[i * 3 + 2]); z1 = Math.Max(z1, p[i * 3 + 2]); }
-            var r = new List<long>();
+            int m = p.Length / 3; float z0 = float.MaxValue, z1 = float.MinValue;
+            for (int i = 0; i < m; i++) { z0 = Math.Min(z0, p[i * 3 + 2]); z1 = Math.Max(z1, p[i * 3 + 2]); }
+            var r = new List<long>(); var kes = new List<double>();
             for (int iz = ZeminSonuc.Ind(z0); iz <= ZeminSonuc.Ind(z1); iz++)
-                for (int ix = ZeminSonuc.Ind(x0); ix <= ZeminSonuc.Ind(x1); ix++)
+            {
+                double z = (iz + 0.5) * V; kes.Clear();
+                for (int i = 0, j = m - 1; i < m; j = i++)
                 {
-                    double x = (ix + 0.5) * V, z = (iz + 0.5) * V; bool ic = false;
-                    for (int i = 0, j = m - 1; i < m; j = i++)
-                    {
-                        double xi = p[i * 3], zi = p[i * 3 + 2], xj = p[j * 3], zj = p[j * 3 + 2];
-                        if ((zi > z) != (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) ic = !ic;
-                    }
-                    if (ic) r.Add(OdaSonuc.Anah2(ix, iz));
+                    double xi = p[i * 3], zi = p[i * 3 + 2], xj = p[j * 3], zj = p[j * 3 + 2];
+                    if ((zi > z) != (zj > z)) kes.Add((xj - xi) * (z - zi) / (zj - zi) + xi);
                 }
+                kes.Sort();
+                for (int k = 0; k + 1 < kes.Count; k += 2)
+                {
+                    int a0 = (int)Math.Ceiling(kes[k] / V - 0.5), a1 = (int)Math.Floor(kes[k + 1] / V - 0.5);
+                    for (int ix = a0; ix <= a1; ix++) r.Add(OdaSonuc.Anah2(ix, iz));
+                }
+            }
             return r;
         }
     }
