@@ -178,9 +178,11 @@ class KonumBulucu:
                 rx, rz = _dondur(en["x"], en["z"], self.yaw)     # işaretin robota göre yeri, ev yönünde
                 ex, ez = E.x, E.z
                 yx, yz = ex - rx, ez - rz
-                # robot işaretin arkasında olamaz: oraya düşüyorsa pusula yönü kaymıştır, yön işaretten güçlü alınır
-                # (21 Kasım ikinci kaydı, 62. sn: 1,57 m'deki işaretle konum duvarın 20 cm arkasına düşüyordu)
-                if not belirsiz and E.ters().uygula(yx, yz)[1] < DUVAR_PAYI and w_yaw < 0.6:
+                # robot işaretin hemen arkasında olamaz (işaretin yapıştığı duvar): oraya düşüyorsa pusula yönü kaymıştır,
+                # yön işaretten güçlü alınır. Yalnız işaretin ±40 cm hizası: toplantı odası haritasında işaret hizasının
+                # arkasında da (girintide) açık zemin var, duvarın nereye kadar sürdüğünü robot bilmiyor.
+                yerel = E.ters().uygula(yx, yz)
+                if not belirsiz and yerel[1] < DUVAR_PAYI and abs(yerel[0]) < 0.4 and w_yaw < 0.6:
                     self.yaw += _aci_fark(robot_ev.aci, self.yaw) * 0.6
                     rx, rz = _dondur(en["x"], en["z"], self.yaw)
                     yx, yz = ex - rx, ez - rz
