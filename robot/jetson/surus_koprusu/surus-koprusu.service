@@ -4,6 +4,8 @@
 Description=Surus koprusu (kamera + Arduino, port 8080)
 
 [Service]
+# numpy 1.19.5 (OpenCV aruco icin) Jetson Nano OpenBLAS hatasi: cekirdek turu elle verilir
+Environment=OPENBLAS_CORETYPE=ARMV8
 ExecStart=/usr/bin/python3 %h/robot/surus_koprusu/surus_koprusu.py
 Restart=always
 RestartSec=2

@@ -53,7 +53,7 @@ namespace ARaki.Drive
             s.Unit = (SpeedUnit)PlayerPrefs.GetInt("unit", (int)s.Unit);
             s.HornStyle = PlayerPrefs.GetInt("hornStyle", s.HornStyle);
             s.Effects = Get("effects2", s.Effects);   // eski "effects" kapalı başlıyordu; yeni varsayılan açık
-            s.Video = PlayerPrefs.GetInt("video", s.Video);
+            s.Video = Mathf.Clamp(PlayerPrefs.GetInt("video", s.Video), 0, 2);   // eski kayıtta 3 (görünen kısım) olabilir
             s.PowerLimit = PlayerPrefs.GetFloat("power", s.PowerLimit);
             return s;
         }

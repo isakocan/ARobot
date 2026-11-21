@@ -724,7 +724,7 @@ namespace ARaki.Drive
             Choice("Dokunmatik sürüş", new[] { "Kapalı", "Yön tuşu", "Pedal", "Direksiyon" }, () => (int)s.Touch, v => s.Touch = (TouchMode)v);
             Choice("Direksiyon", new[] { "Solda", "Ortada", "Sağda" }, () => (int)s.Wheel, v => s.Wheel = (WheelSide)v);
             Choice("Hız birimi", new[] { "km/sa", "m/sn" }, () => (int)s.Unit, v => s.Unit = (SpeedUnit)v);
-            Choice("Görüntü", new[] { "Otomatik", "H.264", "JPEG", "Görünen" }, () => s.Video, v => s.Video = v);   // Görünen: yalnızca bakılan lens keskin
+            Choice("Görüntü", new[] { "Otomatik", "H.264", "JPEG" }, () => Mathf.Min(s.Video, 2), v => s.Video = v);   // "Görünen kısım" kaldırıldı (kullanıcı: tam kare 4 Mbit yeterli)
             Stepper("En yüksek güç", () => "%" + Mathf.RoundToInt(s.PowerLimit * 100f), () => drive.ChangePower(-0.05f), () => drive.ChangePower(0.05f));
             RowLabel("Bağlantı");
             Button("ROBOTU BUL", new Rect(Right() - 226f, y, 120f, rh), () => drive.Link.FindRobot(), null, () => !drive.Link.Demo, 14, TextAnchor.MiddleCenter, settingsRoot);
@@ -766,7 +766,7 @@ namespace ARaki.Drive
             var model = drive.Model;
             float dt = Time.unscaledDeltaTime;
 
-            video.Mode = (VideoMode)s.Video;
+            video.Mode = (VideoMode)Mathf.Min(s.Video, 2);
             video.ViewCamera = drive.Viewer.ViewCamera;
             if (wheelRt != null)
             {

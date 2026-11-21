@@ -118,7 +118,7 @@ namespace ARaki.Video
             string host = robot != null && !demo ? robot.Host : null;
             bool useH264 = !jpegFallback && !h264Broken && Mode != VideoMode.Jpeg && yuvMaterial != null;
             if (viewportBroken && Time.unscaledTime - viewportBrokenAt > 30f) viewportBroken = false;
-            bool viewport = useH264 && Mode == VideoMode.Viewport && compositeMaterial != null && !viewportBroken;
+            bool viewport = false;   // görünen kısım modu kaldırıldı: her zaman tam kare
             string key = host == null ? null : host + (viewport ? "/gorunen" : useH264 ? "/h264" : "/jpeg");
             if (key != streamKey)
             {
@@ -136,7 +136,8 @@ namespace ARaki.Video
                         new Thread(() => H264Loop(host, gen, "/goruntu-h264?akis=taban", baseSlot)) { IsBackground = true, Name = "H.264 taban" }.Start();
                         new Thread(() => H264Loop(host, gen, "/goruntu-h264?akis=" + Lens, win)) { IsBackground = true, Name = "H.264 lens" }.Start();
                     }
-                    else if (useH264) new Thread(() => H264Loop(host, gen, "/goruntu-h264", main)) { IsBackground = true, Name = "H.264" }.Start();
+                    // tam kare, sabit yüksek kalite (4 Mbit/s): uyarlanabilir kalite düşük başlayıp ilk saniyeleri bulanık yapıyordu
+                    else if (useH264) new Thread(() => H264Loop(host, gen, "/goruntu-h264?akis=yuksek", main)) { IsBackground = true, Name = "H.264" }.Start();
                     else new Thread(() => JpegLoop(host, gen)) { IsBackground = true, Name = "MJPEG" }.Start();
                     ActivePath = viewport ? ViewportPath : useH264 ? "H.264" : "JPEG";
                 }
