@@ -93,19 +93,51 @@ class Pusula:
         # boylamda pencere istemiyoruz (şerit dairesel): yalnız dikey kenarları yumuşat
         dikey = np.hanning(self.yuk).astype(np.float32)[:, None]
         self.pencere = np.repeat(dikey, self.gen, axis=1)
+        # robotun kendi sabit parcalari (anten): hic kaymadiklari icin sifirda sahte tepe yapiyorlardi (21 Kasim kaydi);
+        # maske kayittaki zamanla degismeyen seritten pikselleri (pusula_maske.png, beyaz = kullan)
+        import os
+        mp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pusula_maske.png")
+        mk = cv2.imread(mp, cv2.IMREAD_GRAYSCALE) if os.path.exists(mp) else None
+        if mk is not None and mk.shape == (self.yuk, self.gen):
+            self.pencere = self.pencere * (mk > 127).astype(np.float32)
 
     def serit(self, ham_gri):
+        """Ufuk şeridinin yatay kenar görüntüsü (parlaklıktan bağımsız; desensiz duvarda da çalışır)."""
         s = cv2.remap(ham_gri, self.mx, self.my, cv2.INTER_LINEAR).astype(np.float32)
-        s = cv2.GaussianBlur(s, (0, 0), 1.2)
-        return s - s.mean()
+        s = cv2.GaussianBlur(s, (0, 0), 1.5)
+        return cv2.Sobel(s, cv2.CV_32F, 1, 0) * self.pencere
 
-    def guncelle(self, ham_gri):
-        """Dönüş (derece, sağa dönüş +) ve güven (0..1). İlk karede (0, 0)."""
-        s = self.serit(ham_gri)
+    def guncelle(self, ham_gri, tahmin=None):
+        """Dönüş (derece, sağa dönüş +) ve güven (0..1, normalleştirilmiş korelasyon tepesi). İlk karede (0, 0).
+
+        tahmin: motor komutundan beklenen dönüş (derece). Birden çok tepe varsa (en iyisinin %60'ı kadar güçlü),
+        tahmine en yakını seçilir: hızlı dönüşte bulanık karede sıfırdaki sahte tepe kazanabiliyordu.
+
+        Şeritler boylamda döngüseldir: satır satır FFT ile döngüsel çapraz korelasyon, tepe = kayma. OpenCV
+        phaseCorrelate gerçek kayıtta (21 Kasım, beyaz toplantı odası, hızlı dönüş) sıfıra yapışıyordu; bu yöntem
+        aynı karelerde 21 derecelik adımı 0,44 korelasyonla buldu."""
+        g = self.serit(ham_gri)
         if self.onceki is None:
-            self.onceki = s
+            self.onceki = g
             return 0.0, 0.0
-        (dx, dy), guven = cv2.phaseCorrelate(self.onceki, s, self.pencere)
-        self.onceki = s
-        # sağa dönünce sahne görüntüde sola kayar (boylam azalır): dönüş = -dx
-        return -dx / self.PIKSEL_DERECE, float(guven)
+        a, b = self.onceki, g
+        self.onceki = g
+        Fa = np.fft.rfft(a, axis=1); Fb = np.fft.rfft(b, axis=1)
+        c = np.fft.irfft((Fa * np.conj(Fb)).sum(0), n=self.gen)
+        k = int(np.argmax(c))
+        if tahmin is not None:
+            komsu = np.maximum(np.roll(c, 1), np.roll(c, -1))
+            tepeler = np.where((c >= komsu) & (c >= 0.6 * c[k]))[0]
+            if len(tepeler) > 1:
+                def aci(i):
+                    d0 = i if i <= self.gen / 2 else i - self.gen
+                    return d0 / self.PIKSEL_DERECE
+                k = int(min(tepeler, key=lambda i: abs(aci(i) - tahmin)))
+        y0, y1, y2 = c[k - 1], c[k], c[(k + 1) % self.gen]
+        ince = 0.5 * (y0 - y2) / (y0 - 2 * y1 + y2) if (y0 - 2 * y1 + y2) != 0 else 0.0
+        d = k + ince
+        if d > self.gen / 2:
+            d -= self.gen
+        guven = float(y1 / (np.sqrt((a * a).sum() * (b * b).sum()) + 1e-9))
+        # şimdiki şerit d piksel kaydırılınca öncekine oturur: sağa dönüşte sahne sola kayar -> d > 0
+        return d / self.PIKSEL_DERECE, guven

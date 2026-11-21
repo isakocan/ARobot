@@ -26,7 +26,7 @@ ARALIK = 0.2               # sn: 5 Hz
 ILK_MENZIL = 1.0           # m: ilk yon/konum yalniz bu kadar yakin isaretten (PC testi: 0,9 m icinde <5 cm, <3 derece; 1,2 m de 13-17 cm)
 ISARET_MENZIL = 2.2        # m: daha uzaktaki işaretin yönü çok gürültülü (telefon testinde 2,5 m'de tek gözlem %90'da 17 derece)
 HIZ_TAM = 0.45             # m/s: PWM 255'te ileri hız ilk tahmini (CLAUDE.md: ~1-2 km/s)
-DONUS_TAM = 160.0          # derece/s: (sol-sag)=510'da dönüş ilk tahmini (14 Kasım kaydı: fark 320'de ~105 derece/s)
+DONUS_TAM = 140.0          # derece/s: (sol-sag)=510'da donus ilk tahmini (21 Kasim kaydi: fark 408'de ~110 derece/s); surerken ogrenir
 
 
 def _dondur(x, z, aci):
@@ -106,8 +106,13 @@ class KonumBulucu:
         self.son_t = simdi
         sol, sag = sol_sag if sol_sag is not None else (self.motor() if self.motor else (0, 0))
         # dönüş: görsel pusula, güvenilmezse komut
-        d_derece, guven = self.pusula.guncelle(ham_gri)
         komut_donus = self.donus_k * (sol - sag) / 510.0 * dt
+        d_derece, guven = self.pusula.guncelle(ham_gri, komut_donus)
+        # donus hizi katsayisini ogren (kesin donuste, guvenli olcumle)
+        if dt > 0.05 and abs(sol - sag) > 150 and guven > 0.3 and abs(d_derece) > 3:
+            olc = d_derece / dt / ((sol - sag) / 510.0)
+            if 40 < olc < 400:
+                self.donus_k = self.donus_k * 0.9 + olc * 0.1
         if guven < 0.08 or abs(d_derece) > 60.0:
             d_derece = komut_donus
         ileri = self.hiz_k * (sol + sag) / 510.0 * dt
