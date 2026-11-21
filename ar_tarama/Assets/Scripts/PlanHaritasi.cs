@@ -7,6 +7,9 @@ namespace ArTarama
     public class IsaretBilgi
     {
         public int id; public Vector3 konum; public bool konumVar; public int sayi; public float sonGorulme;
+        // poz (4 koseden, 18 cm): agirlikli ortalama merkez ve yatay bakis yonu (isaretten odaya, oturum koordinati)
+        public bool pozVar; public int pozSay; public Vector3 merkez; public float aci;   // aci: atan2(nx, nz), radyan
+        public double sx, sy, sz, snx, snz, sw;
     }
 
     /// <summary>Tarama oturumunun hafif verisi: kamera izi, goruntulenen ArUco isaretleri ve yerlestirilen kristaller. (v4: 2B harita dokusu yok.)</summary>

@@ -94,6 +94,15 @@ namespace ArTarama
         public bool Aktif;
         public bool ArGoster;
         public ZeminSonuc ZSon { get; private set; }
+        /// <summary>Bu oturumun ham sonucu (eski ev haritasi katilmamis): eve eklenen budur.</summary>
+        public ZeminSonuc ZHam { get; private set; }
+        /// <summary>Duzenlenen ev (null = yeni ev). Kayitli bir isaret gorulunce eski harita oturuma oturtulur.</summary>
+        public Ev ev;
+        public Poz2? EvOturum { get; private set; }        // ev -> oturum
+        public bool Hizali => EvOturum.HasValue;
+        public int HizaIsaret { get; private set; } = -1;
+        volatile ZeminSonuc oncekiOturum, bekleyenHam;
+        float sonHiza;
         public readonly OdaGoruntu Goruntu = new OdaGoruntu();
         public List<GDuvar> Duvarlar => Goruntu.Duvarlar;
         public List<GKutu> Kutular => Goruntu.Kutular;
@@ -142,7 +151,8 @@ namespace ArTarama
 
         public void Temizle()
         {
-            nesil++; zemin = new ZeminHaritasi(); bekleyen = null; ZSon = null; Goruntu.Temizle(); oturumBasi = Time.unscaledTime;
+            nesil++; zemin = new ZeminHaritasi(); bekleyen = null; ZSon = null; ZHam = null; Goruntu.Temizle(); oturumBasi = Time.unscaledTime;
+            EvOturum = null; HizaIsaret = -1; oncekiOturum = null; bekleyenHam = null;
             sonKare = sonYapi = sonEtiket = 0f; KareSayisi = 0; EtiketliKare = 0; VokselSayisi = 0;
             if (ar != null) ar.Temizle();
             if (zc != null) zc.Temizle();
@@ -194,8 +204,9 @@ namespace ArTarama
             {
                 sonYapi = t; YapiIsiGonder();
             }
+            if (ev != null && t - sonHiza > 1f) { sonHiza = t; HizaKontrol(); }
             var b = bekleyen;
-            if (b != null && b != ZSon) { bekleyen = null; Uygula(b); }
+            if (b != null && b != ZSon) { bekleyen = null; ZHam = bekleyenHam ?? b; Uygula(b); }
             Canlandir(Time.unscaledDeltaTime);
 
             if (kayit != null && kayit.Kayitta && t - sonKayit >= KayitAraligi && ZSon != null) { sonKayit = t; Kaydet(); }
@@ -294,11 +305,37 @@ namespace ArTarama
                 if (bu != nesil) return;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var r = m.Guncelle(planlar, zaman);
+                var ham = r; var onc = oncekiOturum;
+                if (onc != null) r = Ev.Birlestir(r, onc, null);   // duzenleme: eski ev haritasi + bu oturum
+                bekleyenHam = ham;
                 sw.Stop();
                 YapiMs = YapiMs <= 0 ? (float)sw.Elapsed.TotalMilliseconds : Mathf.Lerp(YapiMs, (float)sw.Elapsed.TotalMilliseconds, 0.2f);
                 VokselSayisi = m.HucreSayisi;
                 if (bu == nesil) bekleyen = r;
             });
+        }
+
+        /// <summary>Duzenlemede: evde kayitli ve bu oturumda en cok gorulen isarete gore ev -> oturum donusumu.</summary>
+        void HizaKontrol()
+        {
+            if (plan == null || ev == null) return;
+            IsaretBilgi en = null;
+            foreach (var bi in plan.Isaretler.Values)
+                if (bi.pozVar && bi.pozSay >= 6 && ev.isaretler.ContainsKey(bi.id) && (en == null || bi.pozSay > en.pozSay)) en = bi;
+            if (en == null) return;
+            var T = Ev.Hizala(ev.isaretler[en.id], en.merkez.x, en.merkez.z, en.aci);
+            if (EvOturum.HasValue)
+            {
+                var o = EvOturum.Value;
+                double dd = System.Math.Sqrt((o.x - T.x) * (o.x - T.x) + (o.z - T.z) * (o.z - T.z)), da = System.Math.Abs(o.aci - T.aci) * 180.0 / System.Math.PI;
+                if (dd < 0.03 && da < 1.0) return;
+            }
+            bool ilk = !EvOturum.HasValue;
+            EvOturum = T; HizaIsaret = en.id;
+            if (ilk) Debug.Log("[ArTarama] ev hizalandi: isaret " + en.id + " (" + en.pozSay + " gozlem)");
+            var e = ev; int bu = nesil; float zy = Goruntu.GZeminY;
+            Interlocked.Increment(ref bekleyenIs);
+            kuyruk.Add(() => { if (bu == nesil) oncekiOturum = e.Oturuma(T, zy); });
         }
 
         // ------------------------------------------------------------------------------------------ gosterim durumu

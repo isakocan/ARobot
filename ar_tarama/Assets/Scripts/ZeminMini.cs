@@ -47,6 +47,18 @@ namespace ArTarama
         }
 
         public void Yok() { if (tex != null) Object.Destroy(tex); }
+
+        /// <summary>Inceleme (kuzey yukari): ekran noktasi harita uzerindeyse dunya (ev) x,z.</summary>
+        public bool EkrandanHaritaya(Vector2 sp, out float x, out float z)
+        {
+            x = z = 0;
+            if (canli || sonCizilen == null || !RectTransformUtility.ScreenPointToLocalPointInRectangle(harita, sp, null, out Vector2 lp)) return false;
+            var sz = harita.rect.size; if (sz.x < 1f || sz.y < 1f) return false;
+            float nx = (lp.x - harita.rect.xMin) / sz.x, ny = (lp.y - harita.rect.yMin) / sz.y;
+            if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return false;
+            x = ox + nx * W * ZeminSonuc.V; z = oz + ny * H * ZeminSonuc.V;
+            return true;
+        }
         public void Sifirla() { sonCizilen = null; resim.texture = null; bos.gameObject.SetActive(true); bilgi.text = ""; }
 
         void Ciz(ZeminSonuc s)

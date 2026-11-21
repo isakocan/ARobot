@@ -16,6 +16,8 @@ namespace ArTarama
         public PlanHaritasi plan;
         public KayitYoneticisi kayit;
         public const int GerekliAlgilama = 6;
+        /// <summary>Basili isaretin siyah kare kenari (tools/aruco/yazdir.py, 18 cm).</summary>
+        public const float IsaretKenar = 0.18f;
 
         public struct Istek
         {
@@ -134,6 +136,43 @@ namespace ArTarama
             bool yeni = b.sayi == 0;
             b.sayi++; b.sonGorulme = Time.unscaledTime;
             if (yeni) YeniIsaret?.Invoke(a.id);
+
+            // poz: 4 koseden homografi (isaret 18 cm), agirlikli ortalama; yon disi gozlemler atilir
+            if (ArApp.Ornek != null && ArApp.Ornek.AciHizi < 40f)
+            {
+                var aa = new double[4]; var bb = new double[4];
+                for (int q = 0; q < 4; q++)
+                {
+                    float px = a.kose[q * 2] * (i.rw / (float)i.w), py = a.kose[q * 2 + 1] * (i.rh / (float)i.h);
+                    aa[q] = (i.cy - py) / i.fy; bb[q] = (i.cx - px) / i.fx;
+                }
+                if (IsaretPoz.Coz(aa, bb, IsaretKenar, out var t, out var r1, out _))
+                {
+                    Vector3 mw = i.poz + i.rot * new Vector3((float)t[0], (float)t[1], (float)t[2]);
+                    Vector3 sag = i.rot * new Vector3((float)r1[0], (float)r1[1], (float)r1[2]);
+                    Vector3 n = new Vector3(-sag.z, 0, sag.x);   // yatay, sag eksenine dik
+                    if (n.sqrMagnitude > 1e-4f)
+                    {
+                        n.Normalize();
+                        Vector3 kamYon = i.poz - mw; kamYon.y = 0;
+                        if (Vector3.Dot(n, kamYon) < 0) n = -n;   // isaretten kameraya (odaya) bakar
+                        float uz = Vector3.Distance(i.poz, mw);
+                        bool uygun = uz < 2.5f;   // 2,5 m otesinde tek gozlem yon hatasi %90 durumda 17 dereceyi asiyor (EvTest)
+                        if (uygun && b.pozSay >= 5)
+                        {
+                            var ort = new Vector3((float)b.snx, 0, (float)b.snz).normalized;
+                            if (Vector3.Angle(ort, n) > 25f || Vector3.Distance(new Vector3((float)(b.sx / b.sw), (float)(b.sy / b.sw), (float)(b.sz / b.sw)), mw) > 0.4f) uygun = false;
+                        }
+                        if (uygun)
+                        {
+                            double w = 1.0 / Mathf.Max(0.3f, uz * uz);
+                            b.sx += mw.x * w; b.sy += mw.y * w; b.sz += mw.z * w; b.snx += n.x * w; b.snz += n.z * w; b.sw += w; b.pozSay++;
+                            b.merkez = new Vector3((float)(b.sx / b.sw), (float)(b.sy / b.sw), (float)(b.sz / b.sw));
+                            b.aci = Mathf.Atan2((float)b.snx, (float)b.snz); b.pozVar = b.pozSay >= 3;
+                        }
+                    }
+                }
+            }
 
             // harita konumu (derinlikten)
             if (Time.unscaledTime - b.sonGorulme < 0.5f && ArApp.Ornek != null && ArApp.Ornek.AciHizi < 40f)

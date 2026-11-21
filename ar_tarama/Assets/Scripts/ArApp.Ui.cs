@@ -406,16 +406,16 @@ namespace ArTarama
             UiKur.Yerles(rozet.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(112, 112), new Vector2(0, -20));
             UiKur.Simge(rozet.transform, "Halka", UiKur.Halka(), UiKur.Vurgu, 70f);
             UiKur.Simge(rozet.transform, "Nokta", UiKur.Daire(), UiKur.Vurgu, 20f);
-            var baslik = UiKur.Metin(ic, "Baslik", "Ev Taraması", 92, UiKur.MetinRenk, TextAnchor.UpperLeft, FontStyle.Bold);
+            var baslik = UiKur.Metin(ic, "Baslik", "Evlerim", 92, UiKur.MetinRenk, TextAnchor.UpperLeft, FontStyle.Bold);
             UiKur.Yerles(baslik.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(900, 120), new Vector2(0, -170));
-            var alt = UiKur.Metin(ic, "Alt", "Odayı gezerek duvarları ve eşyaları çıkar.", UiKur.Body + 2, UiKur.Soluk, TextAnchor.UpperLeft);
+            var alt = UiKur.Metin(ic, "Alt", "Evini bir kez gezerek açık zemin haritasını çıkar. Oyun bu haritayı kullanır.", UiKur.Body + 2, UiKur.Soluk, TextAnchor.UpperLeft);
             UiKur.Yerles(alt.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(900, 100), new Vector2(0, -300));
 
-            var yeni = UiKur.Dugme(ic, "YeniTarama", "Yeni tarama", UiKur.DugmeStili.Birincil, 44);
+            var yeni = UiKur.Dugme(ic, "YeniEv", "Yeni ev ekle", UiKur.DugmeStili.Birincil, 44);
             UiKur.Yerles(yeni.GetComponent<RectTransform>(), new Vector2(0, 1), new Vector2(0, 1), new Vector2(968, 140), new Vector2(0, -410));
-            yeni.onClick.AddListener(YeniTarama);
+            yeni.onClick.AddListener(YeniEv);
 
-            var etiket = UiKur.Metin(ic, "Etiket", "ÖNCEKİ TARAMALAR", UiKur.Caption, UiKur.Soluk, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var etiket = UiKur.Metin(ic, "Etiket", "EVLER", UiKur.Caption, UiKur.Soluk, TextAnchor.MiddleLeft, FontStyle.Bold);
             UiKur.Yerles(etiket.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(700, 40), new Vector2(4, -620));
 
             var gor = UiKur.Obj("Liste", ic);
@@ -431,7 +431,7 @@ namespace ArTarama
             vl.padding = new RectOffset(0, 0, 4, 40);
             listeIcerik.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             sr.content = listeIcerik; sr.viewport = gor;
-            listeBos = UiKur.Metin(gor, "Bos", "Henüz tarama yok. İlk taramanı başlat.", UiKur.Body, UiKur.Soluk, TextAnchor.UpperLeft);
+            listeBos = UiKur.Metin(gor, "Bos", "Henüz ev yok. İşaretleri duvara yapıştır, sonra ilk evini ekle.", UiKur.Body, UiKur.Soluk, TextAnchor.UpperLeft);
             UiKur.Yerles(listeBos.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(900, 60), new Vector2(4, -10));
             return y;
         }
@@ -439,7 +439,42 @@ namespace ArTarama
         [Serializable] class OzetOku { public int frame_count; public List<OdaOku> rooms; }
         [Serializable] class OdaOku { public string name; public int frame_count; }
 
-        void KayitlariListele()
+        void KayitlariListele() { EvleriListele(); }
+
+        void EvleriListele()
+        {
+            for (int i = listeIcerik.childCount - 1; i >= 0; i--) Destroy(listeIcerik.GetChild(i).gameObject);
+            var evler = EvDeposu.Listele();
+            listeBos.gameObject.SetActive(evler.Count == 0);
+            foreach (var id in evler)
+            {
+                string ad = id, satir2 = "";
+                try
+                {
+                    var ev = Ev.Yukle(EvDeposu.Klasor(id));
+                    ad = ev.ad;
+                    satir2 = Metre(ev.Alan) + " m² açık zemin  ·  " + ev.isaretler.Count + " işaret  ·  " + ev.taramaSayisi + " tarama";
+                }
+                catch (Exception e) { Debug.LogWarning("[ArTarama] ev okunamadi " + id + ": " + e.Message); satir2 = "Okunamadı"; }
+                var kart = UiKur.Kutu(listeIcerik, "E" + id, UiKur.Panel, true); kart.raycastTarget = true;
+                var le = kart.gameObject.AddComponent<LayoutElement>(); le.minHeight = 140; le.preferredHeight = 140;
+                var t1 = UiKur.Metin(kart.transform, "Ad", ad, UiKur.Body + 2, UiKur.MetinRenk, TextAnchor.MiddleLeft, FontStyle.Bold);
+                UiKur.Ankor(t1.rectTransform, new Vector2(0, 0.5f), new Vector2(1, 1), new Vector2(32, 0), new Vector2(-96, -14));
+                var t2 = UiKur.Metin(kart.transform, "Bilgi", satir2, UiKur.Caption + 2, UiKur.Soluk, TextAnchor.MiddleLeft);
+                UiKur.Ankor(t2.rectTransform, new Vector2(0, 0), new Vector2(1, 0.5f), new Vector2(32, 14), new Vector2(-96, 0));
+                var ch = UiKur.Simge(kart.transform, "Ok", UiKur.ChevronSag(), UiKur.Soluk, 48f);
+                UiKur.Yerles(ch.rectTransform, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(48, 48), new Vector2(-34, 0));
+                var btn = kart.gameObject.AddComponent<Button>(); btn.targetGraphic = kart; btn.transition = Selectable.Transition.None;
+                string evId = id;
+                btn.onClick.AddListener(() =>
+                {
+                    try { EvGoster(Ev.Yukle(EvDeposu.Klasor(evId))); }
+                    catch (Exception e) { Debug.LogWarning("[ArTarama] ev acilamadi: " + e.Message); Toast("Ev açılamadı"); }
+                });
+            }
+        }
+
+        void EskiKayitlariListele()
         {
             for (int i = listeIcerik.childCount - 1; i >= 0; i--) Destroy(listeIcerik.GetChild(i).gameObject);
             var klasorler = new List<string>();
@@ -545,8 +580,11 @@ namespace ArTarama
             var kapat = UiKur.Dugme(bar.transform, "Kapat", "Kapat", UiKur.DugmeStili.Ikincil, UiKur.Body);
             kapat.onClick.AddListener(GozdenKapat);
             kapat.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
-            var yeni = UiKur.Dugme(bar.transform, "Yeni", "Yeni tarama", UiKur.DugmeStili.Birincil, UiKur.Body);
-            yeni.onClick.AddListener(YeniTarama);
+            var silgi = UiKur.Dugme(bar.transform, "Silgi", "Silgi", UiKur.DugmeStili.Ikincil, out _, out silgiYazi, UiKur.Body);
+            silgi.onClick.AddListener(() => { silgiAcik = !silgiAcik; SilgiGorunumu(); Haptik(10); });
+            silgi.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
+            var yeni = UiKur.Dugme(bar.transform, "Duzenle", "Düzenle", UiKur.DugmeStili.Birincil, UiKur.Body);
+            yeni.onClick.AddListener(() => { silgiAcik = false; EvDuzenle(); });
             yeni.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1.4f;
             return y;
         }
@@ -568,6 +606,42 @@ namespace ArTarama
             sekme3b.color = !ust ? UiKur.Vurgu : new Color(1, 1, 1, 0); sekme3bYazi.color = !ust ? UiKur.Koyu : UiKur.MetinRenk;
             sekmeUst.color = ust ? UiKur.Vurgu : new Color(1, 1, 1, 0); sekmeUstYazi.color = ust ? UiKur.Koyu : UiKur.MetinRenk;
             gozdenIpucu.text = ust ? "Sürükle · iki parmakla yakınlaştır · çift dokun: sıfırla" : "Döndür · iki parmakla kaydır ve yakınlaştır · çift dokun: sıfırla";
+        }
+
+        // ---- ev ekrani ----
+        Text silgiYazi; bool silgiAcik, silgiDegisti; float silgiSonCizim;
+
+        void SilgiGorunumu()
+        {
+            if (silgiYazi != null) silgiYazi.color = silgiAcik ? UiKur.Vurgu : UiKur.MetinRenk;
+            gozdenIpucu.text = silgiAcik ? "Silmek istediğin yanlış zeminin üstünden parmağını gezdir" : "Düzenle: evi gezip haritayı büyüt · Silgi: yanlış yerleri sil";
+        }
+
+        void EvGoster(Ev ev)
+        {
+            aktifEv = ev; silgiAcik = false;
+            GozdenAcZemin(ev.Sonuc(), ev.ad);
+            gozdenAlt.text = Metre(ev.Alan) + " m² açık zemin   ·   " + ev.isaretler.Count + " işaret";
+            SilgiGorunumu();
+        }
+
+        /// <summary>Ev ekraninda silgi: parmagin gectigi yerde 20 cm yaricapla acik zemin silinir; birakinca kaydedilir.</summary>
+        void SilgiIsle()
+        {
+            if (!silgiAcik || aktifEv == null || zeminGozden == null) return;
+            var ts = UnityEngine.InputSystem.Touchscreen.current; if (ts == null) return;
+            var t = ts.primaryTouch;
+            if (t.press.isPressed)
+            {
+                if (zeminGozden.EkrandanHaritaya(t.position.ReadValue(), out float x, out float z) && aktifEv.Sil(x, z, 0.2) > 0) silgiDegisti = true;
+                if (silgiDegisti && Time.unscaledTime - silgiSonCizim > 0.3f) { silgiSonCizim = Time.unscaledTime; gozdenZemin = aktifEv.Sonuc(); }
+            }
+            else if (silgiDegisti)
+            {
+                silgiDegisti = false; gozdenZemin = aktifEv.Sonuc();
+                gozdenAlt.text = Metre(aktifEv.Alan) + " m² açık zemin   ·   " + aktifEv.isaretler.Count + " işaret";
+                try { aktifEv.Kaydet(EvDeposu.Klasor(aktifEv.id)); } catch (Exception e) { Toast("Kaydedilemedi: " + e.Message); }
+            }
         }
 
         /// <summary>Inceleme: 2B acik zemin haritasi (kuzey yukari, yurunen yol turuncu).</summary>
@@ -631,6 +705,10 @@ namespace ArTarama
             KayitlariListele();
         }
 
-        void GozdenGuncelle() { if (zeminGozden != null && gozdenZemin != null) zeminGozden.Guncelle(gozdenZemin, Vector3.zero, 0f, Time.unscaledDeltaTime); }
+        void GozdenGuncelle()
+        {
+            SilgiIsle();
+            if (zeminGozden != null && gozdenZemin != null) zeminGozden.Guncelle(gozdenZemin, Vector3.zero, 0f, Time.unscaledDeltaTime);
+        }
     }
 }

@@ -8,6 +8,7 @@ public static class Program
 {
     public static int Main(string[] a)
     {
+        if (a.Length == 1 && a[0] == "ev") return EvTest.Calistir();
         if (a.Length == 0) return OdaSentetik.Calistir(Console.WriteLine) == 0 ? 0 : 1;
         if (!System.IO.File.Exists(System.IO.Path.Combine(a[0], "kareler.jsonl")))
             return OdaSentetik.Calistir(Console.WriteLine, a[0]) == 0 ? 0 : 1;

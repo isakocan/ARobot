@@ -52,6 +52,7 @@ namespace ArTarama
 
         void Awake()
         {
+            EvDeposu.Kok = System.IO.Path.Combine(Application.persistentDataPath, "evler");
             Ornek = this;
             Application.targetFrameRate = 30;
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
@@ -185,6 +186,59 @@ namespace ArTarama
 
         bool PuruzsuzBaslangicTamam() { return Time.unscaledTime - sifirlaZamani > 1.0f; }
 
+        // ---------------- ev akisi ----------------
+        Ev aktifEv; bool duzenleme;
+
+        /// <summary>Yeni ev: bos haritayla tarama baslar; Bitir'de ilk isarete gore ev koordinatinda kaydedilir.</summary>
+        public void YeniEv()
+        {
+            int n = EvDeposu.Listele().Count + 1;
+            aktifEv = EvDeposu.Yeni("Ev " + n); duzenleme = false;
+            YeniTarama();
+            if (oda != null) oda.ev = null;
+        }
+
+        /// <summary>Duzenle: kayitli bir isaret gorulunce eski harita yerine oturur, yeni tarama eklenir.</summary>
+        public void EvDuzenle()
+        {
+            if (aktifEv == null) return;
+            duzenleme = true;
+            YeniTarama();
+            if (oda != null) oda.ev = aktifEv;
+        }
+
+        /// <summary>Oturum haritasini eve ekleyip kaydeder. Dondurur: kaydedildi mi.</summary>
+        bool EvKaydet(out string not)
+        {
+            not = "";
+            var s = oda != null ? oda.ZHam : null;
+            if (aktifEv == null || s == null) { not = "Harita yok"; return false; }
+            Poz2 oturumdanEve;
+            if (duzenleme)
+            {
+                if (!oda.Hizali) { not = "Kayıtlı işaretlerden hiçbiri görülmedi, değişiklikler eve eklenemedi"; return false; }
+                oturumdanEve = oda.EvOturum.Value.Ters();
+            }
+            else
+            {
+                IsaretBilgi refI = null;
+                if (plan != null) foreach (var b in plan.Isaretler.Values) if (b.pozVar && b.pozSay >= 4 && (refI == null || b.id < refI.id)) refI = b;
+                if (refI != null) oturumdanEve = new Poz2(refI.merkez.x, refI.merkez.z, refI.aci).Ters();
+                else { oturumdanEve = Poz2.Birim; not = "İşaret görülmedi: ev kaydedildi ama sonra düzenlenemez"; }
+            }
+            aktifEv.Ekle(s, oturumdanEve);
+            if (plan != null)
+                foreach (var b in plan.Isaretler.Values)
+                {
+                    if (!b.pozVar || b.pozSay < 4 || aktifEv.isaretler.ContainsKey(b.id)) continue;
+                    oturumdanEve.Uygula(b.merkez.x, b.merkez.z, out double x, out double z);
+                    aktifEv.isaretler[b.id] = new EvIsaret { id = b.id, x = x, z = z, aci = b.aci + oturumdanEve.aci, yukseklik = b.merkez.y - s.zeminY, gozlem = b.pozSay };
+                }
+            try { aktifEv.Kaydet(EvDeposu.Klasor(aktifEv.id)); }
+            catch (System.Exception e) { not = "Kaydedilemedi: " + e.Message; return false; }
+            return true;
+        }
+
         public void YeniTarama()
         {
             if (gozden != null && gozden.Acik) gozden.Kapat();
@@ -221,22 +275,27 @@ namespace ArTarama
             isaretChipGoruldu.Clear();
         }
 
-        /// <summary>Bitir: kayit kapanir, zemin.json yazilir, inceleme ekrani (2B acik zemin haritasi) acilir.</summary>
+        /// <summary>Bitir: kayit kapanir, oturum haritasi eve eklenip kaydedilir, ev ekrani acilir.</summary>
         public void Bitir()
         {
-            var s = oda != null ? oda.ZSon : null;
+            var s = oda != null ? oda.ZHam : null;
             if (kayit != null && kayit.Kayitta)
             {
-                if (oda != null) oda.Kaydet();   // zemin.json son hali (klasor hala acik)
+                if (oda != null) oda.Kaydet();   // ham kayit klasorune de zemin.json (tekrar oynatma icin)
                 kayit.Durdur(true);
             }
-            if (s == null || s.alan < 0.3f)
+            if (aktifEv == null || ((s == null || s.alan < 0.3f) && !duzenleme))
             {
                 GosterMod(Mod.Baslangic); KayitlariListele();
                 Toast("Henüz açık zemin bulunamadı");
                 return;
             }
-            GozdenAcZemin(s, kayit != null ? kayit.Oda : "Tarama");
+            bool ok = EvKaydet(out string not);
+            if (oda != null) oda.ev = null;
+            if (!string.IsNullOrEmpty(not)) Toast(not);
+            else if (ok) Toast(duzenleme ? "Ev güncellendi" : "Ev kaydedildi");
+            if (ok || duzenleme) EvGoster(aktifEv);
+            else { GosterMod(Mod.Baslangic); KayitlariListele(); }
         }
 
         // ---------------- ana dongu ----------------
@@ -326,6 +385,16 @@ namespace ArTarama
                     kx = tr.position.x, ky = tr.position.y, kz = tr.position.z, yaw = yaw, pitch = pitch, zaman = Time.unscaledTime, sonuc = null
                 };
                 kocMesaj = koc.Guncelle(gi, oda != null ? oda.ZSon : null);
+                // gorunen ama henuz az gozlenen isaret uzaktaysa: yon dogrulugu icin yaklastir (1 m'de ~1 derece, 2,5 m'de ~7 derece)
+                if (Takipte && plan != null)
+                    foreach (var bi in plan.Isaretler.Values)
+                    {
+                        if (Time.unscaledTime - bi.sonGorulme > 1f || bi.pozSay >= 15) continue;
+                        Vector3 mp = bi.pozVar ? bi.merkez : bi.konum; if (!bi.pozVar && !bi.konumVar) continue;
+                        if (Vector3.Distance(tr.position, mp) > 1.6f) { kocMesaj = new KocMesaj { yazi = "İşaret " + bi.id + " görüldü, kaydetmek için 1 metre kadar yaklaş", simge = KocSimge.Yuru, kural = 10 }; break; }
+                    }
+                if (duzenleme && Takipte && oda != null && !oda.Hizali)
+                    kocMesaj = new KocMesaj { yazi = "Kayıtlı bir işarete doğru tut, eski harita yerine otursun", simge = KocSimge.Bilgi, kural = 9 };
             }
             TaramaArayuzuGuncelle(dt);
         }
