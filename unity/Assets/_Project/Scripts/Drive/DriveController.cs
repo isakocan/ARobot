@@ -72,6 +72,7 @@ namespace ARaki.Drive
             if (!Application.isMobilePlatform) Application.runInBackground = true;   // PC'de pencere arka plandayken görüntü ve kayıt sürsün (klavye odak kaybında sıfırlanır, robot durur)
             Firmware = FirmwareData.Load();
             viewer.UseKeyboard = false;
+            gameObject.AddComponent<RobotAR>().Init(link, viewer);   // evdeki AR yaratıkları (robotun konumu biliniyorsa)
             Model.SharpTurn = Settings.SharpTurn;
             link.PwmLimit = Settings.PowerLimit;
             Model.SharpTurn = Settings.SharpTurn;

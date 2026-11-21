@@ -19,28 +19,63 @@ YARICAP = 320.0
 FOV = math.radians(203.0)
 
 
+# Ölçülmüş lens modeli (robot uygulamasının ARaki/DualFisheye gölgelendiricisi ve surus.html ile aynı; tools/lens_ayarla.py
+# iki lensin örtüştüğü bantta görüntüler eşleşsin diye buldu): merkez x, y (px), ölçek (px/radyan); 2. lensin dönmesi.
+# Kaba model (merkezler 320/960, 203 derece) ile 1-4 px fark var; bu fark iki lensin birleştiği çizgide (robotun tam sağı
+# ve solu) 30 px'lik işareti büküyordu: 21 Kasım kaydında orada işaret yönü 25 derece yanılıyordu.
+LENS1 = (322.42, 319.04, 180.87)
+LENS2 = (956.67, 320.15, 180.30)
+
+
+def _don(rx, ry, rz):
+    cx, sx, cy, sy, cz, sz = [f(math.radians(a)) for a in (rx, ry, rz) for f in (math.cos, math.sin)]
+    Rx = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
+    Ry = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+    Rz = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
+    return Rz @ Ry @ Rx
+
+
+LENS2_DON = _don(-0.141, 0.984, 0.683)
+
+
 def yon_pikseller(d):
     """Robot koordinatındaki birim ışınlar (N,3) -> ham karedeki (u, v) piksel (N,2) float32.
 
-    Örtüşme bölgesinde ışının eksene daha yakın olduğu lens seçilir."""
+    Kamera robota yan yatık (yatma 90): kamera = (-y, x, z). Ön yarı küre lens 1, arka lens 2."""
     d = np.asarray(d, dtype=np.float64)
-    cx, cy, cz = d[:, 1], -d[:, 0], d[:, 2]          # robot -> kamera
-    on = cz >= 0
-    th = np.where(on, np.arccos(np.clip(cz, -1, 1)), np.arccos(np.clip(-cz, -1, 1)))
-    ph = np.arctan2(cy, cx)
-    r = th / (FOV / 2) * YARICAP
-    u = np.where(on, ON_X - r * np.cos(ph), ARKA_X + r * np.cos(ph))
-    v = CEMBER_Y + r * np.sin(ph)
+    c = np.stack([-d[:, 1], d[:, 0], d[:, 2]], -1)
+    on = c[:, 2] >= 0
+    c2 = np.stack([-c[:, 0], c[:, 1], -c[:, 2]], -1) @ LENS2_DON.T
+    k = np.where(on[:, None], c, c2)
+    L = np.where(on[:, None], np.array(LENS1)[None], np.array(LENS2)[None])
+    th = np.arccos(np.clip(k[:, 2], -1, 1))
+    n = np.maximum(np.hypot(k[:, 0], k[:, 1]), 1e-12)
+    u = L[:, 0] + k[:, 0] / n * th * L[:, 2]
+    v = L[:, 1] - k[:, 1] / n * th * L[:, 2]
     return np.stack([u, v], -1).astype(np.float32)
 
 
-def es_dikdortgen_haritasi(gen, yuk, enlem_alt=-90.0, enlem_ust=90.0):
+def kaba_yon_pikseller(d):
+    """Eski kaba model (merkezler 320/960, yarıçap 320 = 101,5 derece). Yalnız pusula kullanır: pusula_maske.png bu
+    modelin şeridinden çıkarıldı ve yerinde dönüş testinde ölçülmüş modelden daha iyi sonuç verdi (720 derecede 3,5'e 17)."""
+    d = np.asarray(d, dtype=np.float64)
+    cx, cy, cz = d[:, 1], -d[:, 0], d[:, 2]
+    on = cz >= 0
+    th = np.where(on, np.arccos(np.clip(cz, -1, 1)), np.arccos(np.clip(-cz, -1, 1)))
+    ph = np.arctan2(cy, cx)
+    r = th / math.radians(101.5) * 320.0
+    u = np.where(on, 320.0 - r * np.cos(ph), 960.0 + r * np.cos(ph))
+    v = 320.0 + r * np.sin(ph)
+    return np.stack([u, v], -1).astype(np.float32)
+
+
+def es_dikdortgen_haritasi(gen, yuk, enlem_alt=-90.0, enlem_ust=90.0, model=None):
     """Eş dikdörtgen (boylam -180..180, robotun önü ortada; enlem aralığı) için cv2.remap haritaları."""
     v, u = np.mgrid[0:yuk, 0:gen]
     lon = ((u + 0.5) / gen - 0.5) * 2 * math.pi
     lat = math.radians(enlem_ust) - (v + 0.5) / yuk * math.radians(enlem_ust - enlem_alt)
     d = np.stack([np.cos(lat) * np.sin(lon), np.sin(lat), np.cos(lat) * np.cos(lon)], -1).reshape(-1, 3)
-    p = yon_pikseller(d)
+    p = (model or yon_pikseller)(d)
     return p[:, 0].reshape(yuk, gen).copy(), p[:, 1].reshape(yuk, gen).copy()
 
 
@@ -87,7 +122,7 @@ class Pusula:
     def __init__(self):
         self.gen = int(360 * self.PIKSEL_DERECE)
         self.yuk = 72
-        self.mx, self.my = es_dikdortgen_haritasi(self.gen, self.yuk, -5.0, 31.0)
+        self.mx, self.my = es_dikdortgen_haritasi(self.gen, self.yuk, -5.0, 31.0, kaba_yon_pikseller)
         self.onceki = None
         self.pencere = cv2.createHanningWindow((self.gen, self.yuk), cv2.CV_32F)
         # boylamda pencere istemiyoruz (şerit dairesel): yalnız dikey kenarları yumuşat

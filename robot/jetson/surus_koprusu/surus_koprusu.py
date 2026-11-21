@@ -52,6 +52,7 @@ try:
 except Exception as _e:        # numpy / cv2 yok
     _konum = None
     KONUM_HATASI = repr(_e)
+EV_DOSYASI = os.path.expanduser("~/robot/ev.json")
 KONUM_ISTEK_SURESI = 5.0    # sn: uygulama bu kadar "ev" paketi yollamazsa konum durur (kamera ve işlemci boşa çalışmasın)
 
 SERI_PORT = "/dev/ttyACM0"
@@ -651,7 +652,13 @@ if _konum is not None and KONUM_HATASI is None:
             return int(d.get("sol", 0)), int(d.get("sag", 0))
         except (TypeError, ValueError):
             return 0, 0
-    KONUM = _konum.KonumBulucu(kamera=KAM, motor=_motor)
+    KONUM = _konum.KonumBulucu(kamera=KAM, motor=_motor, hafiza_klasoru=os.path.expanduser("~/robot/konum_hafiza"))
+    # son bildirilen ev saklanır: robot uygulaması evi bilmeden {"t":"d", ..., "konum":1} ile konum isteyebilir
+    try:
+        with open(EV_DOSYASI) as _f:
+            KONUM.ev_ayarla(json.load(_f).get("isaretler"))
+    except (OSError, ValueError):
+        pass
     KONUM.baslat(lambda: time.time() - _son_ev_istegi[0] < KONUM_ISTEK_SURESI)
 
 
@@ -999,7 +1006,13 @@ class UdpKanal:
                     # her saniye yollanır; geldiği sürece konum bulma çalışır ve durum cevabına "konum" eklenir
                     _son_ev_istegi[0] = time.time()
                     if KONUM is not None:
-                        KONUM.ev_ayarla(m.get("isaretler"))
+                        yeni = m.get("isaretler")
+                        if KONUM.ev_ayarla(yeni):
+                            try:
+                                with open(EV_DOSYASI, "w") as f:
+                                    json.dump({"isaretler": yeni}, f)
+                            except OSError:
+                                pass
             except (ValueError, TypeError):
                 continue
             except Exception as e:      # beklenmeyen hata sürüş kanalını öldürmesin
@@ -1007,6 +1020,8 @@ class UdpKanal:
 
     def _durum_paketi(self, adres, m):
         surucu_duyuldu()
+        if m.get("konum"):
+            _son_ev_istegi[0] = time.time()     # uygulama konum istiyor (ev köprüde kayıtlı)
         simdi = time.time()
         ist = self.istemciler.get(adres)
         n = int(m.get("n", 0))

@@ -48,10 +48,26 @@ namespace ARaki.Net
             public int sikisma;   // akım koruması devrede: 1 sol, 2 sağ, 3 ikisi
         }
 
+        /// <summary>Robotun evdeki konumu (köprü, robot/jetson/konum). Ev koordinatı: y=0 zemin, x sağ, z ileri;
+        /// yaw derece, +z'den +x'e (sağa dönüş +). var: konum biliniyor mu.</summary>
+        [Serializable]
+        public class Konum
+        {
+            public bool var;
+            public float x, z, yaw;
+            public int isaret;
+            public float isaret_sn;
+            public string kaynak;    // isaret | hafiza
+            public int hafiza;       // anahtar kare sayısı
+            public float ms;
+        }
+
         public string t;
         public int n;
         public double z;
         public bool arduino;
+        public Konum konum;          // yalnız konum istenince (UdpRobotConnection.RequestPose)
+        public string konum_hatasi;
         public Motor motor;
         public string kamera;     // kapali | yok | baslatiliyor | aktif
         public float fps;
@@ -85,6 +101,8 @@ namespace ARaki.Net
     {
         public const int UdpPort = 8081;
         public const int HttpPort = 8080;   // görüntü ve kamera ayarı (köprünün web sunucusu)
+        /// <summary>Durum paketlerinde robotun konumunu iste (Jetson'da konum bulmayı çalıştırır; ev köprüde kayıtlı).</summary>
+        public static volatile bool RequestPose;
         const int Interval = 50;                 // ms
         const double ConnectedWithinMs = 1500;
         // Ana iş parçacığı bu kadar durum yazmazsa (uygulama arka planda, donma, yükleme) robot durdurulur: gönderici
@@ -169,7 +187,7 @@ namespace ARaki.Net
                               ",\"led\":" + B(s.Led) + ",\"dortlu\":" + B(s.Hazard) + ",\"motor_sesi\":" + B(s.EngineSound) +
                               ",\"geri_bip\":" + B(s.ReverseBeep) + ",\"k\":" + B(s.Horn) + ",\"ks\":" + s.HornStyle +
                               ",\"fs\":" + s.FlashCount + ",\"mi\":" + s.MelodyCount + ",\"mn\":" + s.Melody +
-                              ",\"ef\":" + s.EffectCount + ",\"en\":" + s.Effect + ",\"efekt\":" + B(s.AutoEffects) + "}";
+                              ",\"ef\":" + s.EffectCount + ",\"en\":" + s.Effect + ",\"efekt\":" + B(s.AutoEffects) + (RequestPose ? ",\"konum\":1}" : "}");
                 var bytes = Encoding.ASCII.GetBytes(json);
                 // önce kaydet, sonra gönder: cevap kayıttan önce gelirse kayıp sayılmasın
                 lock (ring) ring[n % RingSize] = (n, z, false);
