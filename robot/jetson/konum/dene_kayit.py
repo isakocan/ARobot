@@ -31,7 +31,7 @@ def main():
                 print("%5.1f  %s x=%5.2f z=%5.2f yon=%7.1f  %s" % (r["t"] - t0, "biliniyor" if o["var"] else "-", o["x"], o["z"], o["yaw"], o["gorulen"]))
             continue
         for gg in gor:
-            if gg["id"] != 1 or gg["mesafe"] > 1.2:
+            if gg["id"] != 1 or gg["mesafe"] > 2.5 or gg.get("belirsiz"):
                 continue
             ym = math.degrees(-gg["aci"])
             if ofs is None:
@@ -39,7 +39,7 @@ def main():
             f = ((o["yaw"] + ofs - ym + 180) % 360) - 180
             farklar.append((r["t"] - t0, f))
     if not tam:
-        for t, f in farklar[::6]:
+        for t, f in farklar[::4]:
             print("%5.1f sn  yon hatasi %6.1f derece" % (t, f))
         print("donus katsayisi ogrenilen: %.0f derece/s (tam PWM farkinda)" % kb.donus_k)
 

@@ -23,8 +23,11 @@ import isaret
 import teta
 
 ARALIK = 0.2               # sn: 5 Hz
-ILK_MENZIL = 1.0           # m: ilk yon/konum yalniz bu kadar yakin isaretten (PC testi: 0,9 m icinde <5 cm, <3 derece; 1,2 m de 13-17 cm)
-ISARET_MENZIL = 2.2        # m: daha uzaktaki işaretin yönü çok gürültülü (telefon testinde 2,5 m'de tek gözlem %90'da 17 derece)
+ILK_MENZIL = 1.0           # m: bu kadar yakin isaretten ilk yon/konum hemen alinir (PC testi: 0,9 m icinde <5 cm, <3 derece)
+ISARET_MENZIL = 2.5        # m: daha uzaktaki isaret kullanilmaz
+ILK_GOZLEM = 5             # uzaktan ilk konum: son ILK_SURE sn'de bu kadar tutarli (pusulayla dengelenmis) yon gozlemi
+ILK_SURE = 4.0
+ILK_SAPMA = 8.0            # derece: gozlemlerin ortalamadan en buyuk sapmasi
 HIZ_TAM = 0.45             # m/s: PWM 255'te ileri hız ilk tahmini (CLAUDE.md: ~1-2 km/s)
 DONUS_TAM = 140.0          # derece/s: (sol-sag)=510'da donus ilk tahmini (21 Kasim kaydi: fark 408'de ~110 derece/s); surerken ogrenir
 
@@ -73,6 +76,7 @@ class KonumBulucu:
         self.donus_k = DONUS_TAM
         self._yol_tahmin = 0.0     # son işaret düzeltmesinden beri tahmin edilen yol
         self._son_fix = None       # (x, z) son düzeltmedeki konum (tahmin edilmeden önceki)
+        self._aday = []            # uzaktan ilk konum icin (zaman, isaret yonu - pusula yonu)
         self.aktif = False
         self.ms = 0.0
         self.son_t = None
@@ -125,29 +129,40 @@ class KonumBulucu:
             en = None
             ilk = not self.bilinen or simdi - self.son_isaret > 20.0
             for g in gorulen:
-                # ilk konum (yon) yalniz yakin isaretten: uzakta kucuk isaretin iki olasi yonu karisabiliyor (PC testi)
-                menzil = ILK_MENZIL if ilk else ISARET_MENZIL
-                if g["id"] in self.ev and g["mesafe"] < menzil and (en is None or g["mesafe"] < en["mesafe"]):
+                if g["id"] in self.ev and g["mesafe"] < ISARET_MENZIL and (en is None or g["mesafe"] < en["mesafe"]):
                     en = g
             if en is not None:
                 E = self.ev[en["id"]]
                 S = Poz2(en["x"], en["z"], en["aci"])          # işaret yerel -> robot
                 robot_ev = E.sonra(S.ters())                     # robot -> ev (işaretin yönüyle)
-                # PC testi (dene_isaret.py, gerçek kare + çizilmiş işaret): işaretin YERİ çok doğru (1,5 m'de 3,7 cm),
-                # baktığı YÖN uzakta gürültülü (1,5 m'de 8,6 derece). Bu yüzden: yön işaretten yalnız yakında ve yavaşça,
-                # konum ise robotun (pusulayla izlenen) yönü + işaretin göreli yerinden.
+                belirsiz = en.get("belirsiz", False)
+                # İşaretin YERİ uzakta da doğru (1,5 m'de 3,7 cm), baktığı YÖN uzakta gürültülü. Bu yüzden yön
+                # işaretten yalnız yavaşça (ya da ilk konumda), konum ise pusulayla izlenen yön + işaretin göreli yerinden.
                 fark = _aci_fark(robot_ev.aci, self.yaw)
                 if ilk:
-                    w_yaw = 1.0
-                elif abs(fark) > math.radians(30):
-                    w_yaw = 0.0                                   # pusulayla celisen yon: yanlis cozum, yalniz konum
+                    w_yaw = None
+                    if en["mesafe"] < ILK_MENZIL and not belirsiz:
+                        w_yaw = 1.0
+                    elif not belirsiz:
+                        # uzaktan: robot dururken ya da dönerken birkaç gözlem pusulayla aynı yönü gösterirse
+                        self._aday = [a for a in self._aday if simdi - a[0] < ILK_SURE] + [(simdi, fark)]
+                        if len(self._aday) >= ILK_GOZLEM:
+                            c = sum(math.cos(a[1]) for a in self._aday); s_ = sum(math.sin(a[1]) for a in self._aday)
+                            ort = math.atan2(s_, c)
+                            if max(abs(_aci_fark(a[1], ort)) for a in self._aday) < math.radians(ILK_SAPMA):
+                                fark, w_yaw = ort, 1.0
+                    if w_yaw is None:
+                        en = None
+                elif belirsiz or abs(fark) > math.radians(30):
+                    w_yaw = 0.0                                   # pusulayla celisen ya da belirsiz yon: yalniz konum
                 else:
                     w_yaw = 0.25 if en["mesafe"] < 1.0 else (0.08 if en["mesafe"] < 1.6 else 0.02)
+            if en is not None:
                 self.yaw += fark * w_yaw
                 rx, rz = _dondur(en["x"], en["z"], self.yaw)     # işaretin robota göre yeri, ev yönünde
                 ex, ez = E.x, E.z
                 yx, yz = ex - rx, ez - rz
-                w_poz = 1.0 if ilk else (0.7 if en["mesafe"] < 1.5 else 0.35)
+                w_poz = 1.0 if ilk else (0.7 if en["mesafe"] < 1.5 else (0.35 if en["mesafe"] < 2.0 else 0.2))
                 # hız katsayısı: iki düzeltme arası gerçek yol / tahmin edilen yol
                 if self._son_fix is not None and self._yol_tahmin > 0.5:
                     gercek = math.hypot(yx - self._son_fix[0], yz - self._son_fix[1])
@@ -155,7 +170,7 @@ class KonumBulucu:
                     self.hiz_k = self.hiz_k * 0.7 + self.hiz_k * oran * 0.3
                 self.x += (yx - self.x) * w_poz; self.z += (yz - self.z) * w_poz
                 self.bilinen = True; self.son_isaret = simdi; self.son_isaret_id = en["id"]
-                self._son_fix = (self.x, self.z); self._yol_tahmin = 0.0
+                self._son_fix = (self.x, self.z); self._yol_tahmin = 0.0; self._aday = []
             self.gorulen = [[g["id"], round(g["mesafe"], 2), round(g["yon"], 1)] for g in gorulen]
         self.ms = (time.time() - t0) * 1000.0
         return gorulen

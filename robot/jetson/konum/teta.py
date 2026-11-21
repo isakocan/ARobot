@@ -107,21 +107,8 @@ class Pusula:
         s = cv2.GaussianBlur(s, (0, 0), 1.5)
         return cv2.Sobel(s, cv2.CV_32F, 1, 0) * self.pencere
 
-    def guncelle(self, ham_gri, tahmin=None):
-        """Dönüş (derece, sağa dönüş +) ve güven (0..1, normalleştirilmiş korelasyon tepesi). İlk karede (0, 0).
-
-        tahmin: motor komutundan beklenen dönüş (derece). Birden çok tepe varsa (en iyisinin %60'ı kadar güçlü),
-        tahmine en yakını seçilir: hızlı dönüşte bulanık karede sıfırdaki sahte tepe kazanabiliyordu.
-
-        Şeritler boylamda döngüseldir: satır satır FFT ile döngüsel çapraz korelasyon, tepe = kayma. OpenCV
-        phaseCorrelate gerçek kayıtta (21 Kasım, beyaz toplantı odası, hızlı dönüş) sıfıra yapışıyordu; bu yöntem
-        aynı karelerde 21 derecelik adımı 0,44 korelasyonla buldu."""
-        g = self.serit(ham_gri)
-        if self.onceki is None:
-            self.onceki = g
-            return 0.0, 0.0
-        a, b = self.onceki, g
-        self.onceki = g
+    def _kayma(self, a, b, tahmin):
+        """a'dan b'ye dönüş (derece) ve güven. tahmin verilirse ve birden çok güçlü tepe varsa tahmine en yakını."""
         Fa = np.fft.rfft(a, axis=1); Fb = np.fft.rfft(b, axis=1)
         c = np.fft.irfft((Fa * np.conj(Fb)).sum(0), n=self.gen)
         k = int(np.argmax(c))
@@ -132,7 +119,7 @@ class Pusula:
                 def aci(i):
                     d0 = i if i <= self.gen / 2 else i - self.gen
                     return d0 / self.PIKSEL_DERECE
-                k = int(min(tepeler, key=lambda i: abs(aci(i) - tahmin)))
+                k = int(min(tepeler, key=lambda i: abs(_fark(aci(i), tahmin))))
         y0, y1, y2 = c[k - 1], c[k], c[(k + 1) % self.gen]
         ince = 0.5 * (y0 - y2) / (y0 - 2 * y1 + y2) if (y0 - 2 * y1 + y2) != 0 else 0.0
         d = k + ince
@@ -141,3 +128,42 @@ class Pusula:
         guven = float(y1 / (np.sqrt((a * a).sum() * (b * b).sum()) + 1e-9))
         # şimdiki şerit d piksel kaydırılınca öncekine oturur: sağa dönüşte sahne sola kayar -> d > 0
         return d / self.PIKSEL_DERECE, guven
+
+    REF_YENILE = 25.0      # derece: referans kareden bu kadar uzaklaşınca yenilenir
+    REF_GUVEN = 0.25       # referansa göre güven bunun altına düşerse (ilerleyince sahne değişir) yenilenir
+
+    def guncelle(self, ham_gri, tahmin=None):
+        """Dönüş (derece, sağa dönüş +) ve güven (0..1, normalleştirilmiş korelasyon tepesi). İlk karede (0, 0).
+
+        Her kare bir REFERANS kareyle karşılaştırılır (bir öncekiyle değil): kareden kareye ölçümün küçük hatası
+        (alt piksel tepesinin tam piksele çekilmesi) her adımda birikir; 21 Kasım ikinci kaydında 830 derece dönüşte
+        -25 dereceye ulaşmıştı. Referans, ondan REF_YENILE derece uzaklaşınca ya da benzerlik düşünce yenilenir.
+        Referansla güvenilir eşleşme yoksa bir önceki kareyle ölçülür.
+
+        tahmin: motor komutundan beklenen dönüş (derece). Birden çok tepe varsa (en iyisinin %60'ı kadar güçlü),
+        tahmine en yakını seçilir: hızlı dönüşte bulanık karede sıfırdaki sahte tepe kazanabiliyordu.
+
+        Şeritler boylamda döngüseldir: satır satır FFT ile döngüsel çapraz korelasyon, tepe = kayma. OpenCV
+        phaseCorrelate gerçek kayıtta (21 Kasım, beyaz toplantı odası, hızlı dönüş) sıfıra yapışıyordu."""
+        g = self.serit(ham_gri)
+        if self.onceki is None:
+            self.onceki = g; self.ref = g; self.ref_aci = 0.0; self.toplam = 0.0
+            return 0.0, 0.0
+        t = 0.0 if tahmin is None else tahmin
+        dr, gr = self._kayma(self.ref, g, _fark(self.toplam + t, self.ref_aci))
+        if gr >= self.REF_GUVEN and abs(dr) < 60.0:
+            yeni = self.ref_aci + dr
+            d, guven = _fark(yeni, self.toplam), gr
+        else:
+            d, guven = self._kayma(self.onceki, g, tahmin)
+            yeni = self.toplam + d
+        self.onceki = g
+        self.toplam = yeni
+        if not (gr >= self.REF_GUVEN and abs(dr) < self.REF_YENILE):
+            self.ref = g; self.ref_aci = yeni
+        return d, guven
+
+
+def _fark(a, b):
+    """Derece farkı a - b, -180..180."""
+    return (a - b + 180.0) % 360.0 - 180.0

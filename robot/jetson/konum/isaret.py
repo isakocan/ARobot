@@ -60,10 +60,43 @@ def homografi_poz(a, b, s=KENAR):
     return t, r1
 
 
+_H = KENAR / 2.0
+_NESNE = np.array([[-_H, _H, 0], [_H, _H, 0], [_H, -_H, 0], [-_H, -_H, 0]], np.float64)
+IPPE_VAR = hasattr(cv2, "solvePnPGeneric") and hasattr(cv2, "SOLVEPNP_IPPE_SQUARE")
+
+
+def _puan(o):
+    """Düşük iyi: yeniden yansıtma hatası (px) + eğim cezası. Köşe iyileştirmesinden sonra yanlış çözümün hatası
+    bazen daha düşük çıkıyor (yapay test, 1,2 m); ayırt eden işaretin dikliği: doğru çözüm 0-4, yanlış 5-11 derece eğik."""
+    return o[2] + 0.1 * o[3]
+
+
+def ippe_poz(k, yuz):
+    """Köşeler (piksel, TL TR BR BL) -> [(t, n, hata_px, egim_derece)] iyiden kötüye; t, n sanal kamera koordinatında.
+
+    Kare işaretin uzakta iki olası duruşu vardır (biri yanlış, ayna gibi). 21 Kasım kaydında doğru çözümün
+    yeniden yansıtma hatası 0,1-0,5 px, yanlışınki 1,0-1,5 px idi; eski homografi yöntemi 2,2 m'de 50 derece
+    yanılıyordu. İşaret duvarda dik durduğu için normali yatay olmalı: eğik çözüm cezalandırılır (_puan)."""
+    Kc = np.array([[yuz.f, 0, yuz.cx], [0, yuz.f, yuz.cy], [0, 0, 1.0]])
+    try:
+        n, rv, tv, err = cv2.solvePnPGeneric(_NESNE, k.astype(np.float64), Kc, None, flags=cv2.SOLVEPNP_IPPE_SQUARE)
+    except cv2.error:
+        return []
+    out = []
+    for j in range(n):
+        Rm, _ = cv2.Rodrigues(rv[j])
+        nr = yuz.R @ Rm[:, 2]
+        egim = math.degrees(math.asin(min(1.0, abs(nr[1]))))
+        out.append((tv[j].ravel(), Rm[:, 2], float(np.ravel(err[j])[0]), egim))
+    out.sort(key=_puan)
+    return out
+
+
 def bul(ham_gri):
     """Kare (1280x720 gri) -> [{"id", "x", "z", "y", "aci", "mesafe", "yon"}] robot koordinatında.
 
     x, z: işaret merkezi (metre, x sağ, z ileri); aci: işaretin baktığı yön atan2(nx, nz) (radyan);
+    belirsiz: işaretin yönü güvenilmez (iki duruş çözümü birbirine yakın), konumu yine kullanılabilir;
     yon: robottan işarete yatay açı (derece, sağa +). Aynı işaret iki yüzde görünürse ortaya en yakın olan alınır."""
     if not ARUCO_VAR:
         return []
@@ -77,12 +110,22 @@ def bul(ham_gri):
             k = k.reshape(4, 2)
             a = (k[:, 0] - yuz.cx) / yuz.f
             b = (k[:, 1] - yuz.cy) / yuz.f
-            p = homografi_poz(a, b)
-            if p is None:
-                continue
-            t, r1 = p
-            tr = yuz.R @ t; sag = yuz.R @ r1
-            n = np.array([-sag[2], 0.0, sag[0]])
+            cozum = ippe_poz(k, yuz) if IPPE_VAR else []
+            belirsiz = False
+            if cozum:
+                t, nk, hata, _ = cozum[0]
+                tr = yuz.R @ t; n3 = yuz.R @ nk
+                n = np.array([n3[0], 0.0, n3[2]])
+                # ikinci çözüm neredeyse aynı iyilikteyse yön güvenilmez (konum yine iyi)
+                belirsiz = len(cozum) > 1 and _puan(cozum[1]) < 1.3 * _puan(cozum[0]) + 0.1
+            else:
+                p = homografi_poz(a, b)
+                if p is None:
+                    continue
+                t, r1 = p
+                tr = yuz.R @ t; sag = yuz.R @ r1
+                n = np.array([-sag[2], 0.0, sag[0]])
+                belirsiz = True
             nn = np.linalg.norm(n)
             if nn < 1e-6:
                 continue
@@ -93,7 +136,7 @@ def bul(ham_gri):
             kenar_px = float(np.mean([np.linalg.norm(k[j] - k[(j + 1) % 4]) for j in range(4)]))
             kayit = {"id": int(i), "x": float(tr[0]), "y": float(tr[1]), "z": float(tr[2]), "aci": float(math.atan2(n[0], n[2])),
                      "mesafe": float(math.hypot(tr[0], tr[2])), "yon": float(math.degrees(math.atan2(tr[0], tr[2]))),
-                     "kenar_px": kenar_px, "_m": merkez_uzak}
+                     "kenar_px": kenar_px, "belirsiz": bool(belirsiz), "_m": merkez_uzak}
             if int(i) not in sonuc or merkez_uzak < sonuc[int(i)]["_m"]:
                 sonuc[int(i)] = kayit
     for v in sonuc.values():
