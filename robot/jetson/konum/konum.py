@@ -10,7 +10,9 @@ Telefon evin işaretlerini (ev koordinatında id, x, z, aci) UDP "ev" paketiyle 
 
 Ev koordinatı: telefondaki Ev ile aynı (y=0 zemin, x sağ, z ileri; aci = +z'den +x'e, radyan).
 """
+import json
 import math
+import os
 import threading
 import time
 
@@ -153,6 +155,31 @@ class KonumBulucu:
         self.ms = (time.time() - t0) * 1000.0
         return gorulen
 
+    # ------------------------------------------------------------ kayıt (PC'de tekrar oynatmak için)
+    KAYIT_ANAHTARI = os.path.expanduser("~/robot/konum_kayit_ac")
+
+    def _kaydet(self, jpeg, t, sol_sag, gorulen):
+        """~/robot/konum_kayit_ac dosyası varken işlenen her kare + motor + sonuç ~/konum_kayit/<zaman>/ altına yazılır."""
+        if not os.path.exists(self.KAYIT_ANAHTARI):
+            self._kayit = None
+            return
+        if getattr(self, "_kayit", None) is None:
+            k = os.path.expanduser(time.strftime("~/konum_kayit/%Y%m%d_%H%M%S"))
+            os.makedirs(k, exist_ok=True)
+            with open(os.path.join(k, "ev.json"), "w") as f:
+                json.dump({"isaretler": [[i, p.x, p.z, p.aci] for i, p in self.ev.items()]}, f)
+            self._kayit = [k, 0, open(os.path.join(k, "kareler.jsonl"), "a")]
+            print("[konum] kayıt başladı:", k)
+        k, n, f = self._kayit
+        ad = "k%05d.jpg" % n
+        with open(os.path.join(k, ad), "wb") as g:
+            g.write(jpeg)
+        o = self.ozet()
+        f.write(json.dumps({"t": t, "jpg": ad, "sol": sol_sag[0], "sag": sol_sag[1], "x": o["x"], "z": o["z"], "yaw": o["yaw"],
+                            "gorulen": [[g2["id"], g2["x"], g2["z"], g2["aci"]] for g2 in gorulen]}) + "\n")
+        f.flush()
+        self._kayit[1] = n + 1
+
     # ------------------------------------------------------------ Jetson döngüsü
     def baslat(self, etkin_mi):
         """etkin_mi(): konum istenen bir istemci var mı (yoksa kamera açık tutulmaz)."""
@@ -174,7 +201,10 @@ class KonumBulucu:
                     gri = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_GRAYSCALE)
                     if gri is None or gri.shape[1] != teta.GEN:
                         continue
-                    self.isle(gri)
+                    sol_sag = self.motor() if self.motor else (0, 0)
+                    t_kare = time.time()
+                    gorulen = self.isle(gri, t_kare, sol_sag)
+                    self._kaydet(jpeg, t_kare, sol_sag, gorulen)
                     time.sleep(max(0.0, ARALIK - (time.time() - bas)))
                 except Exception as e:          # konum hatası sürüşü etkilemesin
                     print("[konum] hata:", repr(e)); time.sleep(1.0)
