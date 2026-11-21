@@ -24,7 +24,7 @@ namespace ArTarama
             mc = cizgi != null ? new Material(cizgi) : new Material(Shader.Find("ArTarama/OdaCizgi"));
             md = dolgu != null ? new Material(dolgu) : new Material(Shader.Find("ArTarama/OdaDolgu"));
             mCizgi = new Mesh { name = "OdaCizgi" }; mCizgi.MarkDynamic();
-            mDolgu = new Mesh { name = "OdaDolgu" }; mDolgu.MarkDynamic();
+            mDolgu = new Mesh { name = "OdaDolgu", indexFormat = IndexFormat.UInt32 }; mDolgu.MarkDynamic();   // zemin boyasi 65 bin koseyi asabilir
             goCizgi = Nesne("OdaCizgiler", mCizgi, mc, out rc);
             goDolgu = Nesne("OdaDolgu", mDolgu, md, out rd);
         }
@@ -57,16 +57,13 @@ namespace ArTarama
             mc.SetFloat("_Parilti", Mathf.Max(3.5f, 6f * Screen.height / 2400f));
             float tavanA = g.TavanTahmin ? 0.5f : 0.8f;
 
-            // taranan zemin: hafif turkuaz boya (taranmamis yer bos kalir; kullanici neresinin eksik oldugunu gorur)
+            // acik zemin: turkuaz boya; engel (uzerinde bir sey olan zemin): soluk gul rengi. Taranmamis yer bos kalir,
+            // kullanici neresinin eksik oldugunu dogrudan gorur.
             {
-                var zb = g.ZeminBoya; float hh = OdaGoruntu.BoyaHucre * 0.5f - 0.01f, yb = zy + 0.008f;
-                var renk = new Color(0.26f, 0.85f, 0.75f, 0.12f);
-                for (int i = 0; i + 1 < zb.Length; i += 2)
-                {
-                    float x = zb[i], z = zb[i + 1];
-                    if ((x - camPos.x) * (x - camPos.x) + (z - camPos.z) * (z - camPos.z) > 36f) continue;
-                    Dolgu(new Vector3(x - hh, yb, z - hh), new Vector3(x + hh, yb, z - hh), new Vector3(x + hh, yb, z + hh), new Vector3(x - hh, yb, z + hh), renk);
-                }
+                float hh = OdaGoruntu.BoyaHucre * 0.5f - 0.004f, yb = zy + 0.008f;
+                ZeminBoya(g.AcikBoya, new Color(0.26f, 0.85f, 0.75f, 0.22f), hh, yb);
+                ZeminBoya(g.EngelBoya, new Color(1f, 0.55f, 0.55f, 0.16f), hh, yb + 0.002f);
+                ZeminBoya(g.ZeminBoya, new Color(0.26f, 0.85f, 0.75f, 0.12f), hh, yb);
             }
 
             foreach (var d in g.Duvarlar)
@@ -145,6 +142,16 @@ namespace ArTarama
             {
                 mDolgu.SetVertices(dv); mDolgu.SetColors(dc); mDolgu.SetTriangles(di, 0, false);
                 mDolgu.bounds = new Bounds(camPos, Vector3.one * 200f);
+            }
+        }
+
+        void ZeminBoya(float[] zb, Color renk, float hh, float yb)
+        {
+            for (int i = 0; i + 1 < zb.Length; i += 2)
+            {
+                float x = zb[i], z = zb[i + 1];
+                if ((x - camPos.x) * (x - camPos.x) + (z - camPos.z) * (z - camPos.z) > 36f) continue;
+                Dolgu(new Vector3(x - hh, yb, z - hh), new Vector3(x + hh, yb, z - hh), new Vector3(x + hh, yb, z + hh), new Vector3(x - hh, yb, z + hh), renk);
             }
         }
 

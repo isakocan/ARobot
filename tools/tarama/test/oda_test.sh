@@ -14,6 +14,6 @@ done
 DOTNET="$(cygpath -m "$U/NetCoreRuntime/dotnet.exe")"
 CSC="$(cygpath -m "$U/DotNetSdkRoslyn/csc.dll")"
 "$DOTNET" exec "$CSC" -nologo -debug:portable -nullable:disable "-out:$OUT/oda_cli.dll" -target:exe "${ARGS[@]}" \
-  "$AQ/Scripts/OdaKanit.cs" "$AQ/Scripts/OdaGeo.cs" "$AQ/Scripts/OdaModeli.cs" "$AQ/Scripts/OdaModeli.Duvar.cs" "$AQ/Scripts/OdaModeli.Kutu.cs" "$AQ/Scripts/OdaModeli.Bant.cs" "$AQ/Scripts/OdaModeli.Esya.cs" "$AQ/Scripts/OdaKoc.cs" "$AQ/Scripts/OdaJson.cs" "$AQ/Editor/OdaTestCekirdek.cs" "$(cygpath -m "$HERE")/oda_cli/Program.cs"
+  "$AQ/Scripts/OdaKanit.cs" "$AQ/Scripts/OdaGeo.cs" "$AQ/Scripts/OdaModeli.cs" "$AQ/Scripts/OdaModeli.Duvar.cs" "$AQ/Scripts/OdaModeli.Kutu.cs" "$AQ/Scripts/OdaModeli.Bant.cs" "$AQ/Scripts/OdaModeli.Esya.cs" "$AQ/Scripts/OdaKoc.cs" "$AQ/Scripts/ZeminHaritasi.cs" "$AQ/Scripts/OdaJson.cs" "$AQ/Editor/OdaTestCekirdek.cs" "$(cygpath -m "$HERE")/oda_cli/Program.cs"
 echo '{"runtimeOptions":{"tfm":"net6.0","framework":{"name":"Microsoft.NETCore.App","version":"6.0.0"}}}' > "$OUT/oda_cli.runtimeconfig.json"
 "$DOTNET" exec --runtimeconfig "$OUT/oda_cli.runtimeconfig.json" "$OUT/oda_cli.dll" "$@"

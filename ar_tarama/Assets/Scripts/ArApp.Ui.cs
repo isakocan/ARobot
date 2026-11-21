@@ -38,7 +38,7 @@ namespace ArTarama
         CanvasGroup kocIcerik, chipGrup, kenarSol, kenarSag, ilerleGrup, debugGrup;
         RectTransform ilerleOk;
         string gosterilenKoc = ""; float kocGecis = 1f; bool debugAcik;
-        OdaMini odaMini;
+        ZeminMini zeminMini, zeminGozden; ZeminSonuc gozdenZemin; GameObject gozdenSekmeler;
         // toast
         CanvasGroup toastGrup; Text toastYazi; float toastBitis;
         // modal
@@ -168,8 +168,13 @@ namespace ArTarama
             debugYazi = UiKur.Metin(dr, "Yazi", "", 22, UiKur.MetinRenk, TextAnchor.UpperLeft);
             UiKur.Tam(debugYazi.rectTransform, 12f);
 
-            // ---- canli oda modeli paneli ----
-            odaMini = new OdaMini(hud, oda, arKamera);
+            // ---- canli 2B acik zemin haritasi (kullanici ortada, bakis yonu yukari) ----
+            zeminMini = new ZeminMini(hud, true, "AÇIK ZEMİN");
+            {
+                var k = zeminMini.kok;
+                k.anchorMin = new Vector2(0, 0); k.anchorMax = new Vector2(1, 0); k.pivot = new Vector2(0.5f, 0);
+                k.anchoredPosition = new Vector2(0, 150); k.sizeDelta = new Vector2(-48, 420);
+            }
 
             // ---- alt bar ----
             var bar = UiKur.Kutu(hud, "AltBar", UiKur.Panel, true); bar.raycastTarget = true;
@@ -225,9 +230,9 @@ namespace ArTarama
 
         void BitirTikla()
         {
-            var s = oda != null ? oda.Son : null;
-            if (s == null || s.KesinDuvar < 3)
-                OnayGoster("Taramayı bitirelim mi?", "Oda henüz tam görünmüyor. Yine de bitirip modeli görebilirsin.", "Bitir", false, Bitir);
+            var s = oda != null ? oda.ZSon : null;
+            if (s == null || s.alan < 2f)
+                OnayGoster("Taramayı bitirelim mi?", "Henüz az zemin tarandı. Yine de bitirip haritayı görebilirsin.", "Bitir", false, Bitir);
             else Bitir();
         }
 
@@ -286,7 +291,11 @@ namespace ArTarama
                     "\nbutunleştirme " + (oda != null ? oda.IsleMs : 0).ToString("F1") + " ms   yapı " + (oda != null ? oda.YapiMs : 0).ToString("F1") + " ms   fps " + sonFps.ToString("F0") +
                     "\nsüre " + (sn / 60).ToString("00") + ":" + (sn % 60).ToString("00") + "   kural " + m.kural;
             }
-            odaMini.Guncelle(dt, true);
+            {
+                var ktr = arKamera.transform; var kf = ktr.forward; float kyaw = Mathf.Atan2(kf.x, kf.z) * Mathf.Rad2Deg;
+                if (new Vector2(kf.x, kf.z).magnitude < 0.35f) { var ku = ktr.up; kyaw = Mathf.Atan2(ku.x, ku.z) * Mathf.Rad2Deg; if (kf.y < 0) kyaw += 180f; }
+                zeminMini.Guncelle(oda != null ? oda.ZSon : null, ktr.position, kyaw, dt);
+            }
         }
 
         static Sprite IkonSec(KocMesaj m)
@@ -452,8 +461,15 @@ namespace ArTarama
                 string odaAd = "", satir2 = ""; bool modelVar = false;
                 try
                 {
+                    string zj = Path.Combine(d, "zemin.json");
                     string oj = Path.Combine(d, "oda.json");
-                    if (File.Exists(oj))
+                    if (File.Exists(zj))
+                    {
+                        var zs = ZeminSonuc.JsonOku(File.ReadAllText(zj), out string zad);
+                        odaAd = zad; modelVar = zs.alan > 0.3f;
+                        satir2 = modelVar ? Metre(zs.alan) + " m² açık zemin" : "Açık zemin bulunamadı";
+                    }
+                    else if (File.Exists(oj))
                     {
                         var s = OdaJson.Oku(File.ReadAllText(oj), out string jad);
                         odaAd = jad; int nd = 0, nk = 0; foreach (var x in s.duvarlar) if (x.kesin) nd++; foreach (var x in s.kutular) if (x.kesin) nk++;
@@ -504,6 +520,7 @@ namespace ArTarama
             UiKur.Ankor(gozdenNot.rectTransform, new Vector2(0, 0), new Vector2(1, 0), new Vector2(32, 10), new Vector2(-32, 52));
 
             var seg = UiKur.Kutu(kr, "Sekmeler", new Color(1, 1, 1, 0.07f), true);
+            gozdenSekmeler = seg.gameObject;
             UiKur.Yerles(seg.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(340, 72), new Vector2(-24, -20));
             var b3 = UiKur.Dugme(seg.transform, "B3", "3B", UiKur.DugmeStili.Ghost, out sekme3b, out sekme3bYazi, UiKur.Body - 2);
             UiKur.Ankor(sekme3b.rectTransform, Vector2.zero, new Vector2(0.5f, 1), new Vector2(6, 6), new Vector2(-3, -6));
@@ -553,8 +570,29 @@ namespace ArTarama
             gozdenIpucu.text = ust ? "Sürükle · iki parmakla yakınlaştır · çift dokun: sıfırla" : "Döndür · iki parmakla kaydır ve yakınlaştır · çift dokun: sıfırla";
         }
 
+        /// <summary>Inceleme: 2B acik zemin haritasi (kuzey yukari, yurunen yol turuncu).</summary>
+        void GozdenAcZemin(ZeminSonuc s, string ad)
+        {
+            if (zeminGozden == null)
+            {
+                zeminGozden = new ZeminMini(gozdenAlan, false, "AÇIK ZEMİN HARİTASI");
+                UiKur.Ankor(zeminGozden.kok, Vector2.zero, Vector2.one, new Vector2(24, 0), new Vector2(-24, 0));
+            }
+            zeminGozden.kok.gameObject.SetActive(true); zeminGozden.Sifirla();
+            if (gozdenSekmeler != null) gozdenSekmeler.SetActive(false);
+            gozdenZemin = s;
+            gozdenBaslik.text = string.IsNullOrEmpty(ad) ? "Tarama" : ad;
+            gozdenAlt.text = Metre(s.alan) + " m² açık zemin";
+            gozdenNot.text = "Turkuaz: açık zemin · gri: üstünde eşya olan yer · turuncu: yürüdüğün yol";
+            gozdenIpucu.text = "";
+            GosterMod(Mod.Gozden);
+        }
+
         void GozdenAc(OdaGoruntu g, string ad)
         {
+            if (zeminGozden != null) zeminGozden.kok.gameObject.SetActive(false);
+            if (gozdenSekmeler != null) gozdenSekmeler.SetActive(true);
+            gozdenZemin = null;
             int nd = g.Duvarlar.Count, nk = g.Kutular.Count;
             gozdenBaslik.text = string.IsNullOrEmpty(ad) ? "Oda" : ad;
             gozdenAlt.text = Metre(g.Alan) + " m²   ·   " + nd + " duvar   ·   " + nk + " eşya";
@@ -567,8 +605,16 @@ namespace ArTarama
         {
             try
             {
+                string zj = Path.Combine(klasor, "zemin.json");
+                if (File.Exists(zj))
+                {
+                    var zs = ZeminSonuc.JsonOku(File.ReadAllText(zj), out string zad);
+                    if (zs.alan < 0.3f) { Toast("Bu kayıtta açık zemin yok"); return; }
+                    GozdenAcZemin(zs, !string.IsNullOrEmpty(zad) ? zad : (!string.IsNullOrEmpty(ad) ? ad : "Tarama"));
+                    return;
+                }
                 string oj = Path.Combine(klasor, "oda.json");
-                if (!File.Exists(oj)) { Toast("Bu kayıtta oda modeli yok"); return; }
+                if (!File.Exists(oj)) { Toast("Bu kayıtta harita yok"); return; }
                 var s = OdaJson.Oku(File.ReadAllText(oj), out string jad);
                 var g = OdaGoruntu.Sonuctan(s);
                 if (g.Duvarlar.Count + g.Kutular.Count == 0) { Toast("Bu kayıtta oda modeli boş"); return; }
@@ -580,10 +626,11 @@ namespace ArTarama
         void GozdenKapat()
         {
             if (gozden != null) gozden.Kapat();
+            gozdenZemin = null;
             GosterMod(Mod.Baslangic);
             KayitlariListele();
         }
 
-        void GozdenGuncelle() { }
+        void GozdenGuncelle() { if (zeminGozden != null && gozdenZemin != null) zeminGozden.Guncelle(gozdenZemin, Vector3.zero, 0f, Time.unscaledDeltaTime); }
     }
 }

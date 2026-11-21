@@ -43,9 +43,11 @@ namespace ArTarama
         public float Alan;
         /// <summary>Taranan zemin (15 cm kaba hucre merkezleri, x,z ciftleri): AR'da hafifce boyanir ki kullanici neresinin tarandigini gorsun.</summary>
         public float[] ZeminBoya = new float[0];
-        public const float BoyaHucre = 0.15f;
+        public const float BoyaHucre = 0.10f;
+        /// <summary>Acik zemin / engel boyasi (10 cm kaba hucre merkezleri, x,z ciftleri): AR'da zemine boyanir.</summary>
+        public float[] AcikBoya = new float[0], EngelBoya = new float[0];
 
-        public void Temizle() { Duvarlar.Clear(); Kutular.Clear(); ZeminVar = false; ZeminPoligon = new float[0]; Alan = 0; ZeminBoya = new float[0]; }
+        public void Temizle() { Duvarlar.Clear(); Kutular.Clear(); ZeminVar = false; ZeminPoligon = new float[0]; Alan = 0; ZeminBoya = new float[0]; AcikBoya = new float[0]; EngelBoya = new float[0]; }
 
         /// <summary>Sonuctan animasyonsuz (tamamlanmis) gosterim; yalniz kesin nesneler.</summary>
         public static OdaGoruntu Sonuctan(OdaSonuc s)
@@ -66,8 +68,9 @@ namespace ArTarama
     }
 
     /// <summary>
-    /// Canli oda modeli: derinlik karelerini (4 Hz, 80x45) arka plan is parcacigindaki kanit izgarasina isler, 1 Hz'de
-    /// duvar + esya yapisini cikarir (OdaModeli cekirdegi), ekranda yumusatir ve AR cizgilerini, alt mini modeli besler.
+    /// Canli acik zemin haritasi: derinlik karelerini (4 Hz, 80x45) arka plan is parcacigindaki zemin haritasina isler
+    /// (ZeminHaritasi), 1 Hz'de acik zemin / engel siniflandirmasini cikarir, AR zemin boyasini ve alt 2B haritayi besler.
+    /// Duvar / esya modeli (OdaModeli) artik calistirilmaz: hedef yalniz acik zemin.
     /// </summary>
     public class OdaYoneticisi : MonoBehaviour
     {
@@ -79,6 +82,8 @@ namespace ArTarama
         public PlanHaritasi plan;
         public KayitYoneticisi kayit;
         public Etiketleyici etiket;
+        /// <summary>SegFormer etiketleri (insan noktalarini atar, zemin etiketini kullanir). Zemin icin sart degil; kapali (fps).</summary>
+        public bool EtiketKullan = false;
         public const float EtiketAraligi = 0.5f;
         float sonEtiket;
         public int EtiketliKare { get; private set; }
@@ -88,7 +93,7 @@ namespace ArTarama
 
         public bool Aktif;
         public bool ArGoster;
-        public OdaSonuc Son { get; private set; }
+        public ZeminSonuc ZSon { get; private set; }
         public readonly OdaGoruntu Goruntu = new OdaGoruntu();
         public List<GDuvar> Duvarlar => Goruntu.Duvarlar;
         public List<GKutu> Kutular => Goruntu.Kutular;
@@ -100,8 +105,8 @@ namespace ArTarama
         public int KareSayisi { get; private set; }
         public float OturumSure => Time.unscaledTime - oturumBasi;
 
-        OdaModeli model = new OdaModeli();
-        volatile OdaSonuc bekleyen;
+        ZeminHaritasi zemin = new ZeminHaritasi();
+        volatile ZeminSonuc bekleyen;
         int nesil;
         float sonKare, sonYapi, sonKayit, oturumBasi;
         Thread is_; BlockingCollection<Action> kuyruk = new BlockingCollection<Action>(new ConcurrentQueue<Action>());
@@ -115,7 +120,7 @@ namespace ArTarama
 
         void Awake()
         {
-            if (etiket == null) { etiket = GetComponent<Etiketleyici>(); if (etiket == null) etiket = gameObject.AddComponent<Etiketleyici>(); }
+            if (EtiketKullan && etiket == null) { etiket = GetComponent<Etiketleyici>(); if (etiket == null) etiket = gameObject.AddComponent<Etiketleyici>(); }
             ar = new OdaArCizim(Resources.Load<Material>("mat_oda_cizgi"), Resources.Load<Material>("mat_oda_dolgu"));
             oturumBasi = Time.unscaledTime;
             is_ = new Thread(Calis) { IsBackground = true, Name = "OdaYapisi" };
@@ -136,18 +141,18 @@ namespace ArTarama
 
         public void Temizle()
         {
-            nesil++; model = new OdaModeli(); bekleyen = null; Son = null; Goruntu.Temizle(); oturumBasi = Time.unscaledTime;
+            nesil++; zemin = new ZeminHaritasi(); bekleyen = null; ZSon = null; Goruntu.Temizle(); oturumBasi = Time.unscaledTime;
             sonKare = sonYapi = sonEtiket = 0f; KareSayisi = 0; EtiketliKare = 0; VokselSayisi = 0;
             if (ar != null) ar.Temizle();
         }
 
         // ------------------------------------------------------------------------------------------ sorgular
-        /// <summary>Zemindeki nokta: bos zemin kaniti var ve kutu/duvara en az 25 cm uzak mi? Model yoksa true (bilgi yok).</summary>
+        /// <summary>Zemindeki nokta acik zeminde ve en yakin engele en az 25 cm uzak mi? Harita yoksa false (bilinmeyen yere konmaz).</summary>
         public bool AcikZeminMi(Vector3 p)
         {
-            var s = Son;
-            if (s == null || !s.zeminVar) return true;
-            return s.AcikZeminMi(p.x, p.z, 0.25f);
+            var s = ZSon;
+            if (s == null || !s.zeminVar) return false;
+            return s.AcikMi(p.x, p.z, 0.25f);
         }
 
         // ------------------------------------------------------------------------------------------ dongu
@@ -158,7 +163,7 @@ namespace ArTarama
             bool takipte = ArApp.Ornek != null && ArApp.Ornek.Takipte;
             // etiketli kare (~2 Hz): derinlik ve kamera goruntusu ayni anda alinir; SegFormer bitince kare etiketleriyle islenir.
             // Ara karelerde (4 Hz) yalniz derinlik islenir.
-            if (takipte && oklusyon != null && kamera != null && etiket != null && etiket.Hazir && !etiket.Mesgul && t - sonEtiket >= EtiketAraligi && bekleyenIs < 6)
+            if (EtiketKullan && takipte && oklusyon != null && kamera != null && etiket != null && etiket.Hazir && !etiket.Mesgul && t - sonEtiket >= EtiketAraligi && bekleyenIs < 6)
             {
                 sonEtiket = t;
                 try
@@ -184,10 +189,10 @@ namespace ArTarama
                 sonYapi = t; YapiIsiGonder();
             }
             var b = bekleyen;
-            if (b != null && b != Son) { bekleyen = null; Uygula(b); }
+            if (b != null && b != ZSon) { bekleyen = null; Uygula(b); }
             Canlandir(Time.unscaledDeltaTime);
 
-            if (kayit != null && kayit.Kayitta && t - sonKayit >= KayitAraligi && Son != null) { sonKayit = t; Kaydet(); }
+            if (kayit != null && kayit.Kayitta && t - sonKayit >= KayitAraligi && ZSon != null) { sonKayit = t; Kaydet(); }
         }
 
         void LateUpdate()
@@ -245,7 +250,7 @@ namespace ArTarama
 
         void Gonder(DerinlikKaresi f)
         {
-            var m = model; int bu = nesil; KareSayisi++;
+            var m = zemin; int bu = nesil; KareSayisi++;
             Interlocked.Increment(ref bekleyenIs);
             kuyruk.Add(() =>
             {
@@ -275,7 +280,7 @@ namespace ArTarama
                 Vector3 n = p.transform.up;
                 planlar.Add(new OdaDuzlem { id = p.trackableId.ToString(), tur = tur, sinir = sinir, nx = n.x, ny = n.y, nz = n.z });
             }
-            var m = model; int bu = nesil; float zaman = OturumSure;
+            var m = zemin; int bu = nesil; float zaman = OturumSure;
             Interlocked.Increment(ref bekleyenIs);
             kuyruk.Add(() =>
             {
@@ -284,83 +289,49 @@ namespace ArTarama
                 var r = m.Guncelle(planlar, zaman);
                 sw.Stop();
                 YapiMs = YapiMs <= 0 ? (float)sw.Elapsed.TotalMilliseconds : Mathf.Lerp(YapiMs, (float)sw.Elapsed.TotalMilliseconds, 0.2f);
-                VokselSayisi = r.voksel;
+                VokselSayisi = m.HucreSayisi;
                 if (bu == nesil) bekleyen = r;
             });
         }
 
         // ------------------------------------------------------------------------------------------ gosterim durumu
-        void Uygula(OdaSonuc s)
+        void Uygula(ZeminSonuc s)
         {
-            Son = s;
-            float simdi = Time.unscaledTime;
+            ZSon = s;
             var g = Goruntu;
             bool ilk = !g.ZeminVar;
-            g.ZeminVar = s.zeminVar; g.ZeminPoligon = s.zeminPoligon; g.Alan = s.alan; g.TavanTahmin = s.TavanTahmin;
+            g.ZeminVar = s.zeminVar; g.Alan = s.alan; g.Duvarlar.Clear(); g.Kutular.Clear();
             if (!s.zeminVar) return;
-            if (ilk) { g.GZeminY = s.zeminY; g.GTavanY = s.tavanY; }
-            {
-                var kaba = new Dictionary<long, int>();
-                foreach (long k in s.zeminTaranan)
-                {
-                    int ix = (int)((k >> 21) & 0x1FFFFF) - 1048576, iz = (int)(k & 0x1FFFFF) - 1048576;
-                    long kk = OdaSonuc.Anah2(Mathf.FloorToInt(ix * KanitIzgarasi.V / OdaGoruntu.BoyaHucre), Mathf.FloorToInt(iz * KanitIzgarasi.V / OdaGoruntu.BoyaHucre));
-                    kaba.TryGetValue(kk, out int c0); kaba[kk] = c0 + 1;
-                }
-                var bl = new List<float>(kaba.Count * 2);
-                foreach (var kv in kaba)
-                {
-                    if (kv.Value < 3) continue;
-                    int cx = (int)((kv.Key >> 21) & 0x1FFFFF) - 1048576, cz = (int)(kv.Key & 0x1FFFFF) - 1048576;
-                    bl.Add((cx + 0.5f) * OdaGoruntu.BoyaHucre); bl.Add((cz + 0.5f) * OdaGoruntu.BoyaHucre);
-                }
-                g.ZeminBoya = bl.ToArray();
-            }
+            if (ilk) { g.GZeminY = s.zeminY; g.GTavanY = s.zeminY + 2.5f; }
+            g.AcikBoya = Kaba(s.acik, 2); g.EngelBoya = Kaba(s.engel, 2);
+        }
 
-            for (int i = g.Duvarlar.Count - 1; i >= 0; i--)
+        /// <summary>5 cm hucreleri 10 cm kaba hucrelere toplar (en az 'min' ince hucre), merkezleri x,z ciftleri olarak verir.</summary>
+        static float[] Kaba(HashSet<long> h, int min)
+        {
+            var kaba = new Dictionary<long, int>();
+            foreach (long k in h)
             {
-                bool var = false; foreach (var d in s.duvarlar) if (d.id == g.Duvarlar[i].id) { var = true; break; }
-                if (!var) g.Duvarlar.RemoveAt(i);
+                ZeminSonuc.Coz(k, out int ix, out int iz);
+                long kk = OdaSonuc.Anah2(Mathf.FloorToInt(ix * ZeminSonuc.V / OdaGoruntu.BoyaHucre), Mathf.FloorToInt(iz * ZeminSonuc.V / OdaGoruntu.BoyaHucre));
+                kaba.TryGetValue(kk, out int c0); kaba[kk] = c0 + 1;
             }
-            foreach (var d in s.duvarlar)
+            var bl = new List<float>(kaba.Count * 2);
+            foreach (var kv in kaba)
             {
-                GDuvar x = null; foreach (var q in g.Duvarlar) if (q.id == d.id) { x = q; break; }
-                if (x == null) { x = new GDuvar { id = d.id, ax = d.ax, az = d.az, bx = d.bx, bz = d.bz }; g.Duvarlar.Add(x); }
-                if (d.kesin && !x.kesin) x.kesinAn = simdi;
-                x.kesin = d.kesin; x.ilerleme = d.ilerleme;
-                x.tax = d.ax; x.taz = d.az; x.tbx = d.bx; x.tbz = d.bz; x.nx = d.nx; x.nz = d.nz; x.aKose = d.aKose; x.bKose = d.bKose;
+                if (kv.Value < min) continue;
+                ZeminSonuc.Coz(kv.Key, out int cx, out int cz);
+                bl.Add((cx + 0.5f) * OdaGoruntu.BoyaHucre); bl.Add((cz + 0.5f) * OdaGoruntu.BoyaHucre);
             }
-            for (int i = g.Kutular.Count - 1; i >= 0; i--)
-            {
-                bool var = false; foreach (var k in s.kutular) if (k.id == g.Kutular[i].id) { var = true; break; }
-                if (!var) g.Kutular.RemoveAt(i);
-            }
-            foreach (var k in s.kutular)
-            {
-                GKutu x = null; foreach (var q in g.Kutular) if (q.id == k.id) { x = q; break; }
-                if (x == null) { x = new GKutu { id = k.id, cx = k.cx, cy = k.cy, cz = k.cz, sx = k.sx, sy = k.sy, sz = k.sz, aci = k.aci }; g.Kutular.Add(x); }
-                if (k.kesin && !x.kesin) x.kesinAn = simdi;
-                x.kesin = k.kesin; x.ilerleme = k.ilerleme;
-                x.tcx = k.cx; x.tcy = k.cy; x.tcz = k.cz; x.tsx = k.sx; x.tsy = k.sy; x.tsz = k.sz; x.taci = k.aci;
-            }
+            return bl.ToArray();
         }
 
         void Canlandir(float dt)
         {
-            var s = Son; var g = Goruntu;
+            var s = ZSon; var g = Goruntu;
             if (s == null || !s.zeminVar) return;
-            float k = 1f - Mathf.Exp(-6f * dt), kd = 1f - Mathf.Exp(-5f * dt);
-            g.GZeminY += (s.zeminY - g.GZeminY) * k; g.GTavanY += (s.tavanY - g.GTavanY) * k;
-            foreach (var d in g.Duvarlar)
-            { d.ax += (d.tax - d.ax) * kd; d.az += (d.taz - d.az) * kd; d.bx += (d.tbx - d.bx) * kd; d.bz += (d.tbz - d.bz) * kd; }
-            foreach (var b in g.Kutular)
-            {
-                b.cx += (b.tcx - b.cx) * k; b.cy += (b.tcy - b.cy) * k; b.cz += (b.tcz - b.cz) * k;
-                b.sx += (b.tsx - b.sx) * k; b.sy += (b.tsy - b.sy) * k; b.sz += (b.tsz - b.sz) * k;
-                float da = Mathf.DeltaAngle(b.aci, b.taci);
-                if (Mathf.Abs(b.sx - b.sz) < 0.08f && Mathf.Abs(da) > 45f) da -= Mathf.Sign(da) * 90f;
-                b.aci += da * k;
-            }
+            float k = 1f - Mathf.Exp(-6f * dt);
+            g.GZeminY += (s.zeminY - g.GZeminY) * k;
         }
 
         // ------------------------------------------------------------------------------------------ disa aktarim
@@ -368,16 +339,10 @@ namespace ArTarama
         {
             try
             {
-                var s = Son; if (s == null || kayit == null || string.IsNullOrEmpty(kayit.Klasor) || !Directory.Exists(kayit.Klasor)) return;
-                List<float[]> isr = null;
-                if (plan != null)
-                {
-                    isr = new List<float[]>();
-                    foreach (var b in plan.Isaretler.Values) if (b.konumVar) isr.Add(new[] { (float)b.id, b.konum.x, b.konum.y, b.konum.z });
-                }
-                File.WriteAllText(Path.Combine(kayit.Klasor, "oda.json"), OdaJson.Yaz(s, isr, kayit.Oda), new UTF8Encoding(false));
+                var s = ZSon; if (s == null || kayit == null || string.IsNullOrEmpty(kayit.Klasor) || !Directory.Exists(kayit.Klasor)) return;
+                File.WriteAllText(Path.Combine(kayit.Klasor, "zemin.json"), s.Json(kayit.Oda), new UTF8Encoding(false));
             }
-            catch (Exception e) { Debug.LogWarning("[ArTarama] oda.json yazilamadi: " + e.Message); }
+            catch (Exception e) { Debug.LogWarning("[ArTarama] zemin.json yazilamadi: " + e.Message); }
         }
 
         void OnApplicationPause(bool p) { if (p && kayit != null && kayit.Kayitta) Kaydet(); }

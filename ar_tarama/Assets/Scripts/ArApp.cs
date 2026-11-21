@@ -42,7 +42,7 @@ namespace ArTarama
         public float HizMs { get; private set; }
         public Mod mod = Mod.Baslangic;
 
-        readonly OdaKoc koc = new OdaKoc();
+        readonly ZeminKoc koc = new ZeminKoc();
         readonly List<GameObject> nesneler = new List<GameObject>();
         readonly List<ARRaycastHit> vurus = new List<ARRaycastHit>();
         Quaternion oncekiRot; Vector3 oncekiKonum;
@@ -109,13 +109,13 @@ namespace ArTarama
             while (true)
             {
                 yield return new WaitForSeconds(4f);
-                string duv = oda != null && oda.Son != null ? oda.Son.KesinDuvar + "/" + oda.Son.duvarlar.Count : "-";
-                string kut = oda != null && oda.Son != null ? oda.Son.KesinKutu + "/" + oda.Son.kutular.Count : "-";
+                string duv = oda != null && oda.ZSon != null ? oda.ZSon.alan.ToString("F1") + "m2" : "-";
+                string kut = oda != null && oda.ZSon != null ? oda.ZSon.engel.Count.ToString() : "-";
                 Debug.Log("[ArTarama] durum: mod=" + mod + " oturum=" + ARSession.state + " neden=" + ARSession.notTrackingReason +
                     " zemin=" + (ZeminVar ? ZeminY.ToString("F2") : "yok") + " kare=" + (kayit != null ? kayit.KareSayisi : 0) +
                     " isaret=" + (isaret != null ? isaret.Toplam : 0) + " ortDerinlik=" + (bulut != null ? bulut.OrtancaDerinlik : 0).ToString("F2") +
                     " voksel=" + (oda != null ? oda.VokselSayisi : 0) + " isle=" + (oda != null ? oda.IsleMs : 0).ToString("F1") + "ms yapi=" + (oda != null ? oda.YapiMs : 0).ToString("F1") +
-                    "ms duvar=" + duv + " kutu=" + kut + " koc=\"" + koc.Mevcut.yazi + "\"");
+                    "ms acik=" + duv + " engel=" + kut + " koc=\"" + koc.Mevcut.yazi + "\"");
             }
         }
 
@@ -180,7 +180,7 @@ namespace ArTarama
             if (bulut != null) bulut.Aktif = m == Mod.Tarama && PuruzsuzBaslangicTamam();
             if (oda != null) oda.Aktif = m == Mod.Tarama;
             Application.targetFrameRate = gozdende ? 60 : 30;
-            if (odaMini != null && m != Mod.Tarama) odaMini.Guncelle(0.016f, false);
+
         }
 
         bool PuruzsuzBaslangicTamam() { return Time.unscaledTime - sifirlaZamani > 1.0f; }
@@ -212,7 +212,7 @@ namespace ArTarama
             if (bulut != null) bulut.Temizle();
             if (plan != null) plan.Temizle();
             if (oda != null) oda.Temizle();
-            if (odaMini != null) odaMini.Sifirla();
+            if (zeminMini != null) zeminMini.Sifirla();
             if (isaret != null) isaret.Sifirla();
             Temizle();
             planBaslatBekle = Time.unscaledTime;
@@ -221,22 +221,22 @@ namespace ArTarama
             isaretChipGoruldu.Clear();
         }
 
-        /// <summary>Bitir: kayit kapanir, oda.json yazilir, inceleme ekrani acilir.</summary>
+        /// <summary>Bitir: kayit kapanir, zemin.json yazilir, inceleme ekrani (2B acik zemin haritasi) acilir.</summary>
         public void Bitir()
         {
-            var s = oda != null ? oda.Son : null;
+            var s = oda != null ? oda.ZSon : null;
             if (kayit != null && kayit.Kayitta)
             {
-                if (oda != null) oda.Kaydet();   // oda.json son hali (klasor hala acik)
+                if (oda != null) oda.Kaydet();   // zemin.json son hali (klasor hala acik)
                 kayit.Durdur(true);
             }
-            if (s == null || (s.KesinDuvar == 0 && s.KesinKutu == 0))
+            if (s == null || s.alan < 0.3f)
             {
                 GosterMod(Mod.Baslangic); KayitlariListele();
-                Toast("Henüz duvar ya da eşya bulunamadı");
+                Toast("Henüz açık zemin bulunamadı");
                 return;
             }
-            GozdenAc(OdaGoruntu.Sonuctan(s), kayit != null ? kayit.Oda : "Oda");
+            GozdenAcZemin(s, kayit != null ? kayit.Oda : "Tarama");
         }
 
         // ---------------- ana dongu ----------------
@@ -322,9 +322,9 @@ namespace ArTarama
                 {
                     takipte = Takipte, oncedenTakip = oncedenTakip, neden = neden, hizli = AciHizi > 75f || HizMs > 0.7f,
                     ortancaDerinlik = bulut != null ? bulut.OrtancaDerinlik : -1f, guvenOrani = oda != null ? oda.GuvenOrani : -1f,
-                    kx = tr.position.x, ky = tr.position.y, kz = tr.position.z, yaw = yaw, pitch = pitch, zaman = Time.unscaledTime, sonuc = oda != null ? oda.Son : null
+                    kx = tr.position.x, ky = tr.position.y, kz = tr.position.z, yaw = yaw, pitch = pitch, zaman = Time.unscaledTime, sonuc = null
                 };
-                kocMesaj = koc.Guncelle(gi);
+                kocMesaj = koc.Guncelle(gi, oda != null ? oda.ZSon : null);
             }
             TaramaArayuzuGuncelle(dt);
         }
@@ -366,7 +366,7 @@ namespace ArTarama
                 if (Mathf.Abs(h.pose.position.y - ZeminY) > 0.15f) continue;
                 var yerel = p.transform.InverseTransformPoint(h.pose.position);
                 if (KenarMesafesi(p.boundary, new Vector2(yerel.x, yerel.z)) < 0.25f) continue;
-                if (oda != null && !oda.AcikZeminMi(h.pose.position)) continue;   // bos zemin kaniti yok / kutu-duvar yakininda konmaz
+                if (oda != null && !oda.AcikZeminMi(h.pose.position)) continue;   // acik zemin haritasinda degil ya da engele 25 cm'den yakin
                 if (DerinlikEngelli(sp, h.pose.position)) continue;
                 pose = h.pose;
                 return true;
