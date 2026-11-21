@@ -22,7 +22,7 @@ namespace ArTarama
 
         class BantDuvar
         {
-            public int id, eksen, gorulme, kayip; public double ofset, t0, t1, destek;
+            public int id, eksen, gorulme, kayip, yan; public double ofset, t0, t1, destek;   // yan: zeminin oldugu taraf (+1/-1, u yonunde)
             public bool kesin; public float kesinZaman, ilk;
             public bool aKose, bKose;
             public double Uz { get { return t1 - t0; } }
@@ -53,7 +53,19 @@ namespace ArTarama
             kamSx += izgara.SonKameraX; kamSz += izgara.SonKameraZ; kamN++;
             double kmx = kamSx / kamN, kmz = kamSz / kamN;
 
-            int kA = KanitIzgarasi.SutunKatmani(zy0 + BantAlt), kU = KanitIzgarasi.SutunKatmani(zy0 + BantUst);
+            // Etiket (SegFormer) varsa: duvar yalniz "duvar/acilis" etiketli noktalardan ve HER yukseklikte (zemin+15 cm .. tavan-15 cm);
+            // esya yuzleri karismaz. Yoksa: tum noktalar, esya ustu bant (1,3-2,2 m).
+            bool etiketli = izgara.EtiketNokta > 20000;
+            s.etiketli = etiketli;
+            if (etiketli && !s.tavanGercek)
+            {
+                float tyE = HistTepe(izgara.TavanYHist, zy0 + 1.8f, zy0 + 4.5f, 1500);
+                if (!float.IsNaN(tyE)) { ty = tyE; tavanGercek = true; s.tavanY = ty; s.tavanGercek = true; }
+            }
+            var kaynak = etiketli ? izgara.SutunDuvar : izgara.Sutun;
+            float altY = etiketli ? zy0 + 0.15f : zy0 + BantAlt;
+            float ustY = etiketli ? (s.tavanGercek ? s.tavanY - 0.15f : zy0 + 2.4f) : zy0 + BantUst;
+            int kA = KanitIzgarasi.SutunKatmani(altY), kU = KanitIzgarasi.SutunKatmani(ustY);
             int kZ0 = KanitIzgarasi.SutunKatmani(zy0 - 0.08f), kZ1 = KanitIzgarasi.SutunKatmani(zy0 + 0.08f);
             int kT0 = KanitIzgarasi.SutunKatmani(zy0 + TavanAramaAlt), kT1 = KanitIzgarasi.SutunKatmani(zy0 + TavanAramaUst);
             int nk = KanitIzgarasi.SutunKatman;
@@ -61,16 +73,25 @@ namespace ArTarama
 
             var bx = new List<double>(); var bz = new List<double>(); var bw = new List<double>();
             double toplam = 0;
-            foreach (var kv in izgara.Sutun)
+            foreach (var kv in kaynak)
             {
                 var h = kv.Value;
                 int ix = (int)((kv.Key >> 21) & 0x1FFFFF) - 1048576, iz = (int)(kv.Key & 0x1FFFFF) - 1048576;
                 int w = 0; for (int k = Math.Max(0, kA); k <= Math.Min(nk - 1, kU); k++) w += h[k];
                 if (w > 0) { bx.Add((ix + 0.5) * KanitIzgarasi.V); bz.Add((iz + 0.5) * KanitIzgarasi.V); bw.Add(w); toplam += w; }
-                int zs = 0; for (int k = Math.Max(0, kZ0); k <= Math.Min(nk - 1, kZ1); k++) zs += h[k];
-                if (zs >= 2) s.zeminTaranan.Add(kv.Key);
-                for (int k = Math.Max(0, kT0); k <= Math.Min(nk - 1, kT1); k++) if (h[k] > 0) { tavanSay[k] += h[k]; tavanHucre[k]++; }
             }
+            if (etiketli)
+            {
+                foreach (var kv in izgara.ZeminHucre) if (kv.Value >= 2) s.zeminTaranan.Add(kv.Key);
+            }
+            else
+                foreach (var kv in izgara.Sutun)
+                {
+                    var h = kv.Value;
+                    int zs = 0; for (int k = Math.Max(0, kZ0); k <= Math.Min(nk - 1, kZ1); k++) zs += h[k];
+                    if (zs >= 2) s.zeminTaranan.Add(kv.Key);
+                    for (int k = Math.Max(0, kT0); k <= Math.Min(nk - 1, kT1); k++) if (h[k] > 0) { tavanSay[k] += h[k]; tavanHucre[k]++; }
+                }
             s.taramaAlani = s.zeminTaranan.Count * KanitIzgarasi.V * KanitIzgarasi.V;
 
             // ---------- tavan (duzlem yoksa): ust katmanlarda genis ve belirgin tepe ----------
@@ -149,24 +170,39 @@ namespace ArTarama
                         int k0 = (int)Math.Floor((qt - 0.35 - tmn) / SegKutu), k1 = (int)Math.Floor((qt + 0.35 - tmn) / SegKutu);
                         for (int k = Math.Max(0, k0); k <= Math.Min(sb - 1, k1); k++) yasak[k] = true;
                     }
+                    // zemin kurali: gercek duvarin BIR yaninda zemin gorulur (0,2-1,2 m), oteki yaninin dibinde (0,15-0,6 m) gorulmez.
+                    // Iki yani da zeminse oda icinde bir yuzeydir (dolap, ekran); hic zemin yoksa oda disina tasan uzantidir.
+                    var zyan = new sbyte[sb];
+                    if (s.zeminTaranan.Count > 200)
+                        for (int b = 0; b < sb; b++)
+                        {
+                            if (yasak[b] || sw[b] <= 0) continue;
+                            double tb = tmn + (b + 0.5) * SegKutu;
+                            // dis yan 30 cm'den baslar: derinlik gurultusu (~10 cm) zemin noktalarini duvarin hemen arkasina da dusurur
+                            double icA = ZeminOrani(s.zeminTaranan, eksen, ofs, tb, +1, 0.2, 1.5, c, sn), icB = ZeminOrani(s.zeminTaranan, eksen, ofs, tb, -1, 0.2, 1.5, c, sn);
+                            double disA = ZeminOrani(s.zeminTaranan, eksen, ofs, tb, +1, 0.3, 0.9, c, sn), disB = ZeminOrani(s.zeminTaranan, eksen, ofs, tb, -1, 0.3, 0.9, c, sn);
+                            if (icA >= 0.15 && disB <= 0.15 && icA > disB + 0.1) zyan[b] = 1;
+                            else if (icB >= 0.15 && disA <= 0.15 && icB > disA + 0.1) zyan[b] = -1;
+                            else yasak[b] = true;
+                        }
                     // kutu esigi: bu cizgideki dolu kutularin medyaninin %20'si (seyrek, rastlantisal noktalar parca uzatmasin)
                     var dolular = new List<double>(); for (int b = 0; b < sb; b++) if (sw[b] > 0) dolular.Add(sw[b]);
                     dolular.Sort(); double med = dolular.Count > 0 ? dolular[dolular.Count / 2] : 0;
                     double kutuEsik = Math.Max(12, 0.2 * med);
-                    int bas = -1, son = -1; double dest = 0;
+                    int bas = -1, son = -1; double dest = 0; int yan = 0;
                     for (int b = 0; b <= sb; b++)
                     {
                         bool kes = b < sb && yasak[b];
                         bool dolu = b < sb && !kes && sw[b] >= kutuEsik;
-                        if (kes && bas >= 0) { Ekle(yeni, eksen, ofs, tmn, bas, son, dest); bas = -1; continue; }
+                        if (kes && bas >= 0) { Ekle(yeni, eksen, ofs, tmn, bas, son, dest, yan); bas = -1; continue; }
                         if (dolu)
                         {
-                            if (bas < 0) { bas = b; dest = 0; }
-                            else if ((b - son - 1) * SegKutu > SegBosluk) { Ekle(yeni, eksen, ofs, tmn, bas, son, dest); bas = b; dest = 0; }
-                            son = b; dest += sw[b];
+                            if (bas < 0) { bas = b; dest = 0; yan = 0; }
+                            else if ((b - son - 1) * SegKutu > SegBosluk) { Ekle(yeni, eksen, ofs, tmn, bas, son, dest, yan); bas = b; dest = 0; yan = 0; }
+                            son = b; dest += sw[b]; yan += zyan[b];
                         }
                     }
-                    if (bas >= 0) Ekle(yeni, eksen, ofs, tmn, bas, son, dest);
+                    if (bas >= 0) Ekle(yeni, eksen, ofs, tmn, bas, son, dest, yan);
                 }
             }
 
@@ -187,7 +223,7 @@ namespace ArTarama
                 d.ofset = 0.6 * d.ofset + 0.4 * y.ofset;
                 d.t0 = y.t0 < d.t0 ? y.t0 : 0.7 * d.t0 + 0.3 * y.t0;   // buyurken hemen, kuculurken yavas
                 d.t1 = y.t1 > d.t1 ? y.t1 : 0.7 * d.t1 + 0.3 * y.t1;
-                d.destek = y.destek; d.gorulme++; d.kayip = 0;
+                d.destek = y.destek; d.gorulme++; d.kayip = 0; if (y.yan != 0) d.yan = y.yan;
             }
             for (int i = esl.Length - 1; i >= 0; i--)
             {
@@ -202,7 +238,23 @@ namespace ArTarama
 
             // ---------- koseler: dik duvarlarin uclari 50 cm icindeyse kesisim noktasina ----------
             var cizim = new List<BantDuvar>();
-            foreach (var b in bantDurum) cizim.Add(new BantDuvar { id = b.id, eksen = b.eksen, ofset = b.ofset, t0 = b.t0, t1 = b.t1, kesin = b.kesin, gorulme = b.gorulme, destek = b.destek, kesinZaman = b.kesinZaman });
+            foreach (var b in bantDurum) cizim.Add(new BantDuvar { id = b.id, eksen = b.eksen, ofset = b.ofset, t0 = b.t0, t1 = b.t1, kesin = b.kesin, gorulme = b.gorulme, destek = b.destek, kesinZaman = b.kesinZaman, yan = b.yan });
+            // ---------- ic kopya: ayni yana (zemin tarafi) bakan, ortusen, 60 cm'den yakin iki paralel duvardan icteki
+            // (zemine dogru olan) duvar degil, duvara dayali esya yuzudur; disteki kalir ----------
+            for (int i = cizim.Count - 1; i >= 0; i--)
+            {
+                var a = cizim[i]; if (a.yan == 0) continue;
+                foreach (var b in cizim)
+                {
+                    if (ReferenceEquals(a, b) || b.eksen != a.eksen || b.yan != a.yan) continue;
+                    double fark = (a.ofset - b.ofset) * a.yan;   // >0: a, b'ye gore oda icinde
+                    if (fark <= 0.05 || fark > 0.6) continue;
+                    double ort = Math.Min(a.t1, b.t1) - Math.Max(a.t0, b.t0);
+                    if (ort < 0.3 || b.Uz < 0.5 * a.Uz) continue;
+                    cizim.RemoveAt(i); break;
+                }
+            }
+
             foreach (var a in cizim)
                 foreach (var b in cizim)
                 {
@@ -225,7 +277,13 @@ namespace ArTarama
                 double dx = bx0 - ax0, dz = bz0 - az0, L = Math.Sqrt(dx * dx + dz * dz); if (L < 1e-6) continue;
                 double nx = -dz / L, nz = dx / L;
                 double mx = (ax0 + bx0) * 0.5, mz = (az0 + bz0) * 0.5;
-                if ((kmx - mx) * nx + (kmz - mz) * nz < 0) { nx = -nx; nz = -nz; }
+                if (b.yan != 0)
+                {
+                    // zeminin oldugu taraf = oda ici: u ekseninin dunya yonu
+                    double ux = b.eksen == 0 ? c : -sn, uz = b.eksen == 0 ? sn : c;
+                    if ((ux * nx + uz * nz) * b.yan < 0) { nx = -nx; nz = -nz; }
+                }
+                else if ((kmx - mx) * nx + (kmz - mz) * nz < 0) { nx = -nx; nz = -nz; }
                 float ilr = b.kesin ? 1f : (float)Math.Min(0.6, Math.Min(b.gorulme / 3.0, Math.Min(b.Uz / 0.8, b.destek / 1200.0)));
                 s.duvarlar.Add(new OdaDuvar
                 {
@@ -237,17 +295,43 @@ namespace ArTarama
             SinirHesapla(s);
         }
 
+        /// <summary>1 cm yukseklik histograminda [y0,y1] araliginda en yuksek tepe (komsu +-3 cm agirlikli ortalama). Yetersizse NaN.</summary>
+        static float HistTepe(int[] h, float y0, float y1, int minSay)
+        {
+            int i0 = Math.Max(0, (int)((y0 - KanitIzgarasi.YAlt) / 0.01f)), i1 = Math.Min(h.Length - 1, (int)((y1 - KanitIzgarasi.YAlt) / 0.01f));
+            int en = -1, enS = 0;
+            for (int i = i0; i <= i1; i++) { int t = 0; for (int j = Math.Max(0, i - 3); j <= Math.Min(h.Length - 1, i + 3); j++) t += h[j]; if (t > enS) { enS = t; en = i; } }
+            if (en < 0 || enS < minSay) return float.NaN;
+            double ys = 0, ws = 0; for (int j = Math.Max(0, en - 3); j <= Math.Min(h.Length - 1, en + 3); j++) { ys += h[j] * (KanitIzgarasi.YAlt + (j + 0.5) * 0.01); ws += h[j]; }
+            return (float)(ys / ws);
+        }
+
         void bantDurumKayip()
         {
             for (int i = bantDurum.Count - 1; i >= 0; i--) { var b = bantDurum[i]; b.kayip++; if (!b.kesin && b.kayip >= 3) bantDurum.RemoveAt(i); }
         }
 
-        static void Ekle(List<BantDuvar> l, int eksen, double ofs, double tmn, int bas, int son, double dest)
+        static void Ekle(List<BantDuvar> l, int eksen, double ofs, double tmn, int bas, int son, double dest, int yan)
         {
             double t0 = tmn + bas * SegKutu, t1 = tmn + (son + 1) * SegKutu;
             if (t1 - t0 < MinSeg) return;
             if (dest < 300) return;
-            l.Add(new BantDuvar { eksen = eksen, ofset = ofs, t0 = t0, t1 = t1, destek = dest });
+            l.Add(new BantDuvar { eksen = eksen, ofset = ofs, t0 = t0, t1 = t1, destek = dest, yan = Math.Sign(yan) });
+        }
+
+        /// <summary>Duvar cizgisinin bir yaninda (u = ofs + yon*d, d in [d0,d1]) t +-10 cm seridinde zemin hucresi orani.</summary>
+        static double ZeminOrani(HashSet<long> zemin, int eksen, double ofs, double tb, int yon, double d0, double d1, double c, double sn)
+        {
+            int var = 0, top = 0;
+            for (double d = d0; d <= d1 + 1e-6; d += 0.1)
+                for (double dt = -0.1; dt <= 0.1 + 1e-6; dt += 0.1)
+                {
+                    double uu = ofs + yon * d, tt = tb + dt, x, z;
+                    if (eksen == 0) Dunya(uu, tt, c, sn, out x, out z); else Dunya(tt, uu, c, sn, out x, out z);
+                    top++;
+                    if (zemin.Contains(OdaSonuc.Anah2(KanitIzgarasi.Ind((float)x), KanitIzgarasi.Ind((float)z)))) var++;
+                }
+            return top > 0 ? var / (double)top : 0;
         }
 
         /// <summary>Kesisim t'si duvarin bir ucuna yakin mi: ucun 0,5 m disinda (uzatma) ya da 1,3 m icinde (koseyi gecen tasmayi kesme).</summary>

@@ -34,6 +34,8 @@ namespace ArTarama
         public float cx, cy, cz;          // merkez (cy = zemin + sy/2)
         public float sx, sy, sz;          // sx: uzun kenar (yerel x), sz: kisa kenar (yerel z), sy: yukseklik
         public float aci;                 // uzun eksenin XZ duzleminde atan2(dz, dx) acisi, derece, [0,180)
+        public int tur = -1;              // esya turu (OdaEtiket.EsyaAd indeksi), -1 = bilinmiyor
+        public string TurAdi { get { return tur >= 0 && tur < OdaEtiket.EsyaAd.Length ? OdaEtiket.EsyaAd[tur] : "Eşya"; } }
         /// <summary>Unity Quaternion.Euler(0, yaw, 0) icin Y acisi (yerel x = uzun kenar).</summary>
         public float YawDeg { get { float y = -aci; while (y < 0f) y += 360f; return y; } }
         public OdaKutu Kopya() { return (OdaKutu)MemberwiseClone(); }
@@ -65,6 +67,7 @@ namespace ArTarama
         public HashSet<long> zeminSerbest = new HashSet<long>();   // bos zemin hucreleri (5 cm), Anah2
         public HashSet<long> zeminTaranan = new HashSet<long>();   // derinlikte zemin gorulen hucreler (5 cm), Anah2: ekranda boyanir
         public float taramaAlani;                     // taranan zemin (m2)
+        public bool etiketli;                         // SegFormer etiketleri kullanildi
         public bool[] yonDuvar = new bool[16];        // kullanicidan 16 yonde (yaw dilimi) duvar bulundu mu
         public float acikAlan;                        // kesfedilmis bos zemin alani (m2)
         public float[] sinir = new float[0];          // kesfedilmemis bolgeye komsu bos zemin hucreleri (x,z, 25 cm)
@@ -134,7 +137,7 @@ namespace ArTarama
         public void Sifirla()
         {
             sonDuvarId = 0; sonKutuId = 0; surum = 0; sonZaman = float.NaN;
-            duvarDurum.Clear(); kutuDurum.Clear(); izgara.Sifirla(); BantSifirla();
+            duvarDurum.Clear(); kutuDurum.Clear(); izgara.Sifirla(); BantSifirla(); esyaDurum.Clear();
         }
 
         public void Isle(DerinlikKaresi f) { izgara.Isle(f); IzEkle(f.px, f.pz); }
@@ -248,6 +251,7 @@ namespace ArTarama
 
             // ---------- kutular: gercek veride gurultu yuzunden rastgele kutu cikiyordu; duvar/zemin/tavan oturana kadar kapali ----------
             if (KutularAcik) KutulariGuncelle(s, hucre, zaman, dt);
+            else if (s.etiketli) EsyaGuncelle(s, zy0, zaman);   // SegFormer: yalniz esya etiketli noktalardan, turuyle
 
             // ---------- zemin poligonu, kapsama ----------
             ZeminPoligonu(s);

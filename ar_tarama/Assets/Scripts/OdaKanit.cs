@@ -17,6 +17,7 @@ namespace ArTarama
         public int w, h;
         public float[] d;          // w*h, metre
         public byte[] g;           // w*h, guven 0..255 (null = hepsi gecerli)
+        public byte[] e;           // w*h, SegFormer grup etiketi (OdaEtiket; null = etiket yok)
         public float fx, fy, cx, cy;   // w x h izgarasina olceklenmis ic parametreler
         public float px, py, pz, qx, qy, qz, qw;
         public float zaman;        // saniye (oturum basindan)
@@ -34,6 +35,15 @@ namespace ArTarama
             m[3] = 2 * (xy + wz); m[4] = 1 - 2 * (xx + zz); m[5] = 2 * (yz - wx);
             m[6] = 2 * (xz - wy); m[7] = 2 * (yz + wx); m[8] = 1 - 2 * (xx + yy);
         }
+    }
+
+    /// <summary>SegFormer (ADE20K) grup kodlari; tools/tarama/etiketle.py ile ayni.</summary>
+    public static class OdaEtiket
+    {
+        public const byte Duvar = 1, Zemin = 2, Tavan = 3, Acilis = 4, Insan = 5;
+        public const byte Sandalye = 10, Masa = 11, Koltuk = 12, Yatak = 13, Dolap = 14, Ekran = 15, DigerEsya = 16;
+        public const byte EsyaIlk = 10, EsyaSon = 16;
+        public static readonly string[] EsyaAd = { "Sandalye", "Masa", "Koltuk", "Yatak", "Dolap", "Ekran", "Eşya" };
     }
 
     public class KanitIzgarasi
@@ -65,7 +75,7 @@ namespace ArTarama
             L = new float[c]; vurus = new byte[c]; ilk = new ushort[c]; son = new ushort[c]; bin = new int[c]; vk = new int[c]; bk = new int[c];
         }
 
-        public void Sifirla() { Ayir(1 << 18); kare = 0; Sutun.Clear(); SutunNokta = 0; }
+        public void Sifirla() { Ayir(1 << 18); kare = 0; Sutun.Clear(); SutunNokta = 0; SutunDuvar.Clear(); Array.Clear(ZeminYHist, 0, YKutu); Array.Clear(TavanYHist, 0, YKutu); ZeminHucre.Clear(); Esya.Clear(); EtiketNokta = 0; }
 
         public static long Anah(int ix, int iy, int iz)
         {
@@ -179,6 +189,7 @@ namespace ArTarama
                     // medyan 8/255); yuksek guven esigi duvarlarin neredeyse hepsini atiyordu. Tek kare gurultusu (~10 cm)
                     // binlerce noktanin istatistiginde ortalanir (OdaModeli.Bant).
                     SutunEkle(f.px + wx * d, f.py + wy * d, f.pz + wz * d);
+                    if (f.e != null) EtiketEkle(f.e[i], f.px + wx * d, f.py + wy * d, f.pz + wz * d);
                     if (d > MaksMenzil) continue;
                     if (f.g != null && f.g[i] < MinGuven) continue;
                     ex[m] = f.px + wx * d; ey[m] = f.py + wy * d; ez[m] = f.pz + wz * d;
@@ -254,6 +265,50 @@ namespace ArTarama
         }
 
         public static int SutunKatmani(float y) { return (int)Math.Floor((y - SutunAlt) / SutunKat); }
+
+        // ------------------------------------------------------------------------------------ etiketli noktalar (SegFormer)
+        /// <summary>Duvar + acilis (kapi/pencere/perde) etiketli noktalar: sutun histogrami.</summary>
+        public readonly Dictionary<long, ushort[]> SutunDuvar = new Dictionary<long, ushort[]>();
+        /// <summary>Zemin / tavan etiketli noktalarin yukseklik histogrami: 1 cm, mutlak y = YAlt + i*0,01.</summary>
+        public const float YAlt = -4f; public const int YKutu = 1000;
+        public readonly int[] ZeminYHist = new int[YKutu], TavanYHist = new int[YKutu];
+        /// <summary>Zemin etiketli noktalarin dustugu 5 cm hucreler (sayi).</summary>
+        public readonly Dictionary<long, int> ZeminHucre = new Dictionary<long, int>();
+        /// <summary>Esya etiketli vokseller (5 cm): sayi + grup oylari (OdaEtiket.EsyaIlk..).</summary>
+        public readonly Dictionary<long, ushort[]> Esya = new Dictionary<long, ushort[]>();
+        public long EtiketNokta;
+
+        void EtiketEkle(byte e, float x, float y, float z)
+        {
+            if (e == 0 || e == OdaEtiket.Insan) return;
+            EtiketNokta++;
+            if (e == OdaEtiket.Duvar || e == OdaEtiket.Acilis)
+            {
+                int k = SutunKatmani(y); if (k < 0 || k >= SutunKatman) return;
+                long a = OdaSonuc.Anah2(Ind(x), Ind(z));
+                if (!SutunDuvar.TryGetValue(a, out var h)) { h = new ushort[SutunKatman]; SutunDuvar[a] = h; }
+                if (h[k] < 65535) h[k]++;
+                return;
+            }
+            if (e == OdaEtiket.Zemin || e == OdaEtiket.Tavan)
+            {
+                int i = (int)Math.Floor((y - YAlt) / 0.01f); if (i < 0 || i >= YKutu) return;
+                if (e == OdaEtiket.Zemin)
+                {
+                    ZeminYHist[i]++;
+                    long a = OdaSonuc.Anah2(Ind(x), Ind(z)); ZeminHucre.TryGetValue(a, out int c); ZeminHucre[a] = c + 1;
+                }
+                else TavanYHist[i]++;
+                return;
+            }
+            if (e >= OdaEtiket.EsyaIlk && e <= OdaEtiket.EsyaSon)
+            {
+                long a = Anah(Ind(x), Ind(y), Ind(z));
+                if (!Esya.TryGetValue(a, out var v)) { v = new ushort[1 + OdaEtiket.EsyaSon - OdaEtiket.EsyaIlk + 1]; Esya[a] = v; }
+                if (v[0] < 65535) v[0]++;
+                int j = 1 + e - OdaEtiket.EsyaIlk; if (v[j] < 65535) v[j]++;
+            }
+        }
 
         // ------------------------------------------------------------------------------------ yardimcilar (yapi katmani)
         /// <summary>Tum dolu vokselleri sirayla verir (yinelemeli dongu icin kapasite + Var + Dolu).</summary>

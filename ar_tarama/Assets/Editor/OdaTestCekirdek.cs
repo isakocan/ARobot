@@ -673,6 +673,7 @@ namespace ArTarama
                 bool f32 = MiniJson.S(MiniJson.Al(kj, "depth_format")) == "DepthFloat32";
                 var db = File.ReadAllBytes(Path.Combine(klasor, df));
                 byte[] gb = null; string gf = MiniJson.S(MiniJson.Al(kj, "conf_file")); if (gf != "" && File.Exists(Path.Combine(klasor, gf))) gb = File.ReadAllBytes(Path.Combine(klasor, gf));
+                byte[] eb = null; string ef = df.Replace("derinlik_", "etiket_"); if (File.Exists(Path.Combine(klasor, ef))) eb = File.ReadAllBytes(Path.Combine(klasor, ef));
                 int w = dw / 2, h = dh / 2;
                 var f = new DerinlikKaresi
                 {
@@ -688,16 +689,18 @@ namespace ArTarama
                         int o = ((2 * v) * dw + 2 * u) * (f32 ? 4 : 2);
                         f.d[v * w + u] = f32 ? BitConverter.ToSingle(db, o) : (db[o] | (db[o + 1] << 8)) * 0.001f;
                         f.g[v * w + u] = gb != null ? gb[(2 * v) * dw + 2 * u] : (byte)255;
+                        if (eb != null) { if (f.e == null) f.e = new byte[w * h]; f.e[v * w + u] = eb[(2 * v) * dw + 2 * u]; }
                     }
                 OdaSentetik.Besle(k, f, planlar); kareSay++;
             }
             // son kare sonrasi bir son guncelleme
             var s = k.model.Guncelle(planlar, k.model.izgara.SonZaman + 1f);
             yaz("kare: " + kareSay + ", voksel: " + k.model.izgara.VokselSayisi + ", dolu voksel: " + k.model.izgara.DoluSayisi());
+            yaz("etiketli=" + s.etiketli + " etiketli nokta=" + k.model.izgara.EtiketNokta + " esya voksel=" + k.model.izgara.Esya.Count);
             yaz("zemin var=" + s.zeminVar + " y=" + F(s.zeminY, 3) + " tavan y=" + F(s.tavanY, 3) + " gercek=" + s.tavanGercek + " (tahmin=" + s.TavanTahmin + ")");
             yaz("duvar: " + s.duvarlar.Count + " (kesin " + s.KesinDuvar + "), kutu: " + s.kutular.Count + " (kesin " + s.KesinKutu + "), bos zemin alani: " + F(s.acikAlan) + " m2, sinir hucresi: " + s.sinir.Length / 2);
             foreach (var d in s.duvarlar) yaz("  duvar " + d.id + " " + (d.kesin ? "kesin" : "aday") + " ilerleme=" + F(d.ilerleme) + " (" + F(d.ax) + "," + F(d.az) + ")->(" + F(d.bx) + "," + F(d.bz) + ") uz=" + F(d.Uzunluk));
-            foreach (var kk in s.kutular) yaz("  kutu " + kk.id + " " + (kk.kesin ? "kesin" : "aday") + " ilerleme=" + F(kk.ilerleme) + " merkez=(" + F(kk.cx) + "," + F(kk.cy) + "," + F(kk.cz) + ") boyut=" + F(kk.sx) + "x" + F(kk.sy) + "x" + F(kk.sz) + " aci=" + F(kk.aci, 1));
+            foreach (var kk in s.kutular) yaz("  kutu " + kk.id + " " + kk.TurAdi + " " + (kk.kesin ? "kesin" : "aday") + " ilerleme=" + F(kk.ilerleme) + " merkez=(" + F(kk.cx) + "," + F(kk.cy) + "," + F(kk.cz) + ") boyut=" + F(kk.sx) + "x" + F(kk.sy) + "x" + F(kk.sz) + " aci=" + F(kk.aci, 1));
             yaz("sure: butunlestirme " + OdaSentetik.OzetAl(k.isleMs) + "; yapi " + OdaSentetik.OzetAl(k.guncMs));
             Directory.CreateDirectory(ciktiDir);
             File.WriteAllText(Path.Combine(ciktiDir, "oda.json"), OdaJson.Yaz(s, null), new UTF8Encoding(false));
