@@ -42,6 +42,18 @@ import serial
 
 import websoket
 
+# Konum bulma (ArUco + görsel pusula): numpy ve OpenCV (aruco) yoksa köprü yine çalışır, yalnız konum kapalı olur.
+import sys as _sys
+_sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "konum"))
+try:
+    import konum as _konum
+    import isaret as _isaret
+    KONUM_HATASI = None if _isaret.ARUCO_VAR else "OpenCV aruco yok (pip3 install opencv-contrib-python)"
+except Exception as _e:        # numpy / cv2 yok
+    _konum = None
+    KONUM_HATASI = repr(_e)
+KONUM_ISTEK_SURESI = 5.0    # sn: uygulama bu kadar "ev" paketi yollamazsa konum durur (kamera ve işlemci boşa çalışmasın)
+
 SERI_PORT = "/dev/ttyACM0"
 KAMERA_ADI = "THETA"         # /sys/class/video4linux/*/name içinde aranır
 PORT = 8080
@@ -630,6 +642,17 @@ def sicaklik():
 ARDUINO = Arduino()
 KAM = Kamera()
 SURUCU = Surucu()
+_son_ev_istegi = [0.0]
+KONUM = None
+if _konum is not None and KONUM_HATASI is None:
+    def _motor():
+        d = ARDUINO.durum if time.time() - ARDUINO.son_durum_zamani < 1 else {}
+        try:
+            return int(d.get("sol", 0)), int(d.get("sag", 0))
+        except (TypeError, ValueError):
+            return 0, 0
+    KONUM = _konum.KonumBulucu(kamera=KAM, motor=_motor)
+    KONUM.baslat(lambda: time.time() - _son_ev_istegi[0] < KONUM_ISTEK_SURESI)
 
 
 # Nabız: bir sürücü (sayfa ya da uygulama) son NABIZ_SURESI içinde bize bir şey yolladıysa Arduino'ya
@@ -681,6 +704,10 @@ def durum():
         "sicaklik": sicaklik(),
         "veri_kbps": KAM.veri_kbps,
     }
+    if KONUM is not None and simdi - _son_ev_istegi[0] < KONUM_ISTEK_SURESI:
+        d["konum"] = KONUM.ozet()
+    elif KONUM_HATASI:
+        d["konum_hatasi"] = KONUM_HATASI
     _durum_onbellek[0], _durum_onbellek[1] = simdi, d
     return dict(d)
 
@@ -967,6 +994,12 @@ class UdpKanal:
                     self._cevap(adres, {"t": "robot", "ad": socket.gethostname(), "port": PORT})
                 elif t == "d":
                     self._durum_paketi(adres, m)
+                elif t == "ev":
+                    # uygulama evin işaretlerini bildirir: {"t":"ev","isaretler":[[id,x,z,aci],...]} (ev koordinatı)
+                    # her saniye yollanır; geldiği sürece konum bulma çalışır ve durum cevabına "konum" eklenir
+                    _son_ev_istegi[0] = time.time()
+                    if KONUM is not None:
+                        KONUM.ev_ayarla(m.get("isaretler"))
             except (ValueError, TypeError):
                 continue
             except Exception as e:      # beklenmeyen hata sürüş kanalını öldürmesin
@@ -1060,6 +1093,7 @@ class UdpKanal:
 
 def main():
     threading.Thread(target=nabiz_dongusu, daemon=True).start()
+    log("Konum bulma:", "hazır" if KONUM is not None else "kapalı (" + str(KONUM_HATASI) + ")")
     UdpKanal()
     log("Sürüş köprüsü hazır, port", PORT, "UDP", UDP_PORT)
     Sunucu(("0.0.0.0", PORT), Istek).serve_forever()

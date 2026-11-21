@@ -49,6 +49,25 @@ Arduino tarafı: `robot/arduino/robot_kontrol` (seri 115200). Jetson üzerinden 
 `ssh jetson '~/.local/bin/arduino-cli compile --upload -p /dev/ttyACM0 --fqbn arduino:avr:uno ~/robot/arduino/robot_kontrol'`
 (Yüklerken köprü servisi seri portu tutuyorsa önce `systemctl --user stop surus-koprusu`.)
 
+## Konum bulma (`konum/`)
+
+Robotun evdeki yeri: duvardaki ArUco işaretleri (DICT_4X4_50, 18 cm) + görsel pusula (360 şeridin kayması) + motor komutu.
+Köprünün içinde çalışır, yalnız uygulama UDP 8081'e `{"t":"ev","isaretler":[[id,x,z,aci],...]}` yolladıkça açıktır;
+sonuç her durum cevabında `"konum": {"var","x","z","yaw","isaret","isaret_sn","gorulen","ms"}`.
+
+- `teta.py`: Theta S çift balık gözü modeli (ffmpeg v360 çıktısıyla karşılaştırılıp bulundu), sanal düz kameralar, pusula.
+- `isaret.py`: 6 sanal kamerada ArUco arama, köşelerden poz.
+- `konum.py`: birleştirme (ilk yön ≤1 m'deki işaretten, sonra pusula; konum işaretin göreli yerinden).
+- PC testleri: `python robot/jetson/konum/dene_isaret.py <ham_kare.jpg> [konum]`. Oyunsuz deneme: `python tools/konum_izle.py <robot_ip> <ev.json>`.
+
+Kurulum (bir kez, Jetson internete bağlıyken; eski pip manylinux2014 tekerleğini tanımaz):
+
+```bash
+ssh jetson 'python3 -m pip install --user --upgrade pip && python3 -m pip install --user "opencv-contrib-python-headless==4.6.0.66"'
+scp -r robot/jetson/konum robot/jetson/surus_koprusu jetson:~/robot/
+ssh jetson 'systemctl --user restart surus-koprusu && journalctl --user -u surus-koprusu -n 20 | grep -i konum'
+```
+
 ## Jetson ekranı
 
 Masaüstündeki **Jetson Ekranı** kısayolu (`tools/jetson_ekrani.ps1`): SSH tüneli açar, TigerVNC ile bağlanır.
