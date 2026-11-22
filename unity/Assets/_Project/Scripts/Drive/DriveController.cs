@@ -58,6 +58,7 @@ namespace ARaki.Drive
                 if (value) { devOncekiDokunma = Settings.Touch; Settings.Touch = TouchMode.Wheel; }
                 else Settings.Touch = devOncekiDokunma;
                 devMap.Show(value);
+                if (Ar != null) Ar.Still = value;     // dev modunda yaratıklar yerinde durur: kayma kolay görülsün
                 ShowToast(value ? "Dev modu: çift dokun = AR nesnesi koy" : "Dev modu kapalı");
             }
         }

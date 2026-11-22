@@ -831,6 +831,16 @@ class Istek(BaseHTTPRequestHandler):
                     self._yanit(f.read(), "application/json; charset=utf-8")
             except OSError:
                 self._json({"hata": "ev yok"}, 404)
+        elif adres.path == "/api/konum/hafiza":
+            # dev modu: anahtar karelerin yerleri ve robotun son izi (ev koordinatı)
+            self._json(KONUM.hafiza_listesi() if KONUM is not None else {"kareler": [], "iz": []})
+        elif adres.path == "/api/konum/zemin.jpg":
+            # dev modu: zemin izinin kuşbakışı görüntüsü ve izlenen noktalar
+            j = KONUM.izi.hata_jpeg() if KONUM is not None else None
+            if j:
+                self._yanit(j, "image/jpeg")
+            else:
+                self._json({"hata": "zemin izi yok"}, 404)
         elif adres.path == "/api/kamera-ayari":
             try:
                 with open(KAMERA_AYARI) as f:

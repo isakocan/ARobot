@@ -4,8 +4,11 @@ Kaynaklar:
   - ArUco işareti (isaret.py): evdeki yeri telefonla kaydedilmiş bir işaret 2,2 m içinde görülünce kesin konum + yön.
   - Görsel pusula (teta.Pusula): kareden kareye dönüş; durağanken kayma çok küçük (14 Kasım kaydında 150 sn'de <1 derece).
     Güveni düşük adımda (bozuk kare) motor komutundan dönüş tahmini kullanılır.
-  - Motor komutu: ileri hız tahmini (sol+sag)/2 ile; işaretler arası kaba. İki işaret düzeltmesi arasında katsayı
-    kendini ayarlar (gidilen yol / tahmin edilen yol).
+  - Zemin izi (zemin_izi.py): robotun çevresindeki zeminin kuşbakışı görüntüsünde doku noktaları kareden kareye
+    izlenir; ileri / yan hareket metre olarak (kamera yüksekliği bilindiği için) ölçülür. 22 Kasım'dan beri ileri
+    hareketin asıl kaynağı; dönüşte pusula güvensizse dönüş de buradan alınır.
+  - Motor komutu: zemin izi sonuç vermezse (çok hızlı dönüş, dokusuz zemin) ileri hız tahmini (sol+sag)/2 ile.
+    İki işaret düzeltmesi arasında katsayılar kendini ayarlar (gidilen yol / tahmin edilen yol).
 Telefon evin işaretlerini (ev koordinatında id, x, z, aci) UDP "ev" paketiyle bildirir. Konum her durum cevabına eklenir.
 
 Ev koordinatı: telefondaki Ev ile aynı (y=0 zemin, x sağ, z ileri; aci = +z'den +x'e, radyan).
@@ -22,6 +25,7 @@ import numpy as np
 import hafiza
 import isaret
 import teta
+import zemin_izi
 
 ARALIK = 0.2               # sn: 5 Hz
 ILK_MENZIL = 1.0           # m: bu kadar yakin isaretten ilk yon/konum hemen alinir (PC testi: 0,9 m icinde <5 cm, <3 derece)
@@ -79,6 +83,12 @@ class KonumBulucu:
         self.son_isaret_id = -1
         self.gorulen = []
         self.pusula = teta.Pusula()
+        self.izi = zemin_izi.ZeminIzi()
+        self.olcek = 1.0           # zemin izi ölçeği (kamera yüksekliği hatası); işaret düzeltmeleriyle ayarlanır
+        self.hareket = ""          # son adımda ileri hareketin kaynağı: goruntu | motor
+        self.nokta = 0             # zemin izinde ortak harekete uyan nokta sayısı
+        self._yol_goruntu = 0.0    # son düzeltmeden beri zemin iziyle ölçülen yol
+        self.iz = []               # son konumlar (dev haritası için)
         self.hiz_k = HIZ_TAM
         self.donus_k = DONUS_TAM
         self._yol_tahmin = 0.0     # son işaret düzeltmesinden beri tahmin edilen yol
@@ -90,6 +100,7 @@ class KonumBulucu:
         self.aktif = False
         self.ms = 0.0
         self.son_t = None
+        self.pusula_guven = 0.0
 
     # ------------------------------------------------------------ telefon
     def ev_ayarla(self, liste):
@@ -119,7 +130,16 @@ class KonumBulucu:
             return {"var": self.bilinen, "x": round(self.x, 3), "z": round(self.z, 3), "yaw": round(math.degrees(self.yaw), 1),
                     "isaret_sn": round(time.time() - self.son_isaret, 1) if self.son_isaret else -1,
                     "isaret": self.son_isaret_id, "gorulen": self.gorulen, "ms": round(self.ms),
-                    "kaynak": self.kaynak, "hafiza": len(self.hafiza)}
+                    "kaynak": self.kaynak, "hafiza": len(self.hafiza), "hareket": self.hareket, "nokta": self.nokta,
+                    "olcek": round(self.olcek, 2), "pusula": round(self.pusula_guven, 2)}
+
+    def hafiza_listesi(self):
+        """Dev haritası için anahtar karelerin yerleri [[x, z, yaw_derece], ...] ve son iz."""
+        with self.hafiza.kilit:
+            p = [[round(float(a), 2), round(float(b), 2), round(math.degrees(float(c)))] for a, b, c in self.hafiza.poz]
+        with self.kilit:
+            iz = list(self.iz)
+        return {"kareler": p, "iz": iz}
 
     # ------------------------------------------------------------ kare işleme
     def isle(self, ham_gri, simdi=None, sol_sag=None):
@@ -137,15 +157,26 @@ class KonumBulucu:
             olc = d_derece / dt / ((sol - sag) / 510.0)
             if 40 < olc < 400:
                 self.donus_k = self.donus_k * 0.9 + olc * 0.1
+        self.pusula_guven = guven
+        od = self.izi.guncelle(ham_gri)
+        self.nokta = od[3] if od else 0
         if guven < 0.08 or abs(d_derece) > 60.0:
-            d_derece = komut_donus
-        ileri = self.hiz_k * (sol + sag) / 510.0 * dt
+            d_derece = od[2] if od else komut_donus
+        if od:
+            ileri, yan = od[0] * self.olcek, od[1] * self.olcek
+            self.hareket = "goruntu"
+        else:
+            ileri, yan = self.hiz_k * (sol + sag) / 510.0 * dt, 0.0
+            self.hareket = "motor"
         gorulen = isaret.bul(ham_gri)
         F = hafiza.Hafiza.ozellik(self.pusula.onceki)
         with self.kilit:
             self.yaw += math.radians(d_derece)
-            dx, dz = math.sin(self.yaw) * ileri, math.cos(self.yaw) * ileri
-            self.x += dx; self.z += dz; self._yol_tahmin += abs(ileri)
+            sn, cs = math.sin(self.yaw), math.cos(self.yaw)
+            self.x += sn * ileri + cs * yan; self.z += cs * ileri - sn * yan
+            self._yol_tahmin += math.hypot(ileri, yan)
+            if od:
+                self._yol_goruntu += math.hypot(ileri, yan)
             # işaret düzeltmesi: evde kayıtlı, menzil içindeki en yakın işaret
             en = None
             ilk = not self.bilinen or simdi - self.son_isaret > 20.0
@@ -196,10 +227,15 @@ class KonumBulucu:
                 if self._son_fix is not None and self._yol_tahmin > 0.5:
                     gercek = math.hypot(yx - self._son_fix[0], yz - self._son_fix[1])
                     oran = max(0.4, min(2.5, gercek / self._yol_tahmin))
-                    self.hiz_k = self.hiz_k * 0.7 + self.hiz_k * oran * 0.3
+                    if self._yol_goruntu > 0.8 * self._yol_tahmin:
+                        # çoğu yol zemin iziyle ölçüldü: onun ölçeğini (yalnız yakın işaretle, yavaşça) ayarla
+                        if en["mesafe"] < 1.5:
+                            self.olcek = max(0.7, min(1.4, self.olcek * (1.0 + 0.15 * (min(1.3, max(0.77, oran)) - 1.0))))
+                    else:
+                        self.hiz_k = self.hiz_k * 0.7 + self.hiz_k * oran * 0.3
                 self.x += (yx - self.x) * w_poz; self.z += (yz - self.z) * w_poz
                 self.bilinen = True; self.son_isaret = simdi; self.son_isaret_id = en["id"]
-                self._son_fix = (self.x, self.z); self._yol_tahmin = 0.0; self._aday = []
+                self._son_fix = (self.x, self.z); self._yol_tahmin = 0.0; self._yol_goruntu = 0.0; self._aday = []
                 self.kaynak = "isaret"
                 if en["mesafe"] < HAFIZA_KAYIT_MENZIL and not belirsiz:
                     self.hafiza.ekle(F, self.x, self.z, self.yaw)
@@ -207,6 +243,9 @@ class KonumBulucu:
                 self._son_hafiza = simdi
                 self._hafizadan(F, simdi)
             self.gorulen = [[g["id"], round(g["mesafe"], 2), round(g["yon"], 1)] for g in gorulen]
+            if self.bilinen and (not self.iz or math.hypot(self.x - self.iz[-1][0], self.z - self.iz[-1][1]) > 0.05):
+                self.iz.append([round(self.x, 3), round(self.z, 3)])
+                del self.iz[:-400]
         self.ms = (time.time() - t0) * 1000.0
         return gorulen
 

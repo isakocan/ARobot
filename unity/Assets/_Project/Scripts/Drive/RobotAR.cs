@@ -3,6 +3,7 @@ using ARaki.Net;
 using ARaki.Robot;
 using ARaki.Video;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace ARaki.Drive
 {
@@ -12,7 +13,10 @@ namespace ARaki.Drive
     /// durur; her karede robota göre yerleri hesaplanıp kürenin merkezine (kamera) göre çizilir. Küre robota göre sabit
     /// olduğundan robot dönünce görüntüyle birlikte dönerler.
     ///
-    /// Konum 5 Hz ve ~0,2 sn gecikmeli gelir: aradaki dönüş motor komutundan tahmin edilir, gelen konuma yumuşakça geçilir.
+    /// Konum 5 Hz ve ~0,3 sn gecikmeli gelir. Dönüş bu yüzden telefonda ekrandaki görüntüden ölçülür (VideoCompass):
+    /// yaratıklar görüntüyle birebir döner, robotun yönü yalnız aradaki farkı robot dönmüyorken yavaşça düzeltir. Görüntü
+    /// pusulası tutmazsa eski yol: dönüş motor komutundan tahmin, gelen konuma yumuşak geçiş. Yaratıklar ayrı kamerayla yarım
+    /// çözünürlükte çizilip hafif bulanık bindirilir (360 görüntü kadar yumuşak görünsünler).
     /// Yaratıklar konum ilk bulunduğunda robotun çevresine (0,7-1,3 m) konur, yuvalarının çevresinde yavaşça dolaşır.
     /// </summary>
     public class RobotAR : MonoBehaviour
@@ -31,7 +35,21 @@ namespace ARaki.Drive
         float predicted;                          // son konumdan beri komuttan tahmin edilen dönüş (derece)
 
         EnvironmentLight env;
+        VideoCompass compass;
         Material shadowMat;
+        float yawOffset; bool haveOffset;         // ev yönü = görüntü pusulası + fark (robotun konumundan yavaşça)
+        float lastPoseTime;
+
+        // yumuşak bindirme: yaratıklar ayrı kamerayla düşük çözünürlükte çizilip hafif bulanık konur
+        const int SoftLayer = 30;
+        const float SoftScale = 0.5f;
+        Camera softCam; RenderTexture softRt; RawImage softImage;
+
+        /// <summary>Dev modunda yaratıklar yerinde durur (sabit kalıp kalmadığı kolay görülsün).</summary>
+        public bool Still { get; set; }
+        /// <summary>Dönüş kaynağı: görüntü (telefondaki görsel pusula) ya da konum.</summary>
+        public bool VisualYaw => compass != null && compass.Healthy && haveOffset;
+        public VideoCompass Compass => compass;
 
         class Creature
         {
@@ -82,6 +100,9 @@ namespace ARaki.Drive
             baseMat = Resources.Load<Material>("ARToon");
             // ortamın ışığı 360 görüntüden (renk, yön, yaygın ışık); gölge o yöne göre
             env = gameObject.AddComponent<EnvironmentLight>(); env.Init(viewer);
+            // dönüş ekrandaki görüntüden (görüntüyle aynı anda); robotun konumu yalnız yavaş mutlak düzeltme
+            compass = gameObject.AddComponent<VideoCompass>(); compass.Init(viewer);
+            SetupSoft(viewer);
             var ss = Shader.Find("ARaki/BlobShadow");
             if (ss != null) shadowMat = new Material(ss);
             UdpRobotConnection.RequestPose = true;
@@ -113,6 +134,15 @@ namespace ARaki.Drive
                 {
                     lastYaw = k.yaw; lastX = k.x; lastZ = k.z;
                     predicted = 0f;                     // yeni konum: tahmin sıfırdan
+                    lastPoseTime = Time.time;
+                    // görüntü pusulası ile robotun yönü arasındaki fark: ilk seferde doğrudan, sonra yavaşça ve yalnız
+                    // dönmüyorken (robotun konumu ~0,3 sn geç; dönerken fark gecikmeden ötürü yanlış olur)
+                    if (compass != null && compass.Healthy)
+                    {
+                        float target = Mathf.DeltaAngle(0f, k.yaw - compass.Yaw);
+                        if (!haveOffset || Mathf.Abs(Mathf.DeltaAngle(yawOffset, target)) > 45f) { yawOffset = target; haveOffset = true; }
+                        else if (compass.Rate < 12f) yawOffset += Mathf.DeltaAngle(yawOffset, target) * 0.12f;
+                    }
                     if (!havePose)
                     {
                         havePose = true;
@@ -121,10 +151,11 @@ namespace ARaki.Drive
                     }
                 }
                 // gelen konuma (+ tahmin) yumuşak geçiş; yön daha hızlı (görüntü anında döner)
-                float a = 1f - Mathf.Exp(-dt / 0.25f), ay = 1f - Mathf.Exp(-dt / 0.08f);
+                float a = 1f - Mathf.Exp(-dt / 0.2f), ay = 1f - Mathf.Exp(-dt / 0.08f);
                 poseX = Mathf.Lerp(poseX, k.x, a);
                 poseZ = Mathf.Lerp(poseZ, k.z, a);
-                poseYaw += Mathf.DeltaAngle(poseYaw, k.yaw + predicted) * ay;
+                if (VisualYaw) poseYaw = compass.Yaw + yawOffset;          // görüntüyle birebir, yumuşatma yok
+                else poseYaw += Mathf.DeltaAngle(poseYaw, k.yaw + predicted) * ay;
             }
 
             bool show = havePose && k != null && k.var;
@@ -134,7 +165,7 @@ namespace ARaki.Drive
             float c = Mathf.Cos(poseYaw * Mathf.Deg2Rad), s = Mathf.Sin(poseYaw * Mathf.Deg2Rad);
             foreach (var cr in creatures)
             {
-                Wander(cr, dt);
+                if (!Still) Wander(cr, dt);
                 // ev -> robot: ileri = (sin yaw, cos yaw), sağ = (cos yaw, -sin yaw)
                 float dx = cr.pos.x - poseX, dz = cr.pos.y - poseZ;
                 float right = dx * c - dz * s, fwd = dx * s + dz * c;
@@ -251,6 +282,7 @@ namespace ARaki.Drive
                 ear.localRotation = Quaternion.Euler(0f, 0f, -side * 22f);
             }
             cr.eyes = eyes.ToArray();
+            if (softCam != null) SetLayer(cr.t, SoftLayer);
             return cr;
         }
 
@@ -263,8 +295,55 @@ namespace ARaki.Drive
             return go.transform;
         }
 
+        static void SetLayer(Transform t, int layer)
+        {
+            t.gameObject.layer = layer;
+            foreach (Transform c in t) SetLayer(c, layer);
+        }
+
+        void SetupSoft(PanoramaViewer viewer)
+        {
+            var sh = Shader.Find("ARaki/SoftComposite");
+            var main = viewer.ViewCamera;
+            if (sh == null || main == null) return;
+            main.cullingMask &= ~(1 << SoftLayer);
+            var go = new GameObject("AR Kamera (yumuşak)");
+            go.transform.SetParent(main.transform, false);
+            softCam = go.AddComponent<Camera>();
+            softCam.cullingMask = 1 << SoftLayer;
+            softCam.clearFlags = CameraClearFlags.SolidColor;
+            softCam.backgroundColor = new Color(0f, 0f, 0f, 0f);
+            softCam.nearClipPlane = main.nearClipPlane; softCam.farClipPlane = 30f;
+            softCam.allowHDR = false; softCam.allowMSAA = true;
+            var cv = new GameObject("AR Bindirme", typeof(RectTransform));
+            cv.transform.SetParent(transform, false);
+            var canvas = cv.AddComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay; canvas.sortingOrder = -100;
+            var img = new GameObject("Doku", typeof(RectTransform)); img.transform.SetParent(cv.transform, false);
+            var rtf = (RectTransform)img.transform; rtf.anchorMin = Vector2.zero; rtf.anchorMax = Vector2.one; rtf.offsetMin = rtf.offsetMax = Vector2.zero;
+            softImage = img.AddComponent<RawImage>(); softImage.raycastTarget = false;
+            softImage.material = new Material(sh);
+            softImage.material.SetFloat("_Soft", 0.9f);
+        }
+
+        void LateUpdate()
+        {
+            if (softCam == null) return;
+            var main = view.ViewCamera;
+            softCam.fieldOfView = main.fieldOfView;
+            int w = Mathf.Max(64, Mathf.RoundToInt(Screen.width * SoftScale)), h = Mathf.Max(64, Mathf.RoundToInt(Screen.height * SoftScale));
+            if (softRt == null || softRt.width != w || softRt.height != h)
+            {
+                if (softRt != null) { softCam.targetTexture = null; softRt.Release(); }
+                softRt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32) { antiAliasing = 4, filterMode = FilterMode.Bilinear };
+                softCam.targetTexture = softRt; softImage.texture = softRt;
+            }
+            bool on = root != null && root.gameObject.activeInHierarchy;
+            softCam.enabled = on; softImage.enabled = on;
+        }
+
         void SetColor(Transform t, Color color, float glow)
         {
+            color.a = 1f;                       // yumuşak bindirmede alfa = örtme; 0,85 kulak yarı saydam kalıyordu
             var r = t.GetComponent<Renderer>();
             if (baseMat != null) r.sharedMaterial = baseMat;
             r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;

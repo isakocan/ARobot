@@ -60,6 +60,10 @@ namespace ARaki.Net
             public string kaynak;    // isaret | hafiza
             public int hafiza;       // anahtar kare sayısı
             public float ms;
+            public string hareket;   // son adımda ileri hareketin kaynağı: goruntu (zemin izi) | motor
+            public int nokta;        // zemin izinde ortak harekete uyan nokta sayısı
+            public float olcek;      // zemin izi ölçeği (işaretlerle ayarlanır)
+            public float pusula;     // robottaki görsel pusulanın güveni
         }
 
         public string t;

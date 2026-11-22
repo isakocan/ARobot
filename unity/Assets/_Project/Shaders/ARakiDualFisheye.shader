@@ -140,5 +140,33 @@ Shader "ARaki/DualFisheye"
             }
             ENDHLSL
         }
+
+        // Görsel pusula (VideoCompass): ufuk bandı (enlem -5..+31 derece, boylam -180..180, robotun önü ortada)
+        // gri tonlu eş dikdörtgen şerit; robottaki teta.Pusula ile aynı bant
+        Pass
+        {
+            Name "Band"
+            ZTest Always
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            struct Attributes { float4 positionOS : POSITION; float2 uv : TEXCOORD0; };
+            struct Varyings { float4 positionCS : SV_POSITION; float2 uv : TEXCOORD0; };
+            Varyings vert(Attributes v)
+            {
+                Varyings o;
+                o.positionCS = TransformObjectToHClip(v.positionOS.xyz);
+                o.uv = v.uv;
+                return o;
+            }
+            half4 frag(Varyings i) : SV_Target
+            {
+                float yaw = (i.uv.x - 0.5) * 6.2831853, lat = radians(-5.0 + i.uv.y * 36.0);
+                half3 c = Renk(float3(sin(yaw) * cos(lat), sin(lat), cos(yaw) * cos(lat))).rgb;
+                half l = dot(c, half3(0.299, 0.587, 0.114));
+                return half4(l, l, l, 1.0);
+            }
+            ENDHLSL
+        }
     }
 }
