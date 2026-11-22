@@ -483,9 +483,9 @@ namespace ArTarama
                 var kart = UiKur.Kutu(listeIcerik, "E" + id, UiKur.Panel, true); kart.raycastTarget = true;
                 var le = kart.gameObject.AddComponent<LayoutElement>(); le.minHeight = 140; le.preferredHeight = 140;
                 var t1 = UiKur.Metin(kart.transform, "Ad", ad, UiKur.Body + 2, UiKur.MetinRenk, TextAnchor.MiddleLeft, FontStyle.Bold);
-                UiKur.Ankor(t1.rectTransform, new Vector2(0, 0.5f), new Vector2(1, 1), new Vector2(32, 0), new Vector2(-96, -14));
+                UiKur.Ankor(t1.rectTransform, new Vector2(0, 0.5f), new Vector2(1, 1), new Vector2(32, 0), new Vector2(-250, -14));
                 var t2 = UiKur.Metin(kart.transform, "Bilgi", satir2, UiKur.Caption + 2, UiKur.Soluk, TextAnchor.MiddleLeft);
-                UiKur.Ankor(t2.rectTransform, new Vector2(0, 0), new Vector2(1, 0.5f), new Vector2(32, 14), new Vector2(-96, 0));
+                UiKur.Ankor(t2.rectTransform, new Vector2(0, 0), new Vector2(1, 0.5f), new Vector2(32, 14), new Vector2(-250, 0));
                 var ch = UiKur.Simge(kart.transform, "Ok", UiKur.ChevronSag(), UiKur.Soluk, 48f);
                 UiKur.Yerles(ch.rectTransform, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(48, 48), new Vector2(-34, 0));
                 var btn = kart.gameObject.AddComponent<Button>(); btn.targetGraphic = kart; btn.transition = Selectable.Transition.None;
@@ -495,6 +495,21 @@ namespace ArTarama
                     try { EvGoster(Ev.Yukle(EvDeposu.Klasor(evId))); }
                     catch (Exception e) { Debug.LogWarning("[ArTarama] ev acilamadi: " + e.Message); Toast("Ev açılamadı"); }
                 });
+                // sil: eski evleri temizleyip yeniden kaydetmek icin (onayla, geri alinamaz)
+                var silB = UiKur.Dugme(kart.transform, "Sil", "Sil", UiKur.DugmeStili.Tehlike, UiKur.Body);
+                UiKur.Yerles(silB.GetComponent<RectTransform>(), new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(130, 84), new Vector2(-170, 0));
+                string evAd = ad;
+                silB.onClick.AddListener(() => OnayGoster(evAd + " silinsin mi?", "Bu evin haritası ve işaretleri kalıcı olarak silinir, geri alınamaz.", "Sil", true, () =>
+                {
+                    try
+                    {
+                        Directory.Delete(EvDeposu.Klasor(evId), true);
+                        if (aktifEv != null && aktifEv.id == evId) aktifEv = null;
+                        Toast(evAd + " silindi");
+                    }
+                    catch (Exception e) { Debug.LogWarning("[ArTarama] ev silinemedi: " + e.Message); Toast("Ev silinemedi"); }
+                    EvleriListele();
+                }));
             }
         }
 
@@ -547,9 +562,9 @@ namespace ArTarama
                 var kart = UiKur.Kutu(listeIcerik, "K" + ad, UiKur.Panel, true); kart.raycastTarget = true;
                 var le = kart.gameObject.AddComponent<LayoutElement>(); le.minHeight = 140; le.preferredHeight = 140;
                 var t1 = UiKur.Metin(kart.transform, "Tarih", (odaAd != "" ? odaAd + "  ·  " : "") + tarih, UiKur.Body + 2, UiKur.MetinRenk, TextAnchor.MiddleLeft, FontStyle.Bold);
-                UiKur.Ankor(t1.rectTransform, new Vector2(0, 0.5f), new Vector2(1, 1), new Vector2(32, 0), new Vector2(-96, -14));
+                UiKur.Ankor(t1.rectTransform, new Vector2(0, 0.5f), new Vector2(1, 1), new Vector2(32, 0), new Vector2(-250, -14));
                 var t2 = UiKur.Metin(kart.transform, "Bilgi", satir2, UiKur.Caption + 2, UiKur.Soluk, TextAnchor.MiddleLeft);
-                UiKur.Ankor(t2.rectTransform, new Vector2(0, 0), new Vector2(1, 0.5f), new Vector2(32, 14), new Vector2(-96, 0));
+                UiKur.Ankor(t2.rectTransform, new Vector2(0, 0), new Vector2(1, 0.5f), new Vector2(32, 14), new Vector2(-250, 0));
                 var ch = UiKur.Simge(kart.transform, "Ok", UiKur.ChevronSag(), UiKur.Soluk, 48f);
                 UiKur.Yerles(ch.rectTransform, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(48, 48), new Vector2(-34, 0));
                 var btn = kart.gameObject.AddComponent<Button>(); btn.targetGraphic = kart; btn.transition = Selectable.Transition.None;
