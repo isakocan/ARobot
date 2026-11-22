@@ -97,7 +97,7 @@ namespace ArTarama
 
         public void Sifirla()
         {
-            kesin.Clear(); Toplam = 0;
+            kesin.Clear(); aday.Clear(); Toplam = 0;
             while (sonuclar.TryDequeue(out _)) { }
         }
 
@@ -120,13 +120,37 @@ namespace ArTarama
                 var kabul = new List<ArucoSonuc>();
                 foreach (var a in s.bulunan)
                 {
-                    if (a.hamming == 0) kesin.Add(a.id);
-                    else if (!kesin.Contains(a.id)) continue;
+                    // goruntu kenarina degen dortgen: yarim kalan bir sekil isaret sanilabiliyor (22 Kasim: odada tek isaret
+                    // varken kenarda iki kez 'isaret 17' bulundu, kosesi x = -1 ve 0'daydi)
+                    if (KenaraDegiyor(a, s.istek.w, s.istek.h)) continue;
+                    if (!kesin.Contains(a.id))
+                    {
+                        // yeni kimlik: 3 sn icinde en az 3 karede tam (hatasiz) gorulmeden kabul edilmez
+                        if (a.hamming != 0) continue;
+                        float t = Time.unscaledTime;
+                        if (!aday.TryGetValue(a.id, out var ad) || t - ad.Value > 3f) ad = new KeyValuePair<int, float>(0, t);
+                        ad = new KeyValuePair<int, float>(ad.Key + 1, ad.Value); aday[a.id] = ad;
+                        if (ad.Key < 3) continue;
+                        kesin.Add(a.id); aday.Remove(a.id);
+                    }
                     kabul.Add(a);
                 }
                 if (kayit != null) kayit.IsaretSonucu(s.istek.kareIdx, kabul, s.ms);
                 foreach (var a in kabul) Isle(s.istek, a);
             }
+        }
+
+        readonly Dictionary<int, KeyValuePair<int, float>> aday = new Dictionary<int, KeyValuePair<int, float>>();
+
+        static bool KenaraDegiyor(ArucoSonuc a, int w, int h)
+        {
+            const float pay = 4f;
+            for (int q = 0; q < 4; q++)
+            {
+                float x = a.kose[q * 2], y = a.kose[q * 2 + 1];
+                if (x < pay || y < pay || x > w - 1 - pay || y > h - 1 - pay) return true;
+            }
+            return false;
         }
 
         void Isle(Istek i, ArucoSonuc a)

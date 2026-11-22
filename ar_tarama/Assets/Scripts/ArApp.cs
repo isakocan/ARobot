@@ -187,7 +187,7 @@ namespace ArTarama
         bool PuruzsuzBaslangicTamam() { return Time.unscaledTime - sifirlaZamani > 1.0f; }
 
         // ---------------- ev akisi ----------------
-        Ev aktifEv; bool duzenleme;
+        Ev aktifEv; bool duzenleme, hizaAbone;
 
         /// <summary>Yeni ev: bos haritayla tarama baslar; Bitir'de ilk isarete gore ev koordinatinda kaydedilir.</summary>
         public void YeniEv()
@@ -204,7 +204,11 @@ namespace ArTarama
             if (aktifEv == null) return;
             duzenleme = true;
             YeniTarama();
-            if (oda != null) oda.ev = aktifEv;
+            if (oda != null)
+            {
+                oda.ev = aktifEv;
+                if (!hizaAbone) { hizaAbone = true; oda.EvHizalandi += id => { if (duzenleme) { Toast("İşaret " + id + " bulundu, kayıtlı zemin yüklendi"); Haptik(30); } }; }
+            }
         }
 
         /// <summary>Oturum haritasini eve ekleyip kaydeder. Dondurur: kaydedildi mi.</summary>
@@ -398,7 +402,11 @@ namespace ArTarama
                         if (Vector3.Distance(tr.position, mp) > 1.6f) { kocMesaj = new KocMesaj { yazi = "İşaret " + bi.id + " görüldü, kaydetmek için 1 metre kadar yaklaş", simge = KocSimge.Yuru, kural = 10 }; break; }
                     }
                 if (duzenleme && Takipte && oda != null && !oda.Hizali)
-                    kocMesaj = new KocMesaj { yazi = "Kayıtlı bir işarete doğru tut, eski harita yerine otursun", simge = KocSimge.Bilgi, kural = 9 };
+                {
+                    // kayitli evi acinca: isaret gorulene kadar bekle, uyar; gorulunce kayitli zemin gelir
+                    string ids = aktifEv != null && aktifEv.isaretler.Count > 0 ? string.Join(", ", aktifEv.isaretler.Keys) : "";
+                    kocMesaj = new KocMesaj { yazi = (ids.Length > 0 ? "Kayıtlı işareti (" + ids + ") bul, " : "Kayıtlı işareti bul, ") + "1 metreden birkaç saniye tut. Kayıtlı zemin sonra gelir", simge = KocSimge.Bilgi, kural = 9 };
+                }
             }
             TaramaArayuzuGuncelle(dt);
         }

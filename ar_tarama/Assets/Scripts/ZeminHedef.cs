@@ -10,7 +10,7 @@ namespace ArTarama
     public class ZeminHedef
     {
         readonly GameObject go; readonly Mesh mesh; readonly MeshRenderer mr;
-        Vector3 hedef; bool varMi; float gorunur;
+        Vector3 hedef; bool varMi; float gorunur, ilerlemeG;
 
         public ZeminHedef(Material dolgu)
         {
@@ -39,12 +39,12 @@ namespace ArTarama
             go.SetActive(false);
         }
 
-        public void Guncelle(bool goster, float x, float z, float zeminY, float dt)
+        public void Guncelle(bool goster, float x, float z, float zeminY, float dt, float ilerleme = 0f)
         {
             if (goster)
             {
                 var p = new Vector3(x, zeminY + 0.012f, z);
-                if (!varMi || (p - hedef).sqrMagnitude > 0.04f) { if (gorunur > 0.05f && varMi) gorunur = 0f; hedef = p; }   // yeni hedef: belirerek gelir
+                if (!varMi || (p - hedef).sqrMagnitude > 0.04f) { if (gorunur > 0.05f && varMi) gorunur = 0f; hedef = p; ilerlemeG = 0f; }   // yeni hedef: belirerek gelir
                 varMi = true;
             }
             gorunur = Mathf.MoveTowards(gorunur, goster ? 1f : 0f, dt * 3f);
@@ -56,7 +56,15 @@ namespace ArTarama
             var col = new Color(1f, 1f, 1f, gorunur);
             var b = new MaterialPropertyBlock(); mr.GetPropertyBlock(b); b.SetColor("_Color", col); mr.SetPropertyBlock(b);
             // OdaDolgu tepe rengini kullanir: alfayi tepe renklerine yaz
-            var cs = mesh.colors; for (int i = 0; i < cs.Length; i++) cs[i].a = 0.9f * gorunur; mesh.colors = cs;
+            // ilerleme: halka saat yonunde turkuaza dolar (tuttukca zemin teyit edilir)
+            ilerlemeG = Mathf.MoveTowards(ilerlemeG, Mathf.Clamp01(ilerleme), dt * 1.5f);
+            var cs = mesh.colors; int N = (cs.Length - 1) / 3;
+            for (int i = 0; i < cs.Length; i++)
+            {
+                bool dolu = i < N * 2 && (i / 2) < ilerlemeG * N;
+                var r = dolu ? new Color(0.20f, 0.88f, 0.66f) : Color.white; r.a = 0.9f * gorunur; cs[i] = r;
+            }
+            mesh.colors = cs;
         }
 
         public void Yok() { Object.Destroy(go); Object.Destroy(mesh); }

@@ -92,9 +92,7 @@ namespace ArTarama
         public void Ekle(ZeminSonuc s, Poz2 T)
         {
             var a = Donustur(s.acik, T); var e = Donustur(s.engel, T); var b = Donustur(s.bilinen, T); var d = Donustur(s.duvar, T);
-            var yeni = new HashSet<long>(a); yeni.UnionWith(e); yeni.UnionWith(b);
-            foreach (long k in yeni) { acik.Remove(k); engel.Remove(k); bilinen.Remove(k); duvar.Remove(k); }
-            acik.UnionWith(a); engel.UnionWith(e); bilinen.UnionWith(b); duvar.UnionWith(d);
+            Kat(acik, engel, bilinen, duvar, a, e, b, d);
             for (int i = 0; i + 1 < s.iz.Length; i += 2) { T.Uygula(s.iz[i], s.iz[i + 1], out double x, out double z); iz.Add((float)x); iz.Add((float)z); }
             if (!float.IsNaN(s.aci) && float.IsNaN(aci)) aci = (float)(s.aci + T.aci);
             taramaSayisi++;
@@ -113,17 +111,26 @@ namespace ArTarama
         public static ZeminSonuc Birlestir(ZeminSonuc yeni, ZeminSonuc eski, HashSet<long> silinenOturum)
         {
             var s = new ZeminSonuc { zeminVar = true, zeminY = yeni.zeminY, kameraX = yeni.kameraX, kameraZ = yeni.kameraZ, zaman = yeni.zaman, iz = yeni.iz, aci = float.IsNaN(yeni.aci) ? eski.aci : yeni.aci };
-            s.acik = new HashSet<long>(yeni.acik); s.engel = new HashSet<long>(yeni.engel); s.bilinen = new HashSet<long>(yeni.bilinen); s.duvar = new HashSet<long>(yeni.duvar);
-            var yk = new HashSet<long>(yeni.acik); yk.UnionWith(yeni.engel); yk.UnionWith(yeni.bilinen);
-            foreach (long k in eski.acik) if (!yk.Contains(k)) s.acik.Add(k);
-            foreach (long k in eski.engel) if (!yk.Contains(k)) s.engel.Add(k);
-            foreach (long k in eski.bilinen) if (!yk.Contains(k)) s.bilinen.Add(k);
-            foreach (long k in eski.duvar) if (!yk.Contains(k)) s.duvar.Add(k);
+            s.acik = new HashSet<long>(eski.acik); s.engel = new HashSet<long>(eski.engel); s.bilinen = new HashSet<long>(eski.bilinen); s.duvar = new HashSet<long>(eski.duvar);
+            Kat(s.acik, s.engel, s.bilinen, s.duvar, yeni.acik, yeni.engel, yeni.bilinen, yeni.duvar);
             if (silinenOturum != null) foreach (long k in silinenOturum) s.acik.Remove(k);
             s.alan = s.acik.Count * ZeminSonuc.V * ZeminSonuc.V;
             Array.Copy(yeni.yonEksik, s.yonEksik, 16);
             s.Yumusat();
             return s;
+        }
+
+        /// <summary>Yeni oturumu eskinin ustune katar. Eski acik zemin yalniz yeni oturumda orada engel / duvar goruldugunde
+        /// gider; yeni oturumun 'bilinen' (gorulmus ama teyit edilmemis) hucreleri eskiyi silmez (22 Kasim: kayitli evi
+        /// acinca eski zemin sifirdan taraniyormus gibi kayboluyordu). Yeni acik zemin eski engelin yerine gecer.</summary>
+        static void Kat(HashSet<long> acik, HashSet<long> engel, HashSet<long> bilinen, HashSet<long> duvar,
+                        HashSet<long> a, HashSet<long> e, HashSet<long> b, HashSet<long> d)
+        {
+            acik.ExceptWith(e); acik.ExceptWith(d);
+            engel.ExceptWith(a); duvar.ExceptWith(a);
+            acik.UnionWith(a); engel.UnionWith(e); duvar.UnionWith(d);
+            foreach (long k in b) if (!acik.Contains(k) && !engel.Contains(k) && !duvar.Contains(k)) bilinen.Add(k);
+            bilinen.ExceptWith(acik); bilinen.ExceptWith(engel); bilinen.ExceptWith(duvar);
         }
 
         /// <summary>Silgi: ev koordinatinda (x,z) etrafinda r yaricapli hucreler acik zeminden cikarilir.</summary>

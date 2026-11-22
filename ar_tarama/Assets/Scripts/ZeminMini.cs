@@ -48,6 +48,40 @@ namespace ArTarama
 
         public void Yok() { if (tex != null) Object.Destroy(tex); }
 
+        // ArUco isaretleri: haritada isaretin gorulup kaydedildigi yerde kucuk kare simge + numara (kullanici istegi, 22 Kasim)
+        readonly System.Collections.Generic.List<Vector4> isaretler = new System.Collections.Generic.List<Vector4>();   // x, z, aci, id
+        readonly System.Collections.Generic.List<RectTransform> isaretUi = new System.Collections.Generic.List<RectTransform>();
+        public void IsaretAyarla(System.Collections.Generic.IEnumerable<Vector4> liste)
+        {
+            isaretler.Clear(); if (liste != null) isaretler.AddRange(liste);
+            while (isaretUi.Count < isaretler.Count)
+            {
+                var dis = UiKur.Kutu(harita, "Isaret", new Color(1f, 1f, 1f, 0.95f), false, false); dis.raycastTarget = false;
+                var r = dis.rectTransform; r.sizeDelta = new Vector2(30, 30); r.pivot = new Vector2(0.5f, 0.5f);
+                var ic = UiKur.Kutu(r, "Ic", new Color(0.08f, 0.09f, 0.11f, 1f), false, false); ic.raycastTarget = false; UiKur.Tam(ic.rectTransform, 5f);
+                var no = UiKur.Metin(r, "No", "", 22, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold); no.raycastTarget = false; UiKur.Tam(no.rectTransform);
+                isaretUi.Add(r);
+            }
+            for (int i = 0; i < isaretUi.Count; i++)
+            {
+                isaretUi[i].gameObject.SetActive(i < isaretler.Count);
+                if (i < isaretler.Count) isaretUi[i].GetComponentInChildren<Text>().text = ((int)isaretler[i].w).ToString();
+            }
+        }
+
+        void IsaretYerlestir()
+        {
+            float mw = W * ZeminSonuc.V, mh = H * ZeminSonuc.V; if (mw <= 0f || mh <= 0f) return;
+            for (int i = 0; i < isaretler.Count && i < isaretUi.Count; i++)
+            {
+                var m = isaretler[i]; var r = isaretUi[i];
+                r.anchorMin = r.anchorMax = new Vector2((m.x - ox) / mw, (m.y - oz) / mh);
+                r.anchoredPosition = Vector2.zero;
+                r.localRotation = Quaternion.Euler(0, 0, -icerik.localEulerAngles.z);   // harita donse de dik kalsin
+                r.SetAsLastSibling();
+            }
+        }
+
         /// <summary>Inceleme (kuzey yukari): ekran noktasi harita uzerindeyse dunya (ev) x,z.</summary>
         public bool EkrandanHaritaya(Vector2 sp, out float x, out float z)
         {
@@ -121,6 +155,7 @@ namespace ArTarama
                 harita.sizeDelta = new Vector2(mw, mh) * k; harita.pivot = new Vector2(0.5f, 0.5f); harita.anchoredPosition = Vector2.zero;
                 icerik.localRotation = Quaternion.identity;
             }
+            IsaretYerlestir();
         }
 
         static string Metre(float v) { return v.ToString("F1", System.Globalization.CultureInfo.GetCultureInfo("tr-TR")); }

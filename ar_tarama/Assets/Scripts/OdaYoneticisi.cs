@@ -100,6 +100,7 @@ namespace ArTarama
         public Ev ev;
         public Poz2? EvOturum { get; private set; }        // ev -> oturum
         public bool Hizali => EvOturum.HasValue;
+        public event Action<int> EvHizalandi;
         public int HizaIsaret { get; private set; } = -1;
         volatile ZeminSonuc oncekiOturum, bekleyenHam;
         float sonHiza;
@@ -220,7 +221,8 @@ namespace ArTarama
         {
             if (ar == null || arKamera == null) return;
             ar.Guncelle(this, arKamera, Aktif && ArGoster && ZeminVar);
-            if (zc != null) zc.Guncelle(ZSon, Goruntu.GZeminY, arKamera, Aktif && ArGoster);
+            // kayitli evi acinca: isaret gorulup eski harita yerine oturana kadar zemin cizilmez (sifirdan taraniyor gibi gorunmesin)
+            if (zc != null) zc.Guncelle(ZSon, Goruntu.GZeminY, arKamera, Aktif && ArGoster && (ev == null || Hizali));
         }
 
         // ------------------------------------------------------------------------------------------ derinlik karesi
@@ -336,7 +338,7 @@ namespace ArTarama
             }
             bool ilk = !EvOturum.HasValue;
             EvOturum = T; HizaIsaret = en.id;
-            if (ilk) Debug.Log("[ArTarama] ev hizalandi: isaret " + en.id + " (" + en.pozSay + " gozlem)");
+            if (ilk) { Debug.Log("[ArTarama] ev hizalandi: isaret " + en.id + " (" + en.pozSay + " gozlem)"); EvHizalandi?.Invoke(en.id); }
             var e = ev; int bu = nesil; float zy = Goruntu.GZeminY;
             Interlocked.Increment(ref bekleyenIs);
             kuyruk.Add(() => { if (bu == nesil) oncekiOturum = e.Oturuma(T, zy); });

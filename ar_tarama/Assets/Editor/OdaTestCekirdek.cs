@@ -684,6 +684,7 @@ namespace ArTarama
             var k = OdaSentetik.Yeni(); double ilkT = -1; int kareSay = 0;
             if (Environment.GetEnvironmentVariable("ZEMIN_GUVENLI") == "1") ZeminHaritasi.SadeceGuvenli = true;
             var zh = new ZeminHaritasi(); zh.Guncelle(planlar, 0f);
+            HashSet<long> araOnce = null;
             foreach (var satir in File.ReadAllLines(Path.Combine(klasor, "kareler.jsonl")))
             {
                 if (string.IsNullOrWhiteSpace(satir)) continue;
@@ -719,7 +720,9 @@ namespace ArTarama
                 if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ARA"), out int ara) && ara > 0 && kareSay % ara == 0)
                 {
                     var za = zh.Guncelle(planlar, f.zaman);
-                    yaz("ARA kare " + kareSay + " t=" + F(f.zaman, 1) + " acik=" + F(za.alan) + " m2 hucre=" + za.acik.Count + " | " + zh.Teshis);
+                    int kayip = 0; if (araOnce != null) foreach (long q in araOnce) if (!za.acik.Contains(q)) kayip++;
+                    araOnce = new HashSet<long>(za.acik);
+                    yaz("ARA kare " + kareSay + " t=" + F(f.zaman, 1) + " acik=" + F(za.alan) + " m2 hucre=" + za.acik.Count + " kayip=" + kayip + " | " + zh.Teshis);
                     if (ciktiDir != null) { Directory.CreateDirectory(ciktiDir); ZeminPng(za, Path.Combine(ciktiDir, "ara_" + kareSay.ToString("0000") + ".png")); }
                 }
             }

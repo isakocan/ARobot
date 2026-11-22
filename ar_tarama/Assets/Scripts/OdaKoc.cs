@@ -22,6 +22,7 @@ namespace ArTarama
         public int donus;               // -1 sola, +1 saga (kenar oku)
         public bool okVar; public float okYaw;   // ilerleme oku: dunya yaw'i (derece)
         public bool hedefVar; public float hx, hz;   // zeminde kucuk isaret: taranmamis zeminin baslangici (dunya x, z)
+        public float ilerleme;          // hedefin cevresi ne kadar teyit edildi (0..1): halka dolar
         public int kural;               // 1..7 (7: oda tamam), 0 varsayilan/baslangic
     }
 

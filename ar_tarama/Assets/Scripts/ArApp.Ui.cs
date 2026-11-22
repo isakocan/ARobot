@@ -39,6 +39,7 @@ namespace ArTarama
         CanvasGroup kocIcerik, kocPillGrup, chipGrup, kenarSol, kenarSag, ilerleGrup, debugGrup;
         RectTransform ilerleOk;
         string gosterilenKoc = ""; float kocGecis = 1f; bool debugAcik;
+        float sonMiniIsaret; readonly List<Vector4> miniIs = new List<Vector4>();
         ZeminMini zeminMini, zeminGozden; ZeminSonuc gozdenZemin; GameObject gozdenSekmeler;
         // toast
         CanvasGroup toastGrup; Text toastYazi; float toastBitis;
@@ -271,7 +272,7 @@ namespace ArTarama
             // yazi yokken (yalniz sorun varken yazi cikar) kutu tamamen gizlenir; yonlendirme zemindeki kucuk halka
             kocPillGrup.alpha = Mathf.MoveTowards(kocPillGrup.alpha, string.IsNullOrEmpty(gosterilenKoc) && string.IsNullOrEmpty(m.yazi) ? 0f : 1f, 4f * dt);
             if (zeminHedef == null) zeminHedef = new ZeminHedef(Resources.Load<Material>("mat_oda_dolgu"));
-            zeminHedef.Guncelle(m.hedefVar && Takipte && oda != null && oda.ZSon != null, m.hx, m.hz, oda != null && oda.ZSon != null ? oda.ZSon.zeminY : 0f, dt);
+            zeminHedef.Guncelle(m.hedefVar && Takipte && oda != null && oda.ZSon != null, m.hx, m.hz, oda != null && oda.ZSon != null ? oda.ZSon.zeminY : 0f, dt, m.ilerleme);
 
             // kenar oklari
             float t = Time.unscaledTime;
@@ -307,6 +308,16 @@ namespace ArTarama
             {
                 var ktr = arKamera.transform; var kf = ktr.forward; float kyaw = Mathf.Atan2(kf.x, kf.z) * Mathf.Rad2Deg;
                 if (new Vector2(kf.x, kf.z).magnitude < 0.35f) { var ku = ktr.up; kyaw = Mathf.Atan2(ku.x, ku.z) * Mathf.Rad2Deg; if (kf.y < 0) kyaw += 180f; }
+                if (t - sonMiniIsaret > 0.5f && plan != null)
+                {
+                    sonMiniIsaret = t; miniIs.Clear();
+                    foreach (var bi in plan.Isaretler.Values)
+                    {
+                        if (bi.pozVar) miniIs.Add(new Vector4(bi.merkez.x, bi.merkez.z, bi.aci, bi.id));
+                        else if (bi.konumVar) miniIs.Add(new Vector4(bi.konum.x, bi.konum.z, 0f, bi.id));
+                    }
+                    zeminMini.IsaretAyarla(miniIs);
+                }
                 zeminMini.Guncelle(oda != null ? oda.ZSon : null, ktr.position, kyaw, dt);
             }
         }
@@ -634,6 +645,8 @@ namespace ArTarama
         {
             aktifEv = ev; silgiAcik = false;
             GozdenAcZemin(ev.Sonuc(), ev.ad);
+            var evIs = new List<Vector4>(); foreach (var m in ev.isaretler.Values) evIs.Add(new Vector4((float)m.x, (float)m.z, (float)m.aci, m.id));
+            zeminGozden.IsaretAyarla(evIs);
             gozdenAlt.text = Metre(ev.Alan) + " m² açık zemin   ·   " + ev.isaretler.Count + " işaret";
             SilgiGorunumu();
         }
@@ -665,7 +678,7 @@ namespace ArTarama
                 zeminGozden = new ZeminMini(gozdenAlan, false, "AÇIK ZEMİN HARİTASI");
                 UiKur.Ankor(zeminGozden.kok, Vector2.zero, Vector2.one, new Vector2(24, 0), new Vector2(-24, 0));
             }
-            zeminGozden.kok.gameObject.SetActive(true); zeminGozden.Sifirla();
+            zeminGozden.kok.gameObject.SetActive(true); zeminGozden.Sifirla(); zeminGozden.IsaretAyarla(null);
             if (gozdenSekmeler != null) gozdenSekmeler.SetActive(false);
             gozdenZemin = s;
             gozdenBaslik.text = string.IsNullOrEmpty(ad) ? "Tarama" : ad;

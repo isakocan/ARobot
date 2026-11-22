@@ -29,6 +29,7 @@ namespace ArTarama
             if (!aday.hedefVar) Mevcut.hedefVar = false;
             else if (!Mevcut.hedefVar || (aday.hx - Mevcut.hx) * (aday.hx - Mevcut.hx) + (aday.hz - Mevcut.hz) * (aday.hz - Mevcut.hz) > 0.09f)
             { Mevcut.hedefVar = true; Mevcut.hx = aday.hx; Mevcut.hz = aday.hz; }
+            Mevcut.ilerleme = Mevcut.hedefVar && s != null ? s.Teyit(Mevcut.hx, Mevcut.hz, 0.25f) : 0f;
             return Mevcut;
         }
 
@@ -56,14 +57,26 @@ namespace ArTarama
             for (int i = 0; i + 1 < s.sinir.Length; i += 2)
             {
                 double dx = s.sinir[i] - g.kx, dz = s.sinir[i + 1] - g.kz, d = Math.Sqrt(dx * dx + dz * dz);
-                if (d < 0.8 || d > 6) continue;
+                if (d < 0.8 || d > 3.5) continue;              // zemin kaniti en cok 3 m'den toplanir
                 // onundekine oncelik: arkadaki 2 kat uzak sayilir
                 double fark = Math.Abs(Fark(Math.Atan2(dx, dz) * 180.0 / Math.PI, g.yaw));
                 double m = d * (1.0 + fark / 180.0);
                 if (m >= ed) continue;
                 ed = m; ex = s.sinir[i]; ez = s.sinir[i + 1]; var = true;
             }
-            var sonuc = M("", KocSimge.Bilgi, var ? 6 : 7);
+            // halkaya bakiyorsa: zemin tutuldukca teyit edilir (hizli gecince boyanmaz), tutmasini iste
+            string yazi = "";
+            if (var)
+            {
+                double p = g.pitch * Math.PI / 180, y = g.yaw * Math.PI / 180;
+                double dy = Math.Sin(p);
+                if (dy < -0.15)
+                {
+                    double t = (s.zeminY - g.ky) / dy, lx = g.kx + Math.Sin(y) * Math.Cos(p) * t, lz = g.kz + Math.Cos(y) * Math.Cos(p) * t;
+                    if ((lx - ex) * (lx - ex) + (lz - ez) * (lz - ez) < 0.6 * 0.6 && s.Teyit(ex, ez, 0.25f) < 0.8f) yazi = "Burada birkaç saniye tut";
+                }
+            }
+            var sonuc = M(yazi, KocSimge.Bilgi, var ? 6 : 7);
             if (var) { sonuc.hedefVar = true; sonuc.hx = ex; sonuc.hz = ez; }
             return sonuc;
         }
