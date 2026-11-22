@@ -279,7 +279,7 @@ namespace ArTarama
         /// <summary>Bitir: kayit kapanir, oturum haritasi eve eklenip kaydedilir, ev ekrani acilir.</summary>
         public void Bitir()
         {
-            KalemTemizle(); kalemAcik = false; if (kalemYazi != null) kalemYazi.color = UiKur.MetinRenk;
+            KalemTemizle(); KalemModu(false);
             var s = oda != null ? oda.ZHam : null;
             if (kayit != null && kayit.Kayitta)
             {
@@ -326,6 +326,7 @@ namespace ArTarama
 
             if (mod == Mod.Tarama) TaramaGuncelle(dt);
             else if (zeminHedef != null) zeminHedef.Guncelle(false, 0f, 0f, 0f, dt);
+            if (mod != Mod.Tarama && kenarGo != null && kenarGo.activeSelf) kenarGo.SetActive(false);
             else if (mod == Mod.Gozden) GozdenGuncelle();
             NesneGorunurlugu();
 
@@ -403,58 +404,143 @@ namespace ArTarama
         }
 
         // ---------------- kalem: zemin siniri ----------------
-        Text kalemYazi; bool kalemAcik;
-        LineRenderer kalemCizgi; readonly List<LineRenderer> kalemParca = new List<LineRenderer>();
-        readonly List<Vector3> kalemNokta = new List<Vector3>(); bool kalemBasili; Vector3 kalemSon;
+        // Ciz: parmakla zemin siniri cekilir; 15 cm'den kisa / cok kisa sureli dokunus (yanlislikla nokta) atilir.
+        // Sil: parmagin gectigi kalem cizgisi silinir. Kalem acikken haritanin kendi buldugu sinir sari cizgiyle gorunur;
+        // cekilen cizgi o yerdeki otomatik siniri duzeltir (ZeminHaritasi.KalemHucreleri).
+        Text kalemYazi, kSilYazi; bool kalemAcik, kSilAcik; GameObject kSilBtnGo;
+        LineRenderer kalemCizgi; readonly Dictionary<int, LineRenderer> kalemParca = new Dictionary<int, LineRenderer>();
+        readonly List<Vector3> kalemNokta = new List<Vector3>(); bool kalemBasili; Vector3 kalemSon; float kalemBas;
+        GameObject kenarGo; Mesh kenarMesh; ZeminSonuc kenarSonuc; Vector3 kenarKam;
 
         void KalemTemizle()
         {
-            foreach (var l in kalemParca) if (l != null) Destroy(l.gameObject);
-            kalemParca.Clear(); kalemNokta.Clear(); kalemCizgi = null; kalemBasili = false;
+            foreach (var l in kalemParca.Values) if (l != null) Destroy(l.gameObject);
+            kalemParca.Clear(); kalemNokta.Clear();
+            if (kalemCizgi != null) Destroy(kalemCizgi.gameObject);
+            kalemCizgi = null; kalemBasili = false; kSilAcik = false;
+            if (kenarGo != null) kenarGo.SetActive(false);
+        }
+
+        void KalemModu(bool ac)
+        {
+            kalemAcik = ac; kSilAcik = false;
+            if (kalemYazi != null) kalemYazi.color = ac ? UiKur.Vurgu : UiKur.MetinRenk;
+            if (kSilYazi != null) kSilYazi.color = UiKur.MetinRenk;
+            if (kSilBtnGo != null) kSilBtnGo.SetActive(ac);
+            if (!ac && kenarGo != null) kenarGo.SetActive(false);
+        }
+
+        float KalemZeminY => oda != null && oda.ZSon != null && oda.ZSon.zeminVar ? oda.ZSon.zeminY : ZeminY;
+
+        LineRenderer YeniKalemCizgisi()
+        {
+            var go = new GameObject("KalemCizgi"); go.layer = OdaYoneticisi.KatmanAr;
+            var l = go.AddComponent<LineRenderer>();
+            // OdaDolgu: tepe rengi, her seyin ustunde (Sprites/Default derlemede olmayabiliyor; cizgi gorunmuyordu)
+            var km = Resources.Load<Material>("mat_oda_dolgu");
+            l.sharedMaterial = km != null ? km : new Material(Shader.Find("ArTarama/OdaDolgu"));
+            l.startColor = l.endColor = new Color(1f, 1f, 1f, 0.95f);
+            l.widthMultiplier = 0.03f; l.numCapVertices = 4; l.numCornerVertices = 2;
+            l.alignment = LineAlignment.TransformZ; go.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            l.useWorldSpace = true; l.positionCount = 0;
+            return l;
         }
 
         void KalemIsle()
         {
+            KenarGoster();
             var ts = Touchscreen.current;
-            if (ts == null || oda == null || !ZeminVar || !Takipte) return;
+            if (ts == null || oda == null || !Takipte) return;
             var t = ts.primaryTouch;
-            if (!t.press.isPressed) { kalemBasili = false; return; }
+            if (!t.press.isPressed) { if (kalemBasili) KalemBirak(); return; }
             Vector2 sp = t.position.ReadValue();
             if (t.press.wasPressedThisFrame && UiUstunde(sp)) return;
             if (!t.press.wasPressedThisFrame && !kalemBasili) return;
-            // ekran -> zemin duzlemi (y = ZeminY)
+            // ekran -> zemin duzlemi
+            float zy = KalemZeminY;
             var r = arKamera.ScreenPointToRay(sp);
             if (r.direction.y > -0.05f) return;
-            float d = (ZeminY - r.origin.y) / r.direction.y; if (d <= 0f || d > 6f) return;
+            float d = (zy - r.origin.y) / r.direction.y; if (d <= 0f || d > 6f) return;
             var p = r.origin + r.direction * d;
+            if (kSilAcik)
+            {
+                kalemBasili = true;
+                foreach (int id in oda.SinirSil(p.x, p.z, 0.15f))
+                    if (kalemParca.TryGetValue(id, out var l)) { if (l != null) Destroy(l.gameObject); kalemParca.Remove(id); Haptik(15); }
+                return;
+            }
             if (!kalemBasili)
             {
-                kalemNokta.Clear(); kalemSon = p;
-                var go = new GameObject("KalemCizgi"); go.layer = OdaYoneticisi.KatmanAr;
-                kalemCizgi = go.AddComponent<LineRenderer>();
-                // OdaDolgu: tepe rengi, her seyin ustunde (Sprites/Default derlemede olmayabiliyor; cizgi gorunmuyordu)
-                var km = Resources.Load<Material>("mat_oda_dolgu");
-                kalemCizgi.sharedMaterial = km != null ? km : new Material(Shader.Find("ArTarama/OdaDolgu"));
-                kalemCizgi.startColor = kalemCizgi.endColor = new Color(1f, 1f, 1f, 0.95f);
-                kalemCizgi.widthMultiplier = 0.03f; kalemCizgi.numCapVertices = 4; kalemCizgi.numCornerVertices = 2;
-                kalemCizgi.alignment = LineAlignment.TransformZ; go.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-                kalemCizgi.useWorldSpace = true; kalemCizgi.positionCount = 0;
-                kalemParca.Add(kalemCizgi); kalemBasili = true;
+                kalemNokta.Clear(); kalemSon = p; kalemBas = Time.unscaledTime;
+                kalemCizgi = YeniKalemCizgisi(); kalemBasili = true;
+                kalemNokta.Add(new Vector3(p.x, zy + 0.012f, p.z)); KalemCiz();
+                return;
             }
-            // 3 cm'de bir: araya noktalar koyarak sinir hucrelerini doldur
-            float L = Vector3.Distance(p, kalemSon);
-            if (L < 0.03f && kalemNokta.Count > 0) return;
-            int n = Mathf.Max(1, Mathf.CeilToInt(L / 0.03f));
-            for (int i = 1; i <= n; i++) { var q = Vector3.Lerp(kalemSon, p, i / (float)n); oda.SinirEkle(q.x, q.z); }
+            if (Vector3.Distance(p, kalemSon) < 0.03f) return;
             kalemSon = p;
-            kalemNokta.Add(new Vector3(p.x, ZeminY + 0.012f, p.z));
+            kalemNokta.Add(new Vector3(p.x, zy + 0.012f, p.z));
             KalemCiz();
+        }
+
+        void KalemBirak()
+        {
+            kalemBasili = false;
+            if (kSilAcik || kalemCizgi == null) return;
+            float L = 0f; for (int i = 1; i < kalemNokta.Count; i++) L += Vector3.Distance(kalemNokta[i - 1], kalemNokta[i]);
+            if (L < 0.15f || Time.unscaledTime - kalemBas < 0.12f)
+            {
+                // nokta gibi kisa dokunus: yanlislikla, atilir
+                Destroy(kalemCizgi.gameObject); kalemCizgi = null; kalemNokta.Clear(); return;
+            }
+            var xz = new float[kalemNokta.Count * 2];
+            for (int i = 0; i < kalemNokta.Count; i++) { xz[i * 2] = kalemNokta[i].x; xz[i * 2 + 1] = kalemNokta[i].z; }
+            var kp = arKamera.transform.position;
+            int id = oda.SinirCizgisiEkle(xz, kp.x, kp.z);
+            kalemParca[id] = kalemCizgi; kalemCizgi = null; kalemNokta.Clear();
+            Haptik(10);
         }
 
         void KalemCiz()
         {
             kalemCizgi.positionCount = kalemNokta.Count;
             for (int i = 0; i < kalemNokta.Count; i++) kalemCizgi.SetPosition(i, kalemNokta[i]);
+        }
+
+        /// <summary>Kalem modunda haritanin kendi buldugu zemin siniri: sari ince cizgi (kamera cevresi 7 m).</summary>
+        void KenarGoster()
+        {
+            var s = oda != null ? oda.ZSon : null;
+            if (s == null || !s.zeminVar) { if (kenarGo != null) kenarGo.SetActive(false); return; }
+            if (kenarGo == null)
+            {
+                kenarMesh = new Mesh { name = "OtomatikSinir", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+                kenarGo = new GameObject("OtomatikSinir"); kenarGo.layer = OdaYoneticisi.KatmanAr;
+                kenarGo.AddComponent<MeshFilter>().sharedMesh = kenarMesh;
+                var mr = kenarGo.AddComponent<MeshRenderer>(); var km = Resources.Load<Material>("mat_oda_dolgu");
+                mr.sharedMaterial = km != null ? km : new Material(Shader.Find("ArTarama/OdaDolgu"));
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; mr.receiveShadows = false;
+            }
+            kenarGo.SetActive(true);
+            var kp = arKamera.transform.position;
+            if (s == kenarSonuc && (new Vector2(kp.x - kenarKam.x, kp.z - kenarKam.z)).sqrMagnitude < 4f) return;
+            kenarSonuc = s; kenarKam = kp;
+            var e = s.acikKenar; float y = s.zeminY + 0.009f; const float yg = 0.009f, menzil = 7f;
+            var v = new List<Vector3>(); var c = new List<Color>(); var tr = new List<int>();
+            var renk = new Color(1f, 0.78f, 0.22f, 0.9f);
+            for (int i = 0; i + 3 < e.Length; i += 4)
+            {
+                float ax = e[i], az = e[i + 1], bx = e[i + 2], bz = e[i + 3];
+                float mx = (ax + bx) * 0.5f - kp.x, mz = (az + bz) * 0.5f - kp.z; if (mx * mx + mz * mz > menzil * menzil) continue;
+                float dx = bx - ax, dz = bz - az, L = Mathf.Sqrt(dx * dx + dz * dz); if (L < 1e-5f) continue;
+                float nx = -dz / L * yg, nz = dx / L * yg; int o = v.Count;
+                v.Add(new Vector3(ax - nx, y, az - nz)); v.Add(new Vector3(ax + nx, y, az + nz));
+                v.Add(new Vector3(bx + nx, y, bz + nz)); v.Add(new Vector3(bx - nx, y, bz - nz));
+                for (int q = 0; q < 4; q++) c.Add(renk);
+                tr.Add(o); tr.Add(o + 1); tr.Add(o + 2); tr.Add(o); tr.Add(o + 2); tr.Add(o + 3);
+                tr.Add(o); tr.Add(o + 2); tr.Add(o + 1); tr.Add(o); tr.Add(o + 3); tr.Add(o + 2);
+            }
+            kenarMesh.Clear(); kenarMesh.SetVertices(v); kenarMesh.SetColors(c); kenarMesh.SetTriangles(tr, 0, false);
+            kenarMesh.bounds = new Bounds(kp, Vector3.one * 40f);
         }
 
         // ---------------- dokunma / nesne koyma ----------------

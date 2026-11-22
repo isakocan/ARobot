@@ -253,17 +253,87 @@ namespace ArTarama
         public bool ZeminVar => zyVar;
         public int HucreSayisi => h.Count;
 
-        // kullanicinin kalemle cektigi zemin siniri (hucreler): engel sayilir, acik zemin oradan gecmez
-        readonly HashSet<long> cizgi = new HashSet<long>();
+        // kullanicinin kalemle cektigi zemin sinirlari. Cizgi duvar sayilir; cizginin 50 cm cevresinde kullanicinin durdugu
+        // yan zemin (otomatik duvar / esya kaniti ezilir), obur yan kapali: sinir tam cizgiye oturur (kullanici duzeltmesi)
+        class KalemCizgisi { public int id; public float[] xz; public float kx, kz; }
+        readonly List<KalemCizgisi> cizgiler = new List<KalemCizgisi>();
         readonly object cizgiKilit = new object();
-        /// <summary>Kalem: (x, z) cevresinde 5 cm yaricapli cizgi hucresi ekler (ana is parcacigindan cagrilabilir).</summary>
-        public void SinirEkle(float x, float z)
+        int cizgiNo;
+        public const float KalemBant = 0.5f, KalemAcikBant = 0.35f;   // obur yan 50 cm kapali, kullanici yani 35 cm acik
+        /// <summary>Kalem cizgisi ekler (dunya x,z cokcizgisi; kx,kz: cizerken kullanicinin konumu). Kimligi doner.</summary>
+        public int SinirCizgisiEkle(float[] xz, float kx, float kz)
         {
-            int qx = ZeminSonuc.Ind(x), qz = ZeminSonuc.Ind(z);
-            lock (cizgiKilit) for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) cizgi.Add(OdaSonuc.Anah2(qx + dx, qz + dz));
+            lock (cizgiKilit) { var c = new KalemCizgisi { id = ++cizgiNo, xz = xz, kx = kx, kz = kz }; cizgiler.Add(c); return c.id; }
+        }
+        /// <summary>(x, z)'ye r'den yakin gecen kalem cizgilerini siler, silinenlerin kimliklerini doner.</summary>
+        public List<int> SinirSil(float x, float z, float r)
+        {
+            var sil = new List<int>();
+            lock (cizgiKilit)
+                cizgiler.RemoveAll(c =>
+                {
+                    for (int i = 0; i + 3 < c.xz.Length || (i == 0 && c.xz.Length == 2); i += 2)
+                    {
+                        float ax = c.xz[i], az = c.xz[i + 1], bx = c.xz.Length > i + 3 ? c.xz[i + 2] : ax, bz = c.xz.Length > i + 3 ? c.xz[i + 3] : az;
+                        if (ParcaUzaklik(x, z, ax, az, bx, bz, out _, out _) < r) { sil.Add(c.id); return true; }
+                    }
+                    return false;
+                });
+            return sil;
+        }
+        public int CizgiSayisi { get { lock (cizgiKilit) return cizgiler.Count; } }
+
+        static float ParcaUzaklik(float px, float pz, float ax, float az, float bx, float bz, out float t, out float yan)
+        {
+            float dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+            t = L2 > 1e-8f ? ((px - ax) * dx + (pz - az) * dz) / L2 : 0f;
+            float tc = Math.Max(0f, Math.Min(1f, t));
+            float qx = ax + dx * tc - px, qz = az + dz * tc - pz;
+            yan = dx * (pz - az) - dz * (px - ax);
+            return (float)Math.Sqrt(qx * qx + qz * qz);
         }
 
-        public void Sifirla() { lock (cizgiKilit) cizgi.Clear(); kalici.Clear(); kamYTop = 0; kamYSay = 0; aci = float.NaN; aciKilit = false; h.Clear(); izX.Clear(); izZ.Clear(); zyVar = false; kare = 0; planHucre.Clear(); }
+        /// <summary>Kalem cizgilerinden: cizgi hucreleri (duvar), kullanici yaninda zorla acik, obur yanda zorla kapali.</summary>
+        void KalemHucreleri(HashSet<long> hat, HashSet<long> zAcik, HashSet<long> zKapali)
+        {
+            KalemCizgisi[] cs; lock (cizgiKilit) cs = cizgiler.ToArray();
+            int B = (int)Math.Ceiling(KalemBant / V);
+            foreach (var c in cs)
+            {
+                int n = c.xz.Length / 2; if (n < 2) continue;
+                int x0 = int.MaxValue, x1 = int.MinValue, z0 = int.MaxValue, z1 = int.MinValue;
+                for (int i = 0; i < n; i++)
+                {
+                    int ix = ZeminSonuc.Ind(c.xz[i * 2]), iz = ZeminSonuc.Ind(c.xz[i * 2 + 1]);
+                    x0 = Math.Min(x0, ix); x1 = Math.Max(x1, ix); z0 = Math.Min(z0, iz); z1 = Math.Max(z1, iz);
+                }
+                // kullanicinin her parcaya gore yani
+                var kYan = new float[n - 1];
+                for (int i = 0; i + 1 < n; i++) ParcaUzaklik(c.kx, c.kz, c.xz[i * 2], c.xz[i * 2 + 1], c.xz[i * 2 + 2], c.xz[i * 2 + 3], out _, out kYan[i]);
+                for (int iz = z0 - B; iz <= z1 + B; iz++)
+                    for (int ix = x0 - B; ix <= x1 + B; ix++)
+                    {
+                        float px = (ix + 0.5f) * V, pz = (iz + 0.5f) * V;
+                        float en = float.MaxValue, enT = 0f, enYan = 0f; int enI = -1;
+                        for (int i = 0; i + 1 < n; i++)
+                        {
+                            float d = ParcaUzaklik(px, pz, c.xz[i * 2], c.xz[i * 2 + 1], c.xz[i * 2 + 2], c.xz[i * 2 + 3], out float t, out float yan);
+                            if (d < en) { en = d; enT = t; enYan = yan; enI = i; }
+                        }
+                        if (enI < 0) continue;
+                        long k = OdaSonuc.Anah2(ix, iz);
+                        if (en <= 0.04f) { hat.Add(k); continue; }
+                        if (en > KalemBant) continue;
+                        // ucun otesi (cizginin devami degil) taraf belirsiz: dokunma
+                        if ((enI == 0 && enT < 0f) || (enI == n - 2 && enT > 1f)) continue;
+                        if (Math.Abs(kYan[enI]) < 1e-6f) continue;
+                        if ((enYan > 0) == (kYan[enI] > 0)) { if (en <= KalemAcikBant) zAcik.Add(k); } else zKapali.Add(k);
+                    }
+            }
+            zAcik.ExceptWith(hat); zKapali.ExceptWith(hat); zAcik.ExceptWith(zKapali);
+        }
+
+        public void Sifirla() { lock (cizgiKilit) cizgiler.Clear(); kalici.Clear(); kamYTop = 0; kamYSay = 0; aci = float.NaN; aciKilit = false; h.Clear(); izX.Clear(); izZ.Clear(); zyVar = false; kare = 0; planHucre.Clear(); }
 
         Hucre Al(long k) { if (!h.TryGetValue(k, out var c)) { c = new Hucre(); h[k] = c; } return c; }
 
@@ -436,7 +506,10 @@ namespace ArTarama
                 }
             }
             foreach (var kv in h) if (kv.Value.uzun >= EngelMinKare && kv.Value.yol == 0) duvar.Add(kv.Key);
-            lock (cizgiKilit) foreach (long k in cizgi) duvar.Add(k);
+            var kHat = new HashSet<long>(); var kAcik = new HashSet<long>(); var kKapali = new HashSet<long>();
+            KalemHucreleri(kHat, kAcik, kKapali);
+            duvar.ExceptWith(kAcik);                       // kullanicinin cizgisi otomatik duvari duzeltir
+            foreach (long k in kHat) duvar.Add(k);
 
             // 4) esya: 20 cm kaba kareler (ana yone hizali); yurunen yer esya olamaz
             var kabaSay = new Dictionary<long, int>(); var kabaYol = new HashSet<long>();
@@ -469,7 +542,8 @@ namespace ArTarama
                 }
             }
             foreach (var kv in h) if (kv.Value.yol > 0 || (kv.Value.zemin >= 2 && kv.Value.engel == 0)) aday.Add(kv.Key);
-            Func<long, bool> kapali = k => duvar.Contains(k) || esya.Contains(Kaba(k, ca, sa));
+            foreach (long k in kAcik) aday.Add(k);
+            Func<long, bool> kapali = k => duvar.Contains(k) || kKapali.Contains(k) || (!kAcik.Contains(k) && esya.Contains(Kaba(k, ca, sa)));
             aday.RemoveWhere(k => kapali(k));
 
             // 6) bagli: tohum = yurunen yol + kameranin alti + onceden acik olanlar
@@ -491,6 +565,23 @@ namespace ArTarama
             ZeminGeo.Ac(acik, 1);
             ZeminGeo.KucukleriAt(acik, 40, null);
             ZeminGeo.DelikDoldur(acik, duvar, 60);
+            // kalem cizgisi bir yeri ayirdiysa: kullanicinin bulundugu yere bagli olmayan parca (eski kalici dahil) atilir
+            if (kHat.Count > 0)
+            {
+                var bag = new HashSet<long>(); var yg = new Stack<long>();
+                foreach (var kv in h) if (kv.Value.yol > 0 && acik.Contains(kv.Key) && bag.Add(kv.Key)) yg.Push(kv.Key);
+                { long kc = OdaSonuc.Anah2(ZeminSonuc.Ind(kamX), ZeminSonuc.Ind(kamZ)); if (acik.Contains(kc) && bag.Add(kc)) yg.Push(kc); }
+                while (yg.Count > 0)
+                {
+                    long k = yg.Pop(); ZeminSonuc.Coz(k, out int ix, out int iz);
+                    long a1 = OdaSonuc.Anah2(ix + 1, iz), a2 = OdaSonuc.Anah2(ix - 1, iz), a3 = OdaSonuc.Anah2(ix, iz + 1), a4 = OdaSonuc.Anah2(ix, iz - 1);
+                    if (acik.Contains(a1) && bag.Add(a1)) yg.Push(a1);
+                    if (acik.Contains(a2) && bag.Add(a2)) yg.Push(a2);
+                    if (acik.Contains(a3) && bag.Add(a3)) yg.Push(a3);
+                    if (acik.Contains(a4) && bag.Add(a4)) yg.Push(a4);
+                }
+                if (bag.Count > 0) acik = bag;
+            }
             kalici.Clear(); foreach (long k in acik) kalici.Add(k);
 
             // sonuc kumeleri
@@ -500,7 +591,7 @@ namespace ArTarama
             foreach (var kv in h)
             {
                 if (acik.Contains(kv.Key)) continue;
-                if (esya.Contains(Kaba(kv.Key, ca, sa))) s.engel.Add(kv.Key);
+                if (!kAcik.Contains(kv.Key) && esya.Contains(Kaba(kv.Key, ca, sa))) s.engel.Add(kv.Key);
                 else if (!duvar.Contains(kv.Key)) s.bilinen.Add(kv.Key);
             }
             Teshis = "aday " + aday.Count + " acik " + acik.Count + " duvar " + duvar.Count + " esya(20cm) " + esya.Count + " aci " + (aci * 180 / Math.PI).ToString("F1") + " zy " + zy.ToString("F2") + " kamY " + kamY.ToString("F2");

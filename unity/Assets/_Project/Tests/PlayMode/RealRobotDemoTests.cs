@@ -232,6 +232,36 @@ namespace ARaki.Tests
             DriveCockpit.ForceTouch = null;
         }
 
+        /// <summary>AR yaratıkları demo görüntüsünün ışığıyla: ARAKI_AR_SHOT klasörüne zaman içinde birkaç kare.</summary>
+        [UnityTest]
+        public IEnumerator ArLightShots()
+        {
+            string dir = System.Environment.GetEnvironmentVariable("ARAKI_AR_SHOT");
+            if (string.IsNullOrEmpty(dir)) yield break;
+            Directory.CreateDirectory(dir);
+            var env = Object.FindFirstObjectByType<ARaki.Video.EnvironmentLight>();
+            Assert.IsNotNull(env, "ortam ışığı bileşeni yok");
+            drive.Settings.Cockpit = false;
+            for (int i = 0; i < 4; i++)
+            {
+                yield return new WaitForSecondsRealtime(i == 0 ? 2.5f : 3f);
+                Debug.Log($"[ArIsik] {i} hazir={env.Ready} yon={env.DirSphere} yonluluk={env.Directionality:F2} ortam={env.Ambient}");
+                CamShot(drive.Viewer.ViewCamera, Path.Combine(dir, "ar_isik_" + i + ".png"));
+            }
+            Assert.IsTrue(env.Ready, "ortam ışığı ölçülemedi");
+        }
+
+        static void CamShot(Camera cam, string path)
+        {
+            var rt = new RenderTexture(1280, 720, 24);
+            var old = cam.targetTexture; cam.targetTexture = rt; cam.Render(); cam.targetTexture = old;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(1280, 720, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0); tex.Apply(); RenderTexture.active = null;
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.Destroy(tex); rt.Release();
+        }
+
         static IEnumerator Shot(string path)
         {
             yield return new WaitForEndOfFrame();

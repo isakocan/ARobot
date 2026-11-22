@@ -22,11 +22,7 @@ Shader "ARaki/DualFisheye"
         Cull Off
         ZWrite Off
 
-        Pass
-        {
-            HLSLPROGRAM
-            #pragma vertex vert
-            #pragma fragment frag
+        HLSLINCLUDE
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
             TEXTURE2D(_MainTex);
@@ -47,19 +43,7 @@ Shader "ARaki/DualFisheye"
             float4x4 _Mount;
             float4x4 _Lens2Rotation;
 
-            struct Attributes { float4 positionOS : POSITION; };
-            struct Varyings { float4 positionCS : SV_POSITION; float3 dir : TEXCOORD0; };
-
-            Varyings vert(Attributes v)
-            {
-                Varyings o;
-                o.positionCS = TransformObjectToHClip(v.positionOS.xyz);
-                o.dir = v.positionOS.xyz;
-                return o;
-            }
-
-            // Catmull-Rom bicubic, 9 çift doğrusal (bilinear) örnekle. Kaynak kare 3-4 kat büyütüldüğü için düz
-            // çift doğrusal örnekleme bulanık görünür; bu, kenarları korur. _Sharpen ek bir hafif keskinleştirme.
+            // Catmull-Rom bicubic, 9 cift dogrusal ornekle (kaynak kare 3-4 kat buyutuldugu icin duz ornekleme bulanik kalir)
             float3 Bicubic(float2 uv)
             {
                 float2 size = _MainTex_TexelSize.zw;
@@ -98,9 +82,9 @@ Shader "ARaki/DualFisheye"
                 return Bicubic(float2(px.x / _FrameSize.x, 1.0 - px.y / _FrameSize.y));
             }
 
-            half4 frag(Varyings i) : SV_Target
+            half4 Renk(float3 dirRobot)
             {
-                float3 d = normalize(mul((float3x3)_Mount, normalize(i.dir)));
+                float3 d = normalize(mul((float3x3)_Mount, dirRobot));
                 float3 c2 = mul((float3x3)_Lens2Rotation, float3(-d.x, d.y, -d.z));
                 float t1 = acos(clamp(d.z, -1.0, 1.0));
                 float t2 = acos(clamp(c2.z, -1.0, 1.0));
@@ -111,6 +95,48 @@ Shader "ARaki/DualFisheye"
                 if (w1 > 0.0) color += w1 * Sample(d, _Lens1.xyz);
                 if (w2 > 0.0) color += w2 * Sample(c2, _Lens2.xyz);
                 return half4(color / max(w1 + w2, 1e-4), 1.0);
+            }
+        ENDHLSL
+
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            struct Attributes { float4 positionOS : POSITION; };
+            struct Varyings { float4 positionCS : SV_POSITION; float3 dir : TEXCOORD0; };
+            Varyings vert(Attributes v)
+            {
+                Varyings o;
+                o.positionCS = TransformObjectToHClip(v.positionOS.xyz);
+                o.dir = v.positionOS.xyz;
+                return o;
+            }
+            half4 frag(Varyings i) : SV_Target { return Renk(normalize(i.dir)); }
+            ENDHLSL
+        }
+
+        // Ortam isigi icin kucuk equirect (EquirectSphere UV duzeni: u -> yaw, v -> enlem). Graphics.Blit ile cizilir.
+        Pass
+        {
+            Name "EnvBake"
+            ZTest Always
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            struct Attributes { float4 positionOS : POSITION; float2 uv : TEXCOORD0; };
+            struct Varyings { float4 positionCS : SV_POSITION; float2 uv : TEXCOORD0; };
+            Varyings vert(Attributes v)
+            {
+                Varyings o;
+                o.positionCS = TransformObjectToHClip(v.positionOS.xyz);
+                o.uv = v.uv;
+                return o;
+            }
+            half4 frag(Varyings i) : SV_Target
+            {
+                float yaw = (i.uv.x - 0.5) * 6.2831853, lat = (i.uv.y - 0.5) * 3.1415927;
+                return Renk(float3(sin(yaw) * cos(lat), sin(lat), cos(yaw) * cos(lat)));
             }
             ENDHLSL
         }

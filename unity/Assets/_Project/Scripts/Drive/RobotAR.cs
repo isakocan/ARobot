@@ -30,9 +30,13 @@ namespace ARaki.Drive
         float lastYaw = float.NaN, lastX, lastZ;  // son gelen konum
         float predicted;                          // son konumdan beri komuttan tahmin edilen dönüş (derece)
 
+        EnvironmentLight env;
+        Material shadowMat;
+
         class Creature
         {
-            public Transform t, body;
+            public Transform t, body, shadow;
+            public MaterialPropertyBlock shadowBlock;
             public Transform[] eyes;
             public Vector2 home, pos, target;
             public float heading, phase, nextTarget, size;
@@ -45,6 +49,10 @@ namespace ARaki.Drive
             root.SetParent(viewer.transform, false);
             root.localPosition = viewer.ViewCamera.transform.localPosition;
             baseMat = Resources.Load<Material>("ARToon");
+            // ortamın ışığı 360 görüntüden (renk, yön, yaygın ışık); gölge o yöne göre
+            env = gameObject.AddComponent<EnvironmentLight>(); env.Init(viewer);
+            var ss = Shader.Find("ARaki/BlobShadow");
+            if (ss != null) shadowMat = new Material(ss);
             UdpRobotConnection.RequestPose = true;
         }
 
@@ -56,6 +64,13 @@ namespace ARaki.Drive
             var st = link.IsConnected && !link.Demo ? link.Status : null;
             var k = st?.konum;
             float dt = Time.deltaTime;
+            // Editörde robotsuz demo: konum yok, yaratıklar robotun önünde sabit (ışık / gölge denemesi için)
+            if (Application.isEditor && link.Demo)
+            {
+                if (!havePose) { havePose = true; poseX = poseZ = poseYaw = 0f; Spawn(); }
+                k = new RobotStatus.Konum { var = true, x = 0f, z = 0f, yaw = 0f };
+                lastYaw = 0f; lastX = 0f; lastZ = 0f; predicted = 0f;
+            }
 
             // komuttan dönüş tahmini: konum 5 Hz geldiği için arada görüntüyle birlikte dönsün
             if (st?.motor != null)
@@ -95,7 +110,30 @@ namespace ARaki.Drive
                 cr.t.localPosition = new Vector3(right, -CameraHeight, fwd);
                 cr.t.localRotation = Quaternion.Euler(0f, cr.heading - poseYaw, 0f);
                 Animate(cr);
+                Shadow(cr);
             }
+        }
+
+        // ---------------------------------------------------------------- gölge
+        // Baskın ışığın tersine düşen yumuşak leke: ışık alçaldıkça uzar, ortam yönlü değilse (her yerden eşit ışık)
+        // kısa ve soluk kalır, yalnız temas gölgesi.
+        void Shadow(Creature cr)
+        {
+            if (cr.shadow == null) return;
+            float dirness = env != null && env.Ready ? env.Directionality : 0.3f;
+            Vector3 ld = env != null ? root.InverseTransformDirection(env.DirWorld) : new Vector3(-0.3f, 0.85f, -0.3f);
+            var h = new Vector2(ld.x, ld.z);
+            float up = Mathf.Max(ld.y, 0.35f);
+            float len = Mathf.Min(h.magnitude / up, 2f) * dirness;           // gölgenin uzama oranı
+            Vector2 dirH = h.sqrMagnitude > 1e-6f ? -h.normalized : Vector2.up;
+            float s = cr.size;
+            var p = cr.t.localPosition;
+            cr.shadow.localPosition = new Vector3(p.x + dirH.x * s * 0.55f * len, p.y + 0.003f, p.z + dirH.y * s * 0.55f * len);
+            cr.shadow.localRotation = Quaternion.Euler(90f, Mathf.Atan2(dirH.x, dirH.y) * Mathf.Rad2Deg, 0f);
+            float hop = cr.body.localPosition.y / (s * 0.55f);                  // zıplayınca gölge küçülür, solar
+            cr.shadow.localScale = new Vector3(s * 1.25f, s * 1.25f * (1f + len * 0.9f), 1f) / Mathf.Lerp(1f, hop, 0.5f);
+            cr.shadowBlock.SetColor("_BaseColor", new Color(0.02f, 0.02f, 0.03f, (0.32f + 0.3f * dirness) / hop));
+            cr.shadow.GetComponent<Renderer>().SetPropertyBlock(cr.shadowBlock);
         }
 
         // ---------------------------------------------------------------- yaratıklar
@@ -152,10 +190,16 @@ namespace ARaki.Drive
             cr.t = new GameObject("Yaratik").transform;
             cr.t.SetParent(root, false);
 
-            var shadow = Prim(PrimitiveType.Cylinder, cr.t, new Color(0f, 0f, 0f, 1f), 0f);
-            shadow.localScale = new Vector3(size * 1.1f, 0.002f, size * 1.1f);
-            shadow.localPosition = new Vector3(0f, 0.002f, 0f);
-            SetColor(shadow, new Color(0.05f, 0.05f, 0.07f), 0f);
+            if (shadowMat != null)
+            {
+                var sg = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                Destroy(sg.GetComponent<Collider>());
+                sg.name = "Golge";
+                sg.transform.SetParent(root, false);
+                var sr = sg.GetComponent<Renderer>(); sr.sharedMaterial = shadowMat;
+                sr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; sr.receiveShadows = false;
+                cr.shadow = sg.transform; cr.shadowBlock = new MaterialPropertyBlock();
+            }
 
             cr.body = Prim(PrimitiveType.Sphere, cr.t, color, 0.35f);
             var eyes = new List<Transform>();

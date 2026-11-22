@@ -1,4 +1,4 @@
-// AR nesneleri için ışıksız "oyuncak" gölgelendirici: sabit bir ışık yönüne göre 3 bantlı gölge, kenar parlaması ve
+// AR nesneleri için (ortam ışığı yoksa) ışıksız "oyuncak" gölgelendirici: sabit bir ışık yönüne göre 3 bantlı gölge, kenar parlaması ve
 // dışarıdan sürülen parlama (_Glow). AR katmanı odanın gerçek ışıklarının dışında durduğu için kendi ışığını taşır.
 // Hologram'dan farkı: opak (ya da isteğe bağlı yarı saydam), hacimli ve zemine "oturmuş" görünür.
 Shader "ARaki/Toon"
@@ -46,6 +46,23 @@ Shader "ARaki/Toon"
                 float4 _LightDir;
             CBUFFER_END
 
+            // ortam isigi (OrtamIsigi.cs, 360 goruntuden): 9 SH katsayisi (yaygin isik, Lambert'e cevrilmis), baskin isik
+            // yonu (w = yonluluk 0..1), dunya -> kure (robot) donmesi. _EnvOn = 0 iken eski sabit isik.
+            float4 _EnvSH[9];
+            float4 _EnvDir;
+            float _EnvOn;
+            float4x4 _EnvRot;
+
+            float3 EnvSH(float3 n)
+            {
+                float3 c = _EnvSH[0].rgb * 0.282095;
+                c += _EnvSH[1].rgb * 0.488603 * n.y + _EnvSH[2].rgb * 0.488603 * n.z + _EnvSH[3].rgb * 0.488603 * n.x;
+                c += _EnvSH[4].rgb * 1.092548 * n.x * n.y + _EnvSH[5].rgb * 1.092548 * n.y * n.z;
+                c += _EnvSH[6].rgb * 0.315392 * (3.0 * n.z * n.z - 1.0);
+                c += _EnvSH[7].rgb * 1.092548 * n.x * n.z + _EnvSH[8].rgb * 0.546274 * (n.x * n.x - n.y * n.y);
+                return max(c, 0);
+            }
+
             struct Attributes
             {
                 float4 positionOS : POSITION;
@@ -75,6 +92,20 @@ Shader "ARaki/Toon"
             {
                 float3 n = normalize(i.normalWS);
                 float3 v = normalize(GetWorldSpaceViewDir(i.positionWS));
+                if (_EnvOn > 0.5)
+                {
+                    // ortamin kendi isigi: yaygin isik SH'den, baskin yonden hafif oyuncak bandi, kenar parlamasi arkadaki ortamdan
+                    float3 ns = normalize(mul((float3x3)_EnvRot, n)), vs = normalize(mul((float3x3)_EnvRot, v));
+                    float3 baseE = _BaseColor.rgb * i.color.rgb;
+                    float3 E = EnvSH(ns);
+                    float nl = dot(ns, _EnvDir.xyz);
+                    float bandE = smoothstep(-0.1, 0.25, nl);
+                    float3 colE = baseE * E * lerp(1.0, lerp(0.7, 1.2, bandE), _EnvDir.w);
+                    float rimE = pow(1.0 - saturate(dot(n, v)), _RimPower) * _RimStrength;
+                    colE += EnvSH(-vs) * rimE * 0.6;
+                    colE += _EmissionColor.rgb * _Glow * 0.3;
+                    return half4(colE, _BaseColor.a * i.color.a);
+                }
                 float ndl = dot(n, normalize(_LightDir.xyz));
                 float band = smoothstep(-0.15, 0.1, ndl) * 0.6 + smoothstep(0.25, 0.5, ndl) * 0.4;
                 float3 baseCol = _BaseColor.rgb * i.color.rgb;

@@ -51,6 +51,8 @@ namespace ARaki.Video
         public float Yaw { get; private set; }
         public float Pitch { get; private set; }
         public Camera ViewCamera => viewCamera;
+        public MeshRenderer Sphere => sphere;
+        public Sim360Camera Source => source;
         public float DefaultPitch => defaultPitch;
 
         void Start()

@@ -201,9 +201,15 @@ namespace ArTarama
 
             // kalem: tararken zemin sinirini parmakla cek (zemin boyasi cizgiden gecmez)
             var arcBtn = UiKur.Dugme(bar.transform, "Kalem", "Kalem", UiKur.DugmeStili.Ikincil, out _, out kalemYazi, UiKur.Body);
-            arcBtn.onClick.AddListener(() => { kalemAcik = !kalemAcik; kalemYazi.color = kalemAcik ? UiKur.Vurgu : UiKur.MetinRenk; Haptik(10);
-                if (kalemAcik) Toast("Zemin sınırını parmağınla çiz"); });
+            arcBtn.onClick.AddListener(() => { KalemModu(!kalemAcik); Haptik(10);
+                if (kalemAcik) Toast("Sarı çizgi haritanın sınırı. Düzeltmek için parmağınla çiz"); });
             var leA = arcBtn.gameObject.AddComponent<LayoutElement>(); leA.flexibleWidth = 1f;
+            // silgi: yalniz kalem acikken gorunur; parmagin gectigi kalem cizgisi silinir
+            var silBtn = UiKur.Dugme(bar.transform, "Silgi", "Silgi", UiKur.DugmeStili.Ikincil, out _, out kSilYazi, UiKur.Body);
+            silBtn.onClick.AddListener(() => { kSilAcik = !kSilAcik; kSilYazi.color = kSilAcik ? UiKur.Vurgu : UiKur.MetinRenk; Haptik(10);
+                if (kSilAcik) Toast("Silmek için çizginin üstünden parmağını geçir"); });
+            var leS = silBtn.gameObject.AddComponent<LayoutElement>(); leS.flexibleWidth = 1f;
+            kSilBtnGo = silBtn.gameObject; kSilBtnGo.SetActive(false);
 
             var sifBtn = UiKur.Dugme(bar.transform, "Sifirla", "Sıfırla", UiKur.DugmeStili.Ikincil, UiKur.Body);
             sifBtn.onClick.AddListener(() => OnayGoster("Tarama silinsin mi?", "Bu taramanın kaydı ve oda modeli silinir, baştan başlarsın.", "Sil", true, SifirlaTarama));

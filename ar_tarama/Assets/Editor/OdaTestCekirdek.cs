@@ -723,6 +723,16 @@ namespace ArTarama
                     if (ciktiDir != null) { Directory.CreateDirectory(ciktiDir); ZeminPng(za, Path.Combine(ciktiDir, "ara_" + kareSay.ToString("0000") + ".png")); }
                 }
             }
+            // KALEM="x0,z0,x1,z1,...|kx,kz": kalem cizgisi (kullanici kx,kz'de) son guncellemeden once eklenir
+            string kalemT = Environment.GetEnvironmentVariable("KALEM");
+            if (!string.IsNullOrEmpty(kalemT))
+            {
+                var pr = kalemT.Split('|'); var ci = CultureInfo.InvariantCulture;
+                var xz = Array.ConvertAll(pr[0].Split(','), q => float.Parse(q, ci)); var kk2 = Array.ConvertAll(pr[1].Split(','), q => float.Parse(q, ci));
+                var once = zh.Guncelle(planlar, k.model.izgara.SonZaman + 0.2f);
+                yaz("KALEM oncesi acik=" + F(once.alan) + " m2");
+                zh.SinirCizgisiEkle(xz, kk2[0], kk2[1]);
+            }
             // son kare sonrasi bir son guncelleme
             zh.Guncelle(planlar, k.model.izgara.SonZaman + 0.5f);
             var sw0 = Stopwatch.StartNew();

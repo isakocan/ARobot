@@ -161,7 +161,8 @@ namespace ArTarama
         // ------------------------------------------------------------------------------------------ sorgular
         /// <summary>Zemindeki nokta acik zeminde ve en yakin engele en az 25 cm uzak mi? Harita yoksa false (bilinmeyen yere konmaz).</summary>
         /// <summary>Kalemle cekilen zemin siniri noktasi (dunya x, z). Bir sonraki yapida (1 Hz) haritaya islenir.</summary>
-        public void SinirEkle(float x, float z) { zemin.SinirEkle(x, z); }
+        public int SinirCizgisiEkle(float[] xz, float kx, float kz) => zemin.SinirCizgisiEkle(xz, kx, kz);
+        public List<int> SinirSil(float x, float z, float r) => zemin.SinirSil(x, z, r);
 
         public bool AcikZeminMi(Vector3 p)
         {
