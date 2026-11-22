@@ -436,7 +436,7 @@ namespace ArTarama
         //  5) aday zemin: ARCore zemin duzlemleri + yurunen yol + derinlikte zemin; esya ve duvar cikar
         //  6) bagli: yalniz kullanicinin yurudugu / durdugu yerden duvar ve esya gecmeden ulasilan aday zemin
         //  7) kalici: bir kez acik bulunan hucre, sonradan esya ya da duvar kaniti gelmedikce silinmez
-        public const float KabaV = 0.20f;
+        public const float KabaV = 0.30f;      // esya karesi: hassasliktan cok duz ve dogru (kullanici, 22 Kasim)
         // Teyit (22 Kasim, ev4 taramasi: kamera bir yere doner donmez boyuyordu, duvar arkasi / masa ici / hic bakilmamis yer
         // zemin oluyordu): hucre ancak derinlikte en az KesinKare (~2 sn tutunca) karede zemin goruldugunde aday olur;
         // ARCore duzlemi yalniz boyle teyitli yerin 20 cm cevresine tasar. Zemin kaniti en cok 2 m'den.
