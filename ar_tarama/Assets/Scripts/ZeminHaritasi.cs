@@ -268,6 +268,8 @@ namespace ArTarama
         // uzakta (az nokta) daha uzun tutmak gerekir.
         public const int KesinKare = 3, KesinNokta = 6;
         static bool Teyitli(Hucre c) => c.zemin >= KesinKare && c.zN >= KesinNokta;
+        // zemin mi diger mi: cogunluk oyu (kullanici, 22 Kasim: derinlik yalniz "zemin" ve "diger" ayirsin)
+        static bool EngelHucresi(Hucre c) => (c.engel >= EngelMinKare && c.engel > c.zemin) || (c.ust >= 3 && c.ust > c.zemin);
         public const int AcmaYaricap = 2;        // hucre: 10 cm'den ince saçaklar ve kenar pürüzü atilir (morfolojik acma)
         public const int EnKucukParca = 100;     // hucre: 0,25 m2'den kucuk acik zemin parcalari atilir
         public const int DelikDoldur = 60;       // hucre: icinde engel olmayan 0,15 m2'den kucuk delikler doldurulur
@@ -587,18 +589,21 @@ namespace ArTarama
             foreach (long k in kHat) duvar.Add(k);
 
             // 4) esya: 20 cm kaba kareler (ana yone hizali); yurunen yer esya olamaz
-            var kabaSay = new Dictionary<long, int>(); var kabaYol = new HashSet<long>();
+            // 22 Kasim (ev 2): eski kural (30 cm karede 2 engelli hucre yeter) derinligin daginik gurultusuyle koridorlari
+            // kapatiyordu (149 kaba kare = 13 m2). Simdi oylama: hucre engelse engel kareleri zemin karelerinden fazla; kaba
+            // kare, gozlenen hucrelerinin en az dortte biri engelse esya.
+            var kabaSay = new Dictionary<long, int>(); var kabaGoz = new Dictionary<long, int>(); var kabaYol = new HashSet<long>();
             foreach (var kv in h)
             {
                 var c = kv.Value;
                 long kk = Kaba(kv.Key, ca, sa);
                 if (c.yol > 0) { kabaYol.Add(kk); continue; }
-                bool eng = c.engel >= EngelMinKare && c.engel * 2 >= c.zemin;
-                bool masa = c.ust >= 3 && c.ust * 2 >= c.zemin;                    // ustunde bir sey var (masa / sandalye)
-                if (eng || masa) kabaSay[kk] = (kabaSay.TryGetValue(kk, out int n) ? n : 0) + 1;
+                if (c.zemin + c.engel + c.ust == 0) continue;
+                kabaGoz[kk] = (kabaGoz.TryGetValue(kk, out int g) ? g : 0) + 1;
+                if (EngelHucresi(c)) kabaSay[kk] = (kabaSay.TryGetValue(kk, out int n) ? n : 0) + 1;
             }
             var esya = new HashSet<long>();
-            foreach (var kv in kabaSay) if (kv.Value >= 2 && !kabaYol.Contains(kv.Key)) esya.Add(kv.Key);
+            foreach (var kv in kabaSay) if (kv.Value >= 3 && kv.Value * 4 >= kabaGoz[kv.Key] && !kabaYol.Contains(kv.Key)) esya.Add(kv.Key);
 
             // 5) aday zemin. ARCore duzlemi gorulmemis yere de tasabiliyor (21 Kasim cok odali taramada son zemin duzlemi
             // butun binayi kaplayan dev bir cokgendi): duzlem hucresi yalniz derinlikte zemin gorulen ya da yurunen yerin
@@ -616,7 +621,7 @@ namespace ArTarama
                     if (yakin) aday.Add(k);
                 }
             }
-            foreach (var kv in h) if (kv.Value.yol > 0 || (Teyitli(kv.Value) && kv.Value.engel == 0)) aday.Add(kv.Key);
+            foreach (var kv in h) if (kv.Value.yol > 0 || (Teyitli(kv.Value) && !EngelHucresi(kv.Value))) aday.Add(kv.Key);
             foreach (long k in kAcik) aday.Add(k);
             Func<long, bool> kapali = k => duvar.Contains(k) || kKapali.Contains(k) || (!kAcik.Contains(k) && esya.Contains(Kaba(k, ca, sa)));
             aday.RemoveWhere(k => kapali(k));
@@ -643,7 +648,8 @@ namespace ArTarama
                 if (kAcik.Contains(k) || !h.TryGetValue(k, out var c) || c.yol > 0) return false;
                 // teyitli zeminde birkac engel noktasi esya kenarindaki derinlik tasmasi olabilir: silmek icin engel kaniti
                 // zemin kanitindan fazla ve en az 6 karede olmali
-                return (c.engel >= 6 && c.engel > c.zemin) || (c.ust >= 6 && c.ust > c.zemin);
+                // 22 Kasim (ev 2): bir kez boyanan yer gidince kullanici guvenini kaybediyor; silmek icin engel iki kat baskin olmali
+                return (c.engel >= 8 && c.engel > 2 * c.zemin) || (c.ust >= 8 && c.ust > 2 * c.zemin);
             };
             var kalan = new HashSet<long>(); int gDuvar = 0, gEngel = 0;
             foreach (long k in kalici) { if (!kaliciGider(k)) kalan.Add(k); else if (duvar.Contains(k)) gDuvar++; else gEngel++; }
