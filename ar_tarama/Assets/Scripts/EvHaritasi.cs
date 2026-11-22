@@ -50,13 +50,14 @@ namespace ArTarama
         public HashSet<long> acik = new HashSet<long>(), engel = new HashSet<long>(), bilinen = new HashSet<long>(), silinen = new HashSet<long>();
         public HashSet<long> duvar = new HashSet<long>();
         public List<float> iz = new List<float>();
+        public float aci = float.NaN;    // haritanin ana yonu ev koordinatinda (duz kenarli cizim icin)
 
         public float Alan => acik.Count * ZeminSonuc.V * ZeminSonuc.V;
 
         /// <summary>Gosterim icin ZeminSonuc (ev koordinatinda).</summary>
         public ZeminSonuc Sonuc()
         {
-            var s = new ZeminSonuc { zeminVar = true, zeminY = 0f };
+            var s = new ZeminSonuc { zeminVar = true, zeminY = 0f, aci = aci };
             s.acik = new HashSet<long>(acik); s.engel = new HashSet<long>(engel); s.bilinen = new HashSet<long>(bilinen); s.duvar = new HashSet<long>(duvar);
             foreach (long k in silinen) { s.acik.Remove(k); s.bilinen.Remove(k); s.engel.Remove(k); }
             s.alan = s.acik.Count * ZeminSonuc.V * ZeminSonuc.V; s.iz = iz.ToArray();
@@ -95,13 +96,14 @@ namespace ArTarama
             foreach (long k in yeni) { acik.Remove(k); engel.Remove(k); bilinen.Remove(k); duvar.Remove(k); }
             acik.UnionWith(a); engel.UnionWith(e); bilinen.UnionWith(b); duvar.UnionWith(d);
             for (int i = 0; i + 1 < s.iz.Length; i += 2) { T.Uygula(s.iz[i], s.iz[i + 1], out double x, out double z); iz.Add((float)x); iz.Add((float)z); }
+            if (!float.IsNaN(s.aci) && float.IsNaN(aci)) aci = (float)(s.aci + T.aci);
             taramaSayisi++;
         }
 
         /// <summary>Ev haritasini oturum koordinatina cevirir (duzenlemede eski haritayi canli gostermek icin). T: ev -> oturum.</summary>
         public ZeminSonuc Oturuma(Poz2 T, float zeminY)
         {
-            var s = new ZeminSonuc { zeminVar = true, zeminY = zeminY };
+            var s = new ZeminSonuc { zeminVar = true, zeminY = zeminY, aci = float.IsNaN(aci) ? float.NaN : (float)(aci + T.aci) };
             var ac = new HashSet<long>(acik); ac.ExceptWith(silinen);
             s.acik = Donustur(ac, T); s.engel = Donustur(engel, T); s.bilinen = Donustur(bilinen, T); s.duvar = Donustur(duvar, T);
             return s;
@@ -110,7 +112,7 @@ namespace ArTarama
         /// <summary>Iki oturum sonucunu birlestirir: yeni kanit olan hucrede yeni gecer, digerlerinde eski kalir.</summary>
         public static ZeminSonuc Birlestir(ZeminSonuc yeni, ZeminSonuc eski, HashSet<long> silinenOturum)
         {
-            var s = new ZeminSonuc { zeminVar = true, zeminY = yeni.zeminY, kameraX = yeni.kameraX, kameraZ = yeni.kameraZ, zaman = yeni.zaman, iz = yeni.iz };
+            var s = new ZeminSonuc { zeminVar = true, zeminY = yeni.zeminY, kameraX = yeni.kameraX, kameraZ = yeni.kameraZ, zaman = yeni.zaman, iz = yeni.iz, aci = float.IsNaN(yeni.aci) ? eski.aci : yeni.aci };
             s.acik = new HashSet<long>(yeni.acik); s.engel = new HashSet<long>(yeni.engel); s.bilinen = new HashSet<long>(yeni.bilinen); s.duvar = new HashSet<long>(yeni.duvar);
             var yk = new HashSet<long>(yeni.acik); yk.UnionWith(yeni.engel); yk.UnionWith(yeni.bilinen);
             foreach (long k in eski.acik) if (!yk.Contains(k)) s.acik.Add(k);
@@ -159,7 +161,7 @@ namespace ArTarama
 
         public string HaritaJson()
         {
-            var s = new ZeminSonuc { zeminVar = true, zeminY = 0f, acik = acik, engel = engel, bilinen = bilinen, duvar = duvar, alan = Alan, iz = iz.ToArray() };
+            var s = new ZeminSonuc { zeminVar = true, zeminY = 0f, acik = acik, engel = engel, bilinen = bilinen, duvar = duvar, alan = Alan, iz = iz.ToArray(), aci = aci };
             string j = s.Json(ad);
             // silinen ve duvar hucreleri de yazilir
             var sb = new StringBuilder(j.Substring(0, j.Length - 1));
@@ -205,7 +207,7 @@ namespace ArTarama
             {
                 string zj = File.ReadAllText(zp);
                 var s = ZeminSonuc.JsonOku(zj, out _);
-                ev.acik = s.acik; ev.engel = s.engel; ev.bilinen = s.bilinen;
+                ev.acik = s.acik; ev.engel = s.engel; ev.bilinen = s.bilinen; ev.aci = s.aci;
                 ev.iz = new List<float>(s.iz);
                 ev.silinen = HucreListesi(zj, "silinen"); ev.duvar = HucreListesi(zj, "duvar");
             }

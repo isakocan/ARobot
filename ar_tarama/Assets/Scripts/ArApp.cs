@@ -296,8 +296,8 @@ namespace ArTarama
             if (oda != null) oda.ev = null;
             if (!string.IsNullOrEmpty(not)) Toast(not);
             else if (ok) Toast(duzenleme ? "Ev güncellendi" : "Ev kaydedildi");
-            if (ok || duzenleme) EvGoster(aktifEv);
-            else { GosterMod(Mod.Baslangic); KayitlariListele(); }
+            // bitti dedikten sonra biter: ana menuye donulur; duzenle / silgi oradan evi acinca (kullanici istegi, 22 Kasim)
+            GosterMod(Mod.Baslangic); KayitlariListele();
         }
 
         // ---------------- ana dongu ----------------
@@ -432,7 +432,9 @@ namespace ArTarama
                 kalemNokta.Clear(); kalemSon = p;
                 var go = new GameObject("KalemCizgi"); go.layer = OdaYoneticisi.KatmanAr;
                 kalemCizgi = go.AddComponent<LineRenderer>();
-                kalemCizgi.sharedMaterial = new Material(Shader.Find("Sprites/Default"));
+                // OdaDolgu: tepe rengi, her seyin ustunde (Sprites/Default derlemede olmayabiliyor; cizgi gorunmuyordu)
+                var km = Resources.Load<Material>("mat_oda_dolgu");
+                kalemCizgi.sharedMaterial = km != null ? km : new Material(Shader.Find("ArTarama/OdaDolgu"));
                 kalemCizgi.startColor = kalemCizgi.endColor = new Color(1f, 1f, 1f, 0.95f);
                 kalemCizgi.widthMultiplier = 0.03f; kalemCizgi.numCapVertices = 4; kalemCizgi.numCornerVertices = 2;
                 kalemCizgi.alignment = LineAlignment.TransformZ; go.transform.rotation = Quaternion.Euler(90f, 0f, 0f);

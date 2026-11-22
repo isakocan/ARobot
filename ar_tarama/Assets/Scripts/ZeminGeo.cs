@@ -87,6 +87,88 @@ namespace ArTarama
             foreach (long k in ekle) acik.Add(k);
         }
 
+        /// <summary>Acik zemin kumesinin ana yone (aci) hizali izgarada duz kenarli konturu: hucre merkezleri dondurulmus
+        /// 5 cm izgaraya orneklenir, 3x3 cogunluk suzgeci (tek hucrelik basamak gurultusu), bulaniksiz marching squares;
+        /// koseler dunyaya geri dondurulur. Kenarlar ana yone paralel duz cizgiler (koselerde 45 derece pah).</summary>
+        public static void DuzKontur(HashSet<long> acik, float aci, List<float> ucgen, List<float> kenar)
+        {
+            if (acik.Count == 0) return;
+            float V = ZeminSonuc.V, ca = (float)Math.Cos(aci), sa = (float)Math.Sin(aci);
+            float u0 = float.MaxValue, u1 = float.MinValue, w0 = float.MaxValue, w1 = float.MinValue;
+            foreach (long k in acik)
+            {
+                ZeminSonuc.Coz(k, out int ix, out int iz); float x = (ix + 0.5f) * V, z = (iz + 0.5f) * V;
+                float u = x * ca + z * sa, w = -x * sa + z * ca;
+                if (u < u0) u0 = u; if (u > u1) u1 = u; if (w < w0) w0 = w; if (w > w1) w1 = w;
+            }
+            // 10 cm kaba izgara (ana yone hizali): hucre, 4 ornegin en az 3'u acik ise acik
+            const float C = 0.10f;
+            int cu0 = (int)Math.Floor(u0 / C) - 3, cw0 = (int)Math.Floor(w0 / C) - 3;
+            int CW = (int)Math.Floor(u1 / C) - cu0 + 4, CH = (int)Math.Floor(w1 / C) - cw0 + 4;
+            if (CW * CH > 1000000) return;
+            var k0 = new bool[CW * CH];
+            for (int y = 0; y < CH; y++)
+                for (int x = 0; x < CW; x++)
+                {
+                    int n = 0;
+                    for (int q = 0; q < 4; q++)
+                    {
+                        float u = (cu0 + x + 0.25f + 0.5f * (q & 1)) * C, w = (cw0 + y + 0.25f + 0.5f * (q >> 1)) * C;
+                        float wx = u * ca - w * sa, wz = u * sa + w * ca;
+                        if (acik.Contains(OdaSonuc.Anah2((int)Math.Floor(wx / V), (int)Math.Floor(wz / V)))) n++;
+                    }
+                    k0[y * CW + x] = n >= 3;
+                }
+            // kare cekirdekle kapama (10 cm centikler dolar) sonra acma (10 cm cikintilar gider): kenarlar duz kalir
+            k0 = Kare(k0, CW, CH, true); k0 = Kare(k0, CW, CH, false);
+            k0 = Kare(k0, CW, CH, false); k0 = Kare(k0, CW, CH, true);
+            // cizimde ayri kalan kucuk adaciklar (0,25 m2'den kucuk) atilir
+            {
+                var gez = new bool[CW * CH]; var yig = new Stack<int>(); var parca = new List<int>();
+                for (int i0 = 0; i0 < CW * CH; i0++)
+                {
+                    if (!k0[i0] || gez[i0]) continue;
+                    parca.Clear(); yig.Push(i0); gez[i0] = true;
+                    while (yig.Count > 0)
+                    {
+                        int i = yig.Pop(); parca.Add(i); int x = i % CW, y = i / CW;
+                        if (x > 0 && k0[i - 1] && !gez[i - 1]) { gez[i - 1] = true; yig.Push(i - 1); }
+                        if (x < CW - 1 && k0[i + 1] && !gez[i + 1]) { gez[i + 1] = true; yig.Push(i + 1); }
+                        if (y > 0 && k0[i - CW] && !gez[i - CW]) { gez[i - CW] = true; yig.Push(i - CW); }
+                        if (y < CH - 1 && k0[i + CW] && !gez[i + CW]) { gez[i + CW] = true; yig.Push(i + CW); }
+                    }
+                    if (parca.Count < 25) foreach (int i in parca) k0[i] = false;
+                }
+            }
+            // 5 cm izgaraya buyut (kontur 5 cm'de: koselerde yalniz 2,5 cm pah)
+            int W = CW * 2, H = CH * 2; int gu0 = cu0 * 2, gw0 = cw0 * 2;
+            var b = new float[W * H];
+            for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) if (k0[(y >> 1) * CW + (x >> 1)]) b[y * W + x] = 1f;
+            var uc = new List<float>(); var ke = kenar != null ? new List<float>() : null;
+            Kontur(b, W, H, gu0, gw0, 1, 0.5f, uc, ke);
+            for (int i = 0; i + 1 < uc.Count; i += 2) { float u = uc[i], w = uc[i + 1]; ucgen.Add(u * ca - w * sa); ucgen.Add(u * sa + w * ca); }
+            if (ke != null) for (int i = 0; i + 1 < ke.Count; i += 2) { float u = ke[i], w = ke[i + 1]; kenar.Add(u * ca - w * sa); kenar.Add(u * sa + w * ca); }
+        }
+
+        /// <summary>3x3 kare cekirdekle genisletme (genislet=true) ya da asindirma.</summary>
+        static bool[] Kare(bool[] a, int W, int H, bool genislet)
+        {
+            var b = new bool[W * H];
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    bool r = !genislet;
+                    for (int dy = -1; dy <= 1; dy++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int xx = x + dx, yy = y + dy; bool v = xx >= 0 && yy >= 0 && xx < W && yy < H && a[yy * W + xx];
+                            if (genislet && v) r = true; else if (!genislet && !v) r = false;
+                        }
+                    b[y * W + x] = r;
+                }
+            return b;
+        }
+
         /// <summary>Hucre kumesinden 0..1 alan (5 cm), iki kez 3x3 kutu bulaniklastirma (yaklasik Gauss, ~10 cm).</summary>
         public static float[] Alan(HashSet<long> h, int gx0, int gz0, int W, int H)
         {

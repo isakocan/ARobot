@@ -715,6 +715,13 @@ namespace ArTarama
                     }
                 OdaSentetik.Besle(k, f, planlar); kareSay++;
                 zh.Isle(f);
+                // ZEMIN_ARA=n: her n karede ara sonuc (alan zamanla nasil degisiyor; once taranan yer siliniyor mu)
+                if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ARA"), out int ara) && ara > 0 && kareSay % ara == 0)
+                {
+                    var za = zh.Guncelle(planlar, f.zaman);
+                    yaz("ARA kare " + kareSay + " t=" + F(f.zaman, 1) + " acik=" + F(za.alan) + " m2 hucre=" + za.acik.Count + " | " + zh.Teshis);
+                    if (ciktiDir != null) { Directory.CreateDirectory(ciktiDir); ZeminPng(za, Path.Combine(ciktiDir, "ara_" + kareSay.ToString("0000") + ".png")); }
+                }
             }
             // son kare sonrasi bir son guncelleme
             zh.Guncelle(planlar, k.model.izgara.SonZaman + 0.5f);
