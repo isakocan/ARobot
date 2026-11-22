@@ -674,6 +674,49 @@ def surucu_duyuldu():
     SON_SURUCU_SESI[0] = time.time()
 
 
+# Ağ durumu sesleri (kullanıcı isteği, 22 Kasım): robotun ekranı yok; açılışta ve ağ durumu değişince buzzer
+# hangi durumda olduğunu söyler.
+#   Wi-Fi ağına bağlandı      : iki nota, yükselen (sol-do, "tamam")
+#   Kendi ağını yayıyor       : üç kısa eşit bip (telefondan "Kurulum-Agi"na bağlan)
+#   Hiçbir ağ yok / bağlanıyor: iki nota, alçalan (uzun)
+AG_SESLERI = {
+    "bagli": [(784, 120), (0, 60), (1047, 220)],
+    "kurulum": [(1175, 90), (0, 110), (1175, 90), (0, 110), (1175, 90)],
+    "yok": [(660, 260), (0, 60), (440, 420)],
+}
+
+
+def ag_durumu():
+    """('bagli' | 'kurulum' | 'yok', ağ adı). NetworkManager'dan okunur."""
+    try:
+        cikti = subprocess.run(["nmcli", "-t", "-f", "TYPE,STATE,CONNECTION", "dev"], stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, timeout=5).stdout.decode("utf-8", "replace")
+    except Exception:
+        return "yok", ""
+    for satir in cikti.splitlines():
+        p = satir.split(":", 2)
+        if len(p) == 3 and p[0] == "wifi" and p[1] == "connected":
+            return ("kurulum" if p[2].startswith("Kurulum") else "bagli"), p[2]
+    return "yok", ""
+
+
+def ag_sesi_dongusu():
+    onceki = None
+    while not ARDUINO.bagli:
+        time.sleep(0.5)
+    time.sleep(1.5)                       # Arduino açılış sesini bitirsin
+    while True:
+        durum_, ad = ag_durumu()
+        if durum_ != onceki:
+            log("Ağ durumu:", durum_, ad)
+            for hz, ms in AG_SESLERI[durum_]:
+                if hz:
+                    ARDUINO.gonder("B {} {}".format(hz, ms))
+                time.sleep(ms / 1000.0 + 0.01)
+            onceki = durum_
+        time.sleep(4)
+
+
 def nabiz_dongusu():
     alarm_verildi = False
     son_isi = 0.0
@@ -1110,6 +1153,7 @@ class UdpKanal:
 
 def main():
     threading.Thread(target=nabiz_dongusu, daemon=True).start()
+    threading.Thread(target=ag_sesi_dongusu, daemon=True).start()
     log("Konum bulma:", "hazır" if KONUM is not None else "kapalı (" + str(KONUM_HATASI) + ")")
     UdpKanal()
     log("Sürüş köprüsü hazır, port", PORT, "UDP", UDP_PORT)
