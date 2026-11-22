@@ -98,7 +98,7 @@ namespace ArTarama
             Kur();
             KayitAc();
             Gunluk.Yaz("dev", "acildi");
-            StartCoroutine(Baglan());
+            EvSec();
         }
 
         // ------------------------------------------------------------------ kamera takılışı (robot uygulamasıyla aynı)
@@ -227,14 +227,51 @@ namespace ArTarama
         }
 
         // ------------------------------------------------------------------ bağlantı
-        IEnumerator Baglan()
+        // ------------------------------------------------------------------ ev seçimi
+        GameObject secimPanel;
+
+        /// <summary>Hangi evde sürülecek: seçilen evin haritası robota gönderilir (konum onun işaretleriyle bulunur).</summary>
+        void EvSec()
+        {
+            var evler = EvDeposu.Listele();
+            if (evler.Count == 0) { StartCoroutine(Baglan(null)); return; }
+            int n = Mathf.Min(evler.Count, 6);
+            var p = Rect("Ev secimi", arayuz.transform); p.anchorMin = p.anchorMax = p.pivot = new Vector2(0.5f, 0.5f);
+            p.sizeDelta = new Vector2(900, 150 + 120 * n);
+            p.gameObject.AddComponent<Image>().color = new Color(0.06f, 0.07f, 0.09f, 0.95f);
+            secimPanel = p.gameObject;
+            var bt = Rect("Baslik", p); bt.anchorMin = new Vector2(0, 1); bt.anchorMax = new Vector2(1, 1); bt.pivot = new Vector2(0.5f, 1);
+            bt.anchoredPosition = new Vector2(0, -20); bt.sizeDelta = new Vector2(-60, 90);
+            var bx = bt.gameObject.AddComponent<Text>(); bx.font = UiKur.Yazi; bx.fontSize = 44; bx.color = Color.white; bx.alignment = TextAnchor.MiddleLeft;
+            bx.text = "Hangi evde süreceksin?";
+            for (int i = 0; i < n; i++)
+            {
+                string klasor = EvDeposu.Klasor(evler[i]); string ad = evler[i];
+                try { var e = Ev.Yukle(klasor); if (e != null) ad = e.ad + "   (" + evler[i].Replace("ev_", "") + ")"; } catch (Exception) { }
+                var r = Rect("Ev", p); r.anchorMin = new Vector2(0, 1); r.anchorMax = new Vector2(1, 1); r.pivot = new Vector2(0.5f, 1);
+                r.anchoredPosition = new Vector2(0, -130 - 120 * i); r.sizeDelta = new Vector2(-60, 104);
+                r.gameObject.AddComponent<Image>().color = new Color(1, 1, 1, 0.1f);
+                var t = Rect("Yazi", r); t.anchorMin = Vector2.zero; t.anchorMax = Vector2.one; t.offsetMin = new Vector2(30, 0); t.offsetMax = Vector2.zero;
+                var tx = t.gameObject.AddComponent<Text>(); tx.font = UiKur.Yazi; tx.fontSize = 38; tx.color = Color.white; tx.alignment = TextAnchor.MiddleLeft; tx.text = ad; tx.raycastTarget = false;
+                r.gameObject.AddComponent<Button>().onClick.AddListener(() => { Destroy(secimPanel); secimPanel = null; StartCoroutine(Baglan(klasor)); });
+            }
+        }
+
+        IEnumerator Baglan(string evKlasoru)
         {
             bilgi.text = "Robot aranıyor…";
             var t = RobotaGonder.RobotuBul(s => { });
             while (!t.IsCompleted) yield return null;
             ip = t.Result;
             if (ip == null) { bilgi.text = "Robot bulunamadı. Robot açık ve telefonla aynı ağda mı?"; Gunluk.Yaz("dev", "robot bulunamadi"); yield break; }
-            Gunluk.Yaz("dev", "robot: " + ip);
+            Gunluk.Yaz("dev", "robot: " + ip + ", ev: " + (evKlasoru ?? "robottaki"));
+            if (evKlasoru != null)
+            {
+                bilgi.text = "Ev haritası robota gönderiliyor…";
+                var g = RobotaGonder.Gonder(evKlasoru, s => { });
+                while (!g.IsCompleted) yield return null;
+                Gunluk.Yaz("dev", "ev gonderildi: " + (g.Result ?? "tamam"));
+            }
             using (var r = UnityWebRequest.Get("http://" + ip + ":" + HttpPort + "/api/kamera-ayari"))
             {
                 r.timeout = 4; yield return r.SendWebRequest();
@@ -248,7 +285,7 @@ namespace ArTarama
             udp = new UdpClient(0);
             alici = new Thread(UdpAl) { IsBackground = true }; alici.Start();
             akis = new Thread(MjpegOku) { IsBackground = true }; akis.Start();
-            StartCoroutine(HaritaGetir());
+            StartCoroutine(HaritaGetir(evKlasoru));
         }
         [Serializable] class KameraAyari { public float yon = 0f, egim = 0f, yatma = 90f; }
 
@@ -316,8 +353,16 @@ namespace ArTarama
             try { udp.Send(b, b.Length, ip, UdpPort); } catch (Exception) { }
         }
 
-        IEnumerator HaritaGetir()
+        IEnumerator HaritaGetir(string evKlasoru)
         {
+            if (evKlasoru != null)
+            {
+                // seçilen ev telefonda: harita doğrudan dosyadan (robota da aynısı gönderildi)
+                try { ev = JsonUtility.FromJson<EvJson>(File.ReadAllText(Path.Combine(evKlasoru, "ev.json"))); } catch (Exception) { }
+                ZeminJson yz = null;
+                try { yz = JsonUtility.FromJson<ZeminJson>(File.ReadAllText(Path.Combine(evKlasoru, "zemin.json"))); } catch (Exception) { }
+                if (yz?.acik != null && yz.acik.Length >= 2) { HaritaCiz(yz.acik); yield break; }
+            }
             using (var r = UnityWebRequest.Get("http://" + ip + ":" + HttpPort + "/api/ev"))
             {
                 r.timeout = 6; yield return r.SendWebRequest();
@@ -329,10 +374,17 @@ namespace ArTarama
                 if (r.result != UnityWebRequest.Result.Success) yield break;
                 ZeminJson z = null; try { z = JsonUtility.FromJson<ZeminJson>(r.downloadHandler.text); } catch (Exception) { }
                 if (z?.acik == null || z.acik.Length < 2) yield break;
-                int x0 = int.MaxValue, x1 = int.MinValue, z0 = int.MaxValue, z1 = int.MinValue; var a = z.acik;
+                HaritaCiz(z.acik);
+            }
+        }
+
+        void HaritaCiz(int[] acik)
+        {
+            {
+                int x0 = int.MaxValue, x1 = int.MinValue, z0 = int.MaxValue, z1 = int.MinValue; var a = acik;
                 for (int i = 0; i + 1 < a.Length; i += 2) { x0 = Math.Min(x0, a[i]); x1 = Math.Max(x1, a[i]); z0 = Math.Min(z0, a[i + 1]); z1 = Math.Max(z1, a[i + 1]); }
                 x0 -= 2; z0 -= 2; hW = x1 - x0 + 3; hH = z1 - z0 + 3;
-                if (hW * hH > 4000000) yield break;
+                if (hW * hH > 4000000) return;
                 var px = new Color32[hW * hH];
                 for (int i = 0; i + 1 < a.Length; i += 2) px[(a[i + 1] - z0) * hW + (a[i] - x0)] = new Color32(67, 217, 190, 210);
                 haritaTex = new Texture2D(hW, hH, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };

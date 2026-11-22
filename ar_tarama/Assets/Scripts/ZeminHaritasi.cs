@@ -278,7 +278,7 @@ namespace ArTarama
         public static bool SadeceDerinlik = true;
         public static int IsinGuven = 64; public static float IsinMenzil = 3.0f;
         readonly DolulukHaritasi dol = new DolulukHaritasi();  // 23 Kasim: zemin yalniz derinlikten; ARCore duzlemi aday/duvar vermez
-        public const int EngelPay = 1;             // hucre: engelin cevresinde birakilan pay (5 cm)
+        public const int EngelPay = 0;             // hucre: engelin cevresinde birakilan pay (23 Kasim: kullanici biraz daha genis acik alan istedi, 5 cm -> 0)
         static bool EngelHucresi(Hucre c) => (c.engel >= EngelMinKare && c.engel > c.zemin) || (c.ust >= 3 && c.ust > c.zemin);
         public const int AcmaYaricap = 2;        // hucre: 10 cm'den ince saçaklar ve kenar pürüzü atilir (morfolojik acma)
         public const int EnKucukParca = 100;     // hucre: 0,25 m2'den kucuk acik zemin parcalari atilir
