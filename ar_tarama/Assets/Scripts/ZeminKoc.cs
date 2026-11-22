@@ -57,7 +57,7 @@ namespace ArTarama
             for (int i = 0; i + 1 < s.sinir.Length; i += 2)
             {
                 double dx = s.sinir[i] - g.kx, dz = s.sinir[i + 1] - g.kz, d = Math.Sqrt(dx * dx + dz * dz);
-                if (d < 0.8 || d > 3.5) continue;              // zemin kaniti en cok 3 m'den toplanir
+                if (d < 0.6 || d > 2.4) continue;              // zemin kaniti en cok 2 m'den toplanir
                 // onundekine oncelik: arkadaki 2 kat uzak sayilir
                 double fark = Math.Abs(Fark(Math.Atan2(dx, dz) * 180.0 / Math.PI, g.yaw));
                 double m = d * (1.0 + fark / 180.0);

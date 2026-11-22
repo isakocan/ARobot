@@ -245,7 +245,7 @@ namespace ArTarama
         // bir hucre acik zemin sayilir ancak (a) kullanici oradan yurumusse ya da (b) derinlik orayi en az KesinKare karede
         // zemin olarak gorduyse, hic guvenli engel noktasi yoksa ve ustunde (15 cm - 1,2 m) duzenli nokta gorulmediyse
         // (masa / sandalye alti). ARCore duzlemleri artik kanit degil: gorulmemis masa altina tasiyordu.
-        public const int KesinKare = 4;
+        public const int KesinKare = 8;            // 4 Hz derinlikte ~2 sn tutma (kullanici: bir kerelik is, garanti olsun)
         public const int AcmaYaricap = 2;        // hucre: 10 cm'den ince saçaklar ve kenar pürüzü atilir (morfolojik acma)
         public const int EnKucukParca = 100;     // hucre: 0,25 m2'den kucuk acik zemin parcalari atilir
         public const int DelikDoldur = 60;       // hucre: icinde engel olmayan 0,15 m2'den kucuk delikler doldurulur
@@ -438,9 +438,9 @@ namespace ArTarama
         //  7) kalici: bir kez acik bulunan hucre, sonradan esya ya da duvar kaniti gelmedikce silinmez
         public const float KabaV = 0.20f;
         // Teyit (22 Kasim, ev4 taramasi: kamera bir yere doner donmez boyuyordu, duvar arkasi / masa ici / hic bakilmamis yer
-        // zemin oluyordu): hucre ancak derinlikte en az KesinKare (~1 sn tutunca) karede zemin goruldugunde aday olur;
-        // ARCore duzlemi yalniz boyle teyitli yerin 20 cm cevresine tasar. Zemin kaniti en cok 3 m'den.
-        public const float ZeminMenzil = 3.0f;
+        // zemin oluyordu): hucre ancak derinlikte en az KesinKare (~2 sn tutunca) karede zemin goruldugunde aday olur;
+        // ARCore duzlemi yalniz boyle teyitli yerin 20 cm cevresine tasar. Zemin kaniti en cok 2 m'den.
+        public const float ZeminMenzil = 2.0f;
         readonly HashSet<long> kalici = new HashSet<long>();
         readonly HashSet<long> duvarKalici = new HashSet<long>();
         float kamYTop; int kamYSay;
