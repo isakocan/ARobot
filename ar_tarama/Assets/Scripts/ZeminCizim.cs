@@ -76,7 +76,7 @@ namespace ArTarama
             if (simdi - sonGorus < 0.25f) return;
             sonGorus = simdi;
             var p = kam.transform.position;
-            Gorus.Kur(s.duvar, p.x, p.z);
+            Gorus.Kur(s.engel, p.x, p.z);          // duvar + esya: masa / sandalye arkasindaki zemin ve nesneler de gizlenir
             for (int i = 0; i < renk.Length; i++)
             {
                 var q = v[i]; float dx = q.x - p.x, dz = q.z - p.z; float r = Mathf.Sqrt(dx * dx + dz * dz);

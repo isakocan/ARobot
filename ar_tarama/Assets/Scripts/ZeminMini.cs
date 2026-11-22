@@ -15,7 +15,8 @@ namespace ArTarama
         readonly RawImage resim;
         readonly Text bilgi, bos;
         Texture2D tex; ZeminSonuc sonCizilen;
-        float ox, oz; int W, H;
+        float ox, oz; int W, H;              // ox, oz: resmin sol alt kosesi (ana yone hizali cercevede, metre)
+        const float P = ZeminSonuc.ResimPiksel;
         float olcek = 50f, yaw;            // piksel / metre
         bool canli;
 
@@ -71,13 +72,14 @@ namespace ArTarama
 
         void IsaretYerlestir()
         {
-            float mw = W * ZeminSonuc.V, mh = H * ZeminSonuc.V; if (mw <= 0f || mh <= 0f) return;
+            float mw = W * P, mh = H * P; if (mw <= 0f || mh <= 0f || sonCizilen == null) return;
             for (int i = 0; i < isaretler.Count && i < isaretUi.Count; i++)
             {
                 var m = isaretler[i]; var r = isaretUi[i];
-                r.anchorMin = r.anchorMax = new Vector2((m.x - ox) / mw, (m.y - oz) / mh);
+                sonCizilen.DunyadanResme(m.x, m.y, out float u, out float w);
+                r.anchorMin = r.anchorMax = new Vector2((u - ox) / mw, (w - oz) / mh);
                 r.anchoredPosition = Vector2.zero;
-                r.localRotation = Quaternion.Euler(0, 0, -icerik.localEulerAngles.z);   // harita donse de dik kalsin
+                r.localRotation = Quaternion.Euler(0, 0, -icerik.localEulerAngles.z - harita.localEulerAngles.z);   // harita donse de dik kalsin
                 r.SetAsLastSibling();
             }
         }
@@ -90,7 +92,7 @@ namespace ArTarama
             var sz = harita.rect.size; if (sz.x < 1f || sz.y < 1f) return false;
             float nx = (lp.x - harita.rect.xMin) / sz.x, ny = (lp.y - harita.rect.yMin) / sz.y;
             if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return false;
-            x = ox + nx * W * ZeminSonuc.V; z = oz + ny * H * ZeminSonuc.V;
+            sonCizilen.ResimdenDunyaya(ox + nx * W * P, oz + ny * H * P, out x, out z);
             return true;
         }
         public void Sifirla() { sonCizilen = null; resim.texture = null; bos.gameObject.SetActive(true); bilgi.text = ""; }
@@ -103,7 +105,8 @@ namespace ArTarama
                 // inceleme: yurunen yol (turuncu, ince)
                 for (int i = 0; i + 3 < s.iz.Length; i += 2)
                 {
-                    float ax = (s.iz[i] - ox) / ZeminSonuc.V, az = (s.iz[i + 1] - oz) / ZeminSonuc.V, bx = (s.iz[i + 2] - ox) / ZeminSonuc.V, bz = (s.iz[i + 3] - oz) / ZeminSonuc.V;
+                    s.DunyadanResme(s.iz[i], s.iz[i + 1], out float ua, out float wa); s.DunyadanResme(s.iz[i + 2], s.iz[i + 3], out float ub, out float wb);
+                    float ax = (ua - ox) / P, az = (wa - oz) / P, bx = (ub - ox) / P, bz = (wb - oz) / P;
                     int n = Mathf.Max(1, Mathf.CeilToInt(Mathf.Max(Mathf.Abs(bx - ax), Mathf.Abs(bz - az))));
                     for (int q = 0; q <= n; q++)
                     {
@@ -116,7 +119,7 @@ namespace ArTarama
             if (tex == null || tex.width != W || tex.height != H)
             {
                 if (tex != null) Object.Destroy(tex);
-                tex = new Texture2D(W, H, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, name = "ZeminHarita" };
+                tex = new Texture2D(W, H, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp, name = "ZeminHarita" };
             }
             tex.LoadRawTextureData(p); tex.Apply(false);
             resim.texture = tex;
@@ -132,26 +135,30 @@ namespace ArTarama
             if (!var) return;
             if (s != sonCizilen) { Ciz(s); bilgi.text = Metre(s.alan) + " m² açık zemin"; }
             Rect r = kok.rect; if (r.width < 10f) return;
-            float mw = W * ZeminSonuc.V, mh = H * ZeminSonuc.V;
+            float mw = W * P, mh = H * P;
+            var cs = sonCizilen; cs.DunyadanResme(kam.x, kam.z, out float ku, out float kw);
+            harita.localRotation = Quaternion.Euler(0, 0, cs.ResimAciDerece);   // resim ana yone hizali cizildi: dunyaya cevir
             if (canli)
             {
                 // yaricap: kullanicidan haritanin en uzak kosesine, 3-8 m
                 float R = 0f;
                 foreach (var c in new[] { new Vector2(ox, oz), new Vector2(ox + mw, oz), new Vector2(ox, oz + mh), new Vector2(ox + mw, oz + mh) })
-                    R = Mathf.Max(R, Vector2.Distance(c, new Vector2(kam.x, kam.z)));
+                    R = Mathf.Max(R, Vector2.Distance(c, new Vector2(ku, kw)));
                 R = Mathf.Clamp(R * 0.8f, 3f, 8f);
                 float hedef = Mathf.Min(r.width, r.height) * 0.5f / R;
                 olcek = Mathf.Lerp(olcek, hedef, 1f - Mathf.Exp(-2f * dt));
                 yaw = Mathf.LerpAngle(yaw, kamYaw, 1f - Mathf.Exp(-8f * dt));
                 harita.sizeDelta = new Vector2(mw, mh) * olcek;
-                harita.pivot = new Vector2((kam.x - ox) / mw, (kam.z - oz) / mh);
+                harita.pivot = new Vector2((ku - ox) / mw, (kw - oz) / mh);
                 harita.anchoredPosition = Vector2.zero;
                 icerik.localRotation = Quaternion.Euler(0, 0, yaw);   // bakis yonu yukari
                 kullanici.localRotation = Quaternion.identity;
             }
             else
             {
-                float k = Mathf.Min(r.width / mw, r.height / mh) * 0.94f;
+                float ca = Mathf.Abs(cs.ResimCa), sa = Mathf.Abs(cs.ResimSa);
+                float bw = mw * ca + mh * sa, bh = mw * sa + mh * ca;            // donmus resmin kapladigi kutu
+                float k = Mathf.Min(r.width / bw, r.height / bh) * 0.94f;
                 harita.sizeDelta = new Vector2(mw, mh) * k; harita.pivot = new Vector2(0.5f, 0.5f); harita.anchoredPosition = Vector2.zero;
                 icerik.localRotation = Quaternion.identity;
             }

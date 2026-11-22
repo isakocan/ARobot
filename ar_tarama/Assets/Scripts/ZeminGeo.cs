@@ -120,8 +120,9 @@ namespace ArTarama
                     k0[y * CW + x] = n >= 3;
                 }
             // kare cekirdekle kapama (10 cm centikler dolar) sonra acma (10 cm cikintilar gider): kenarlar duz kalir
-            k0 = Kare(k0, CW, CH, true); k0 = Kare(k0, CW, CH, false);
-            k0 = Kare(k0, CW, CH, false); k0 = Kare(k0, CW, CH, true);
+            // 20 cm: detaydan cok duz kenar (kullanici, 22 Kasim)
+            k0 = Kare(k0, CW, CH, true); k0 = Kare(k0, CW, CH, true); k0 = Kare(k0, CW, CH, false); k0 = Kare(k0, CW, CH, false);
+            k0 = Kare(k0, CW, CH, false); k0 = Kare(k0, CW, CH, false); k0 = Kare(k0, CW, CH, true); k0 = Kare(k0, CW, CH, true);
             // cizimde ayri kalan kucuk adaciklar (0,25 m2'den kucuk) atilir
             {
                 var gez = new bool[CW * CH]; var yig = new Stack<int>(); var parca = new List<int>();

@@ -644,7 +644,7 @@ namespace ArTarama
         public static void ZeminPng(ZeminSonuc zs, string yol)
         {
             var rgba = zs.Resim(out int W, out int H, out float ox, out float oz, 10);
-            const int K = 3;
+            const int K = 1; const float P = ZeminSonuc.ResimPiksel;   // resim ana yone hizali cercevede (u, w), 2,5 cm piksel
             var r = new OdaResim(W * K, H * K, 24, 27, 32);
             for (int y = 0; y < H; y++)
                 for (int x = 0; x < W; x++)
@@ -654,10 +654,10 @@ namespace ArTarama
                     for (int q = 0; q < K; q++) for (int t = 0; t < K; t++) r.Nokta(x * K + t, (H - 1 - y) * K + q, rgba[o], rgba[o + 1], rgba[o + 2], a);
                 }
             for (int i = 0; i + 3 < zs.iz.Length; i += 2)
-                r.Cizgi((zs.iz[i] - ox) / ZeminSonuc.V * K, (H - (zs.iz[i + 1] - oz) / ZeminSonuc.V) * K, (zs.iz[i + 2] - ox) / ZeminSonuc.V * K, (H - (zs.iz[i + 3] - oz) / ZeminSonuc.V) * K, 1.5, 255, 160, 60, 0.8f);
-            // 1 m izgara
-            for (float gx = (float)Math.Ceiling(ox); gx < ox + W * ZeminSonuc.V; gx += 1f) r.Cizgi((gx - ox) / ZeminSonuc.V * K, 0, (gx - ox) / ZeminSonuc.V * K, H * K, 1, 90, 90, 100, 0.35f);
-            for (float gz = (float)Math.Ceiling(oz); gz < oz + H * ZeminSonuc.V; gz += 1f) r.Cizgi(0, (H - (gz - oz) / ZeminSonuc.V) * K, W * K, (H - (gz - oz) / ZeminSonuc.V) * K, 1, 90, 90, 100, 0.35f);
+            {
+                zs.DunyadanResme(zs.iz[i], zs.iz[i + 1], out float ua, out float wa); zs.DunyadanResme(zs.iz[i + 2], zs.iz[i + 3], out float ub, out float wb);
+                r.Cizgi((ua - ox) / P * K, (H - (wa - oz) / P) * K, (ub - ox) / P * K, (H - (wb - oz) / P) * K, 1.5, 255, 160, 60, 0.8f);
+            }
             r.Yaz(yol);
         }
 
