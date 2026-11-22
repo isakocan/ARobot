@@ -683,6 +683,12 @@ namespace ArTarama
 
             var k = OdaSentetik.Yeni(); double ilkT = -1; int kareSay = 0;
             if (Environment.GetEnvironmentVariable("ZEMIN_GUVENLI") == "1") ZeminHaritasi.SadeceGuvenli = true;
+            if (Environment.GetEnvironmentVariable("ZEMIN_ESKI") == "1") ZeminHaritasi.SadeceDerinlik = false;
+            if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_UST_GUVEN"), out int ug)) ZeminHaritasi.UstGuven = ug;
+            if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ISIN_GUVEN"), out int ig)) ZeminHaritasi.IsinGuven = ig;
+            if (float.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ISIN_MENZIL"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float im)) ZeminHaritasi.IsinMenzil = im;
+            if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ORAN"), out int ob)) ZeminHaritasi.EngelOranBolen = ob;
+            if (float.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ENGEL_MENZIL"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float em)) ZeminHaritasi.EngelMenzil = em;
             ZeminHaritasi.DokumYolu = Environment.GetEnvironmentVariable("ZEMIN_DOKUM");   // son guncellemenin hucre dokumu
             var zh = new ZeminHaritasi(); zh.Guncelle(planlar, 0f);
             HashSet<long> araOnce = null;
@@ -737,6 +743,20 @@ namespace ArTarama
                 var once = zh.Guncelle(planlar, k.model.izgara.SonZaman + 0.2f);
                 yaz("KALEM oncesi acik=" + F(once.alan) + " m2");
                 zh.SinirCizgisiEkle(xz, kk2[0], kk2[1]);
+            }
+            // kayittaki kalem cizgileri (kalem.json, 23 Kasim'dan beri kaydediliyor): KALEM verilmediyse hepsi eklenir
+            string kalemDosya = Path.Combine(klasor, "kalem.json");
+            if (string.IsNullOrEmpty(kalemT) && File.Exists(kalemDosya) && Environment.GetEnvironmentVariable("KALEMSIZ") != "1")
+            {
+                var kj = MiniJson.Parse(File.ReadAllText(kalemDosya));
+                if (MiniJson.Al(kj, "cizgiler") is List<object> cl)
+                    foreach (var co in cl)
+                    {
+                        var xl = MiniJson.Al(co, "xz") as List<object>; if (xl == null || xl.Count < 4) continue;
+                        var xz = new float[xl.Count]; for (int q = 0; q < xl.Count; q++) xz[q] = (float)MiniJson.D(xl[q]);
+                        zh.SinirCizgisiEkle(xz, (float)MiniJson.D(MiniJson.Al(co, "kx")), (float)MiniJson.D(MiniJson.Al(co, "kz")));
+                    }
+                yaz("kalem.json: " + zh.CizgiSayisi + " cizgi");
             }
             // son kare sonrasi bir son guncelleme
             zh.Guncelle(planlar, k.model.izgara.SonZaman + 0.5f);

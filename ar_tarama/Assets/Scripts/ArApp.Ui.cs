@@ -95,6 +95,7 @@ namespace ArTarama
                 es.GetComponent<InputSystemUIInputModule>().AssignDefaultActions();
             }
             var cgo = new GameObject("Arayuz", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            arayuzKok = cgo;
             var canvas = cgo.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay; canvas.sortingOrder = 10;
             var cs = cgo.GetComponent<CanvasScaler>();
@@ -241,6 +242,7 @@ namespace ArTarama
         void BitirTikla()
         {
             var s = oda != null ? oda.ZSon : null;
+            Gunluk.Yaz("tarama", "bitir: alan " + (s != null ? s.alan.ToString("F2") : "-") + " m2");
             if (s == null || s.alan < 2f)
                 OnayGoster("Taramayı bitirelim mi?", "Henüz az zemin tarandı. Yine de bitirip haritayı görebilirsin.", "Bitir", false, Bitir);
             else Bitir();
@@ -248,6 +250,7 @@ namespace ArTarama
 
         void IsaretKaydedildi(int id)
         {
+            Gunluk.Yaz("isaret", "kaydedildi " + id);
             if (mod != Mod.Tarama || !isaretChipGoruldu.Add(id)) return;
             chipYazi.text = "İşaret " + id + " kaydedildi"; chipBitis = Time.unscaledTime + 2.6f;
         }
@@ -436,8 +439,12 @@ namespace ArTarama
             UiKur.Yerles(alt.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(900, 100), new Vector2(0, -300));
 
             var yeni = UiKur.Dugme(ic, "YeniEv", "Yeni ev ekle", UiKur.DugmeStili.Birincil, 44);
-            UiKur.Yerles(yeni.GetComponent<RectTransform>(), new Vector2(0, 1), new Vector2(0, 1), new Vector2(968, 140), new Vector2(0, -410));
+            UiKur.Yerles(yeni.GetComponent<RectTransform>(), new Vector2(0, 1), new Vector2(0, 1), new Vector2(640, 140), new Vector2(0, -410));
             yeni.onClick.AddListener(YeniEv);
+            // robotu sür (dev): 360 görüntü, yön tuşları, AR nesneleri, kayıt
+            var robot = UiKur.Dugme(ic, "RobotDev", "Robot", UiKur.DugmeStili.Ikincil, 40);
+            UiKur.Yerles(robot.GetComponent<RectTransform>(), new Vector2(0, 1), new Vector2(0, 1), new Vector2(308, 140), new Vector2(660, -410));
+            robot.onClick.AddListener(RobotDevAc);
 
             var etiket = UiKur.Metin(ic, "Etiket", "EVLER", UiKur.Caption, UiKur.Soluk, TextAnchor.MiddleLeft, FontStyle.Bold);
             UiKur.Yerles(etiket.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(700, 40), new Vector2(4, -620));

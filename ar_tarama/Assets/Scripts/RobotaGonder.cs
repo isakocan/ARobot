@@ -46,6 +46,15 @@ namespace ArTarama
             });
         }
 
+        /// <summary>Robotun adresini bulur (son adres, jetson.local, UDP yayını, alt ağ taraması); bulunamazsa null.</summary>
+        public static async Task<string> RobotuBul(Action<string> durum)
+        {
+            string son = PlayerPrefs.GetString(AdresAnahtari, "");
+            string ip = await Task.Run(() => Bul(son, durum));
+            if (ip != null) { PlayerPrefs.SetString(AdresAnahtari, ip); PlayerPrefs.Save(); }
+            return ip;
+        }
+
         static string Bul(string son, Action<string> durum)
         {
             if (!string.IsNullOrEmpty(son) && Cevap(son)) return son;

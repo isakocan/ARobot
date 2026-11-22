@@ -162,8 +162,17 @@ namespace ArTarama
         // ------------------------------------------------------------------------------------------ sorgular
         /// <summary>Zemindeki nokta acik zeminde ve en yakin engele en az 25 cm uzak mi? Harita yoksa false (bilinmeyen yere konmaz).</summary>
         /// <summary>Kalemle cekilen zemin siniri noktasi (dunya x, z). Bir sonraki yapida (1 Hz) haritaya islenir.</summary>
-        public int SinirCizgisiEkle(float[] xz, float kx, float kz) => zemin.SinirCizgisiEkle(xz, kx, kz);
-        public List<int> SinirSil(float x, float z, float r) => zemin.SinirSil(x, z, r);
+        public int SinirCizgisiEkle(float[] xz, float kx, float kz)
+        {
+            Gunluk.Yaz("kalem", "cizgi " + xz.Length / 2 + " nokta, " + xz[0].ToString("F2") + "," + xz[1].ToString("F2") + " -> " + xz[xz.Length - 2].ToString("F2") + "," + xz[xz.Length - 1].ToString("F2"));
+            return zemin.SinirCizgisiEkle(xz, kx, kz);
+        }
+        public List<int> SinirSil(float x, float z, float r)
+        {
+            var l = zemin.SinirSil(x, z, r);
+            if (l.Count > 0) Gunluk.Yaz("kalem", "silindi " + l.Count + " cizgi");
+            return l;
+        }
 
         public bool AcikZeminMi(Vector3 p)
         {
@@ -318,10 +327,19 @@ namespace ArTarama
                 YapiMs = YapiMs <= 0 ? (float)sw.Elapsed.TotalMilliseconds : Mathf.Lerp(YapiMs, (float)sw.Elapsed.TotalMilliseconds, 0.2f);
                 VokselSayisi = m.HucreSayisi;
                 if (bu == nesil) bekleyen = r;
+                // gunluk: 5 sn'de bir harita ozeti (alan, kumeler, ne kadar surdu)
+                if (zaman - sonGunlukZaman >= 5f)
+                {
+                    sonGunlukZaman = zaman;
+                    Gunluk.Yaz("zemin", "t=" + zaman.ToString("F0") + " alan " + r.alan.ToString("F2") + " m2, kamera " + r.kameraX.ToString("F2") + "," + r.kameraZ.ToString("F2") +
+                        ", " + sw.ElapsedMilliseconds + " ms | " + ZeminHaritasi.TeshisSon);
+                }
             });
         }
 
         /// <summary>Duzenlemede: evde kayitli ve bu oturumda en cok gorulen isarete gore ev -> oturum donusumu.</summary>
+        float sonGunlukZaman = -100f;
+
         void HizaKontrol()
         {
             if (plan == null || ev == null) return;
@@ -391,6 +409,8 @@ namespace ArTarama
             {
                 var s = ZSon; if (s == null || kayit == null || string.IsNullOrEmpty(kayit.Klasor) || !Directory.Exists(kayit.Klasor)) return;
                 File.WriteAllText(Path.Combine(kayit.Klasor, "zemin.json"), s.Json(kayit.Oda), new UTF8Encoding(false));
+                File.WriteAllText(Path.Combine(kayit.Klasor, "kalem.json"), zemin.KalemJson(), new UTF8Encoding(false));
+                Gunluk.Yaz("tarama", "kaydedildi: " + kayit.Klasor + " alan " + s.alan.ToString("F2") + " m2, kalem " + zemin.CizgiSayisi);
             }
             catch (Exception e) { Debug.LogWarning("[ArTarama] zemin.json yazilamadi: " + e.Message); }
         }

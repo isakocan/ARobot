@@ -171,6 +171,7 @@ namespace ArTarama
 
         void GosterMod(Mod m)
         {
+            if (mod != m) Gunluk.Yaz("mod", mod + " -> " + m);
             mod = m;
             if (ekranBaslangic != null) ekranBaslangic.Goster(m == Mod.Baslangic);
             if (ekranHud != null) ekranHud.Goster(m == Mod.Tarama);
@@ -190,6 +191,26 @@ namespace ArTarama
         Ev aktifEv; bool duzenleme, hizaAbone;
 
         /// <summary>Yeni ev: bos haritayla tarama baslar; Bitir'de ilk isarete gore ev koordinatinda kaydedilir.</summary>
+        GameObject arayuzKok;
+        RobotDev robotDev;
+
+        /// <summary>Robot Dev ekranı: AR oturumu ve tarama arayüzü kapanır, çıkınca geri gelir.</summary>
+        public void RobotDevAc()
+        {
+            if (robotDev != null) return;
+            Gunluk.Yaz("menu", "robot dev");
+            if (oturum != null) oturum.enabled = false;
+            if (arKamera != null) arKamera.enabled = false;
+            if (arayuzKok != null) arayuzKok.SetActive(false);
+            robotDev = RobotDev.Ac(() =>
+            {
+                robotDev = null;
+                if (arayuzKok != null) arayuzKok.SetActive(true);
+                if (arKamera != null) arKamera.enabled = true;
+                if (oturum != null) oturum.enabled = true;
+            });
+        }
+
         public void YeniEv()
         {
             int n = EvDeposu.Listele().Count + 1;
