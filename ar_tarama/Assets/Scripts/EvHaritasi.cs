@@ -120,13 +120,15 @@ namespace ArTarama
             return s;
         }
 
-        /// <summary>Yeni oturumu eskinin ustune katar. Eski acik zemin yalniz yeni oturumda orada engel / duvar goruldugunde
-        /// gider; yeni oturumun 'bilinen' (gorulmus ama teyit edilmemis) hucreleri eskiyi silmez (22 Kasim: kayitli evi
+        /// <summary>Yeni oturumu eskinin ustune katar. Eski acik zemin yalniz yeni oturumda orada duvar / kalem cizgisi
+        /// goruldugunde gider; yeni oturumun 'bilinen' (gorulmus ama teyit edilmemis) hucreleri eskiyi silmez (22 Kasim: kayitli evi
         /// acinca eski zemin sifirdan taraniyormus gibi kayboluyordu). Yeni acik zemin eski engelin yerine gecer.</summary>
         static void Kat(HashSet<long> acik, HashSet<long> engel, HashSet<long> bilinen, HashSet<long> duvar,
                         HashSet<long> a, HashSet<long> e, HashSet<long> b, HashSet<long> d)
         {
-            acik.ExceptWith(e); acik.ExceptWith(d);
+            // eski zemin yeni oturumdaki esya kanitiyla silinmez (hizalamadaki birkac cm kayma esya kenarinda iyi taranmis
+            // yeri kemiriyordu): yalniz duvar / kalem cizgisi siler, gerisi icin silgi
+            acik.ExceptWith(d);
             engel.ExceptWith(a); duvar.ExceptWith(a);
             acik.UnionWith(a); engel.UnionWith(e); duvar.UnionWith(d);
             foreach (long k in b) if (!acik.Contains(k) && !engel.Contains(k) && !duvar.Contains(k)) bilinen.Add(k);
