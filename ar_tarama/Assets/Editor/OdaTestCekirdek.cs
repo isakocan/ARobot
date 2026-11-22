@@ -683,6 +683,7 @@ namespace ArTarama
 
             var k = OdaSentetik.Yeni(); double ilkT = -1; int kareSay = 0;
             if (Environment.GetEnvironmentVariable("ZEMIN_GUVENLI") == "1") ZeminHaritasi.SadeceGuvenli = true;
+            ZeminHaritasi.DokumYolu = Environment.GetEnvironmentVariable("ZEMIN_DOKUM");   // son guncellemenin hucre dokumu
             var zh = new ZeminHaritasi(); zh.Guncelle(planlar, 0f);
             HashSet<long> araOnce = null;
             foreach (var satir in File.ReadAllLines(Path.Combine(klasor, "kareler.jsonl")))

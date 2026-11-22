@@ -255,6 +255,7 @@ namespace ArTarama
         public const float V = ZeminSonuc.V;
         public const float ZeminBant = 0.05f, EngelAlt = 0.08f, EngelUst = 2.0f;   // iki sinif: zemin (+-5 cm) ve 8 cm-2 m arasi her sey
         public const int EngelMinKare = 3;
+        public static string DokumYolu;            // PC teshis: her guncellemede hucre dokumu (null = kapali)
         public static int GuvenEsik = 128; public static bool SadeceGuvenli = true;   // gercek kayitlarda dusuk guvenli noktalar yurunen yolu bile engel yapiyordu
 
         class Hucre { public int zemin, zN, engel, yol, uzun, ust; public int kz = -1, ke = -1, ku = -1, ks = -1; public bool plan; }
@@ -690,6 +691,19 @@ namespace ArTarama
                 else if (!duvar.Contains(kv.Key)) s.bilinen.Add(kv.Key);
             }
             Teshis = "yuksek " + YukSon + " dikey " + dikeySay + " duvarH " + duvar.Count + " | gitti duvar " + gDuvar + " engel " + gEngel + " | aday " + aday.Count + " acik " + acik.Count + " duvar " + duvar.Count + " esya(20cm) " + esya.Count + " aci " + (aci * 180 / Math.PI).ToString("F1") + " zy " + zy.ToString("F2") + " kamY " + kamY.ToString("F2");
+            if (DokumYolu != null)
+            {
+                // teshis (yalniz PC tekrar oynatma): hucre basina sayaclar ve hangi kumede oldugu
+                var sb = new System.Text.StringBuilder("ix,iz,zemin,zN,engel,ust,uzun,yol,teyit,aday,duvar,esya,acik\n");
+                var hepsi = new HashSet<long>(h.Keys); hepsi.UnionWith(acik); hepsi.UnionWith(duvar);
+                foreach (long k in hepsi)
+                {
+                    ZeminSonuc.Coz(k, out int ix, out int iz); h.TryGetValue(k, out var c); c = c ?? new Hucre();
+                    sb.Append(ix).Append(',').Append(iz).Append(',').Append(c.zemin).Append(',').Append(c.zN).Append(',').Append(c.engel).Append(',').Append(c.ust).Append(',').Append(c.uzun).Append(',').Append(c.yol).Append(',')
+                      .Append(Teyitli(c) ? 1 : 0).Append(',').Append(aday.Contains(k) ? 1 : 0).Append(',').Append(duvar.Contains(k) ? 1 : 0).Append(',').Append(esya.Contains(Kaba(k, ca, sa)) ? 1 : 0).Append(',').Append(acik.Contains(k) ? 1 : 0).Append('\n');
+                }
+                System.IO.File.WriteAllText(DokumYolu, sb.ToString());
+            }
             s.alan = s.acik.Count * V * V;
             var iz2 = new float[izX.Count * 2]; for (int i = 0; i < izX.Count; i++) { iz2[i * 2] = izX[i]; iz2[i * 2 + 1] = izZ[i]; }
             s.iz = iz2;
