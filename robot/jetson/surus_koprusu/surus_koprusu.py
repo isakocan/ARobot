@@ -53,6 +53,7 @@ except Exception as _e:        # numpy / cv2 yok
     _konum = None
     KONUM_HATASI = repr(_e)
 EV_DOSYASI = os.path.expanduser("~/robot/ev.json")
+ZEMIN_DOSYASI = os.path.expanduser("~/robot/zemin.json")   # ev haritası (acik hücreler, ev koordinatında)
 KONUM_ISTEK_SURESI = 5.0    # sn: uygulama bu kadar "ev" paketi yollamazsa konum durur (kamera ve işlemci boşa çalışmasın)
 
 SERI_PORT = "/dev/ttyACM0"
@@ -822,6 +823,14 @@ class Istek(BaseHTTPRequestHandler):
                 self._json({"hata": "Kamera görüntü vermiyor."}, 503)
         elif adres.path == "/api/durum":
             self._json(durum())
+        elif adres.path in ("/api/ev", "/api/ev/zemin"):
+            # telefondaki ev haritası (tarama uygulaması "Robota gönder" ile yollar): robot uygulaması küçük haritayı buradan alır
+            dosya = EV_DOSYASI if adres.path == "/api/ev" else ZEMIN_DOSYASI
+            try:
+                with open(dosya, "rb") as f:
+                    self._yanit(f.read(), "application/json; charset=utf-8")
+            except OSError:
+                self._json({"hata": "ev yok"}, 404)
         elif adres.path == "/api/kamera-ayari":
             try:
                 with open(KAMERA_AYARI) as f:
@@ -983,6 +992,21 @@ class Istek(BaseHTTPRequestHandler):
             self._json({"tamam": ARDUINO.gonder("S")})
         elif yol == "/api/efekt":       # {"no": n}: kısa ses efekti (panel kapanırken EF_KAPANIS çalar)
             self._json({"tamam": ARDUINO.gonder("X {}".format(int(veri.get("no", 0))))})
+        elif yol == "/api/ev":
+            # {"ev": ev.json, "zemin": zemin.json} (ev koordinatı: işaretin önündeki zemin, +z işaretin baktığı yön)
+            ev, zemin = veri.get("ev"), veri.get("zemin")
+            if not isinstance(ev, dict) or not isinstance(ev.get("isaretler"), list):
+                self._json({"hata": "ev.json gerekli"}, 400)
+                return
+            with open(EV_DOSYASI, "w") as f:
+                json.dump(ev, f)
+            if isinstance(zemin, dict):
+                with open(ZEMIN_DOSYASI, "w") as f:
+                    json.dump(zemin, f)
+            if KONUM is not None:
+                KONUM.ev_ayarla(ev.get("isaretler"))
+            log("Ev haritası alındı:", ev.get("ad"), len(ev.get("isaretler")), "işaret", "zeminli" if isinstance(zemin, dict) else "zeminsiz")
+            self._json({"tamam": True})
         elif yol == "/api/kamera-ayari":
             os.makedirs(os.path.dirname(KAMERA_AYARI), exist_ok=True)
             with open(KAMERA_AYARI, "w") as f:

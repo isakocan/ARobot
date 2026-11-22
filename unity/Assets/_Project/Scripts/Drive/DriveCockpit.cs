@@ -86,6 +86,7 @@ namespace ARaki.Drive
         VectorShape hubSeam, hubIcon;
         float speedMax;
         bool menuOpen;
+        float lastFreeTap = -10f; Vector2 lastFreeTapPos;
         public bool MenuOpen { get => menuOpen; set => menuOpen = value; }
         Text gearText, gearModeText, powerText, speedText, statusText, infoText, toastText, centerText, recText, warnText;
         Text settingsInfo;
@@ -311,22 +312,23 @@ namespace ARaki.Drive
                    11, icon: "merkez");
             Button("MENÜ", new Rect(mbX, mbY, mb, mb), () => { menuOpen = !menuOpen; drive.CloseMenus(); },
                    null, () => menuOpen, 11, icon: "menu");
-            const int menuColumns = 3;   // 6 düğme: 3x2
-            float mw = menuColumns * bw + (menuColumns + 1) * gap, mh = 2 * bh + 3 * gap;
+            const int menuColumns = 3, menuRows = 3;   // 7 düğme: 3x3
+            float mw = menuColumns * bw + (menuColumns + 1) * gap, mh = menuRows * bh + (menuRows + 1) * gap;
             float menuX = W - 24f - mw, menuY = mbY - gap - mh;
             menuRoot = Rt("Menü", content, V(menuX, menuY), V(mw, mh));
             var menuBg = Shape("Zemin", menuRoot);
             menuBg.RoundRect(new Rect(0, 0, mw, mh), 16f, new Color(0.03f, 0.035f, 0.04f, 0.82f));
             Action Open(Func<bool> isOpen, Action open) => () => { bool was = isOpen(); drive.CloseMenus(); if (!was) open(); menuOpen = false; };
-            string[] names = { "KAYITLAR", "KORNA", "FOTO", "VİDEO", "ROBOT", "AYARLAR" };   // şarkılar teypte
-            string[] icons = { "kayit", "korna", "foto", "video", "robot", "ayar" };
+            string[] names = { "KAYITLAR", "KORNA", "FOTO", "VİDEO", "ROBOT", "AYARLAR", "DEV" };   // şarkılar teypte
+            string[] icons = { "kayit", "korna", "foto", "video", "robot", "ayar", "dev" };
             Action[] acts = { Open(() => drive.RecordsOpen, () => { drive.RecordsOpen = true; recordsListedAt = -100f; selectedRecord = null; }),
                               Open(() => drive.HornMenuOpen, () => drive.HornMenuOpen = true),
                               drive.Photo, drive.Video,
                               Open(() => drive.RobotPanelOpen, OpenRobotPanel),
-                              Open(() => drive.SettingsOpen, () => drive.SettingsOpen = true) };
+                              Open(() => drive.SettingsOpen, () => drive.SettingsOpen = true),
+                              () => { drive.DevMode = !drive.DevMode; menuOpen = false; } };
             Func<bool>[] lits = { () => drive.RecordsOpen, () => drive.HornMenuOpen, null, () => drive.Recorder.Recording,
-                                  () => drive.RobotPanelOpen, () => drive.SettingsOpen };
+                                  () => drive.RobotPanelOpen, () => drive.SettingsOpen, () => drive.DevMode };
             for (int i = 0; i < names.Length; i++)
             {
                 int col = i % menuColumns, row = i / menuColumns;
@@ -1016,7 +1018,13 @@ namespace ARaki.Drive
                 else if (TryGrabWheel(kv.Key, p)) { }
                 else if (drive.SettingsOpen) { if (!Contains(settingsRoot, p)) drive.SettingsOpen = false; }   // dışına dokununca kapan
                 else if (menuOpen && !Contains(menuRoot, p)) menuOpen = false;
-                else if (p.y > 130f) looking[kv.Key] = p;
+                else if (p.y > 130f)
+                {
+                    looking[kv.Key] = p;
+                    // boş yere çift dokunma (Dev modu: AR nesnesi koy)
+                    if (Time.unscaledTime - lastFreeTap < 0.35f && (p - lastFreeTapPos).magnitude < 60f) { drive.DoubleTap(kv.Value); lastFreeTap = -10f; }
+                    else { lastFreeTap = Time.unscaledTime; lastFreeTapPos = p; }
+                }
             }
         }
 
@@ -1278,6 +1286,11 @@ namespace ARaki.Drive
                     s.Line(c + V(r * 0.5f, r * 0.35f), c + V(-r * 0.9f, r * 0.35f), t, w); s.Line(c + V(-r * 0.9f, r * 0.35f), c + V(-r * 0.9f, -r * 0.7f), t, w);
                     s.Line(c + V(-r * 0.5f, r * 0.7f), c + V(r * 0.9f, r * 0.7f), t, w); s.Line(c + V(r * 0.9f, r * 0.7f), c + V(r * 0.9f, -r * 0.35f), t, w);
                     s.Polygon(new[] { c + V(-r * 0.7f, -r * 0.5f), c + V(-r * 0.3f, -r * 0.05f), c + V(0.05f * r, -r * 0.5f) }, w);
+                    break;
+                case "dev":   // harita: çerçeve + içinde ok (robot)
+                    s.Line(c + V(-r * 0.85f, -r * 0.85f), c + V(r * 0.85f, -r * 0.85f), t, w); s.Line(c + V(r * 0.85f, -r * 0.85f), c + V(r * 0.85f, r * 0.85f), t, w);
+                    s.Line(c + V(r * 0.85f, r * 0.85f), c + V(-r * 0.85f, r * 0.85f), t, w); s.Line(c + V(-r * 0.85f, r * 0.85f), c + V(-r * 0.85f, -r * 0.85f), t, w);
+                    s.Polygon(new[] { c + V(0f, r * 0.5f), c + V(r * 0.35f, -r * 0.4f), c + V(-r * 0.35f, -r * 0.4f) }, w);
                     break;
                 case "menu":
                     for (int i = -1; i <= 1; i++) s.Line(c + V(-r * 0.8f, i * r * 0.5f), c + V(r * 0.8f, i * r * 0.5f), t, w);

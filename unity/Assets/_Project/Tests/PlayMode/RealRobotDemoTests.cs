@@ -242,6 +242,7 @@ namespace ARaki.Tests
             var env = Object.FindFirstObjectByType<ARaki.Video.EnvironmentLight>();
             Assert.IsNotNull(env, "ortam ışığı bileşeni yok");
             drive.Settings.Cockpit = false;
+            drive.DevMode = System.Environment.GetEnvironmentVariable("ARAKI_DEV") == "1";
             for (int i = 0; i < 4; i++)
             {
                 yield return new WaitForSecondsRealtime(i == 0 ? 2.5f : 3f);

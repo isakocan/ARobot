@@ -34,7 +34,7 @@ namespace ArTarama
             {
                 if (dx * dx + dz * dz > ri * ri) continue;
                 long k = OdaSonuc.Anah2(cx + dx, cz + dz); n++;
-                if (acik.Contains(k)) t += 1f; else if (kismi.TryGetValue(k, out byte b)) t += b / (float)ZeminHaritasi.KesinKare;
+                if (acik.Contains(k)) t += 1f; else if (kismi.TryGetValue(k, out byte b)) t += b / (float)ZeminHaritasi.KesinNokta;
             }
             return n > 0 ? t / n : 0f;
         }
@@ -253,17 +253,21 @@ namespace ArTarama
     public class ZeminHaritasi
     {
         public const float V = ZeminSonuc.V;
-        public const float ZeminBant = 0.05f, EngelAlt = 0.08f, EngelUst = 1.7f;
+        public const float ZeminBant = 0.05f, EngelAlt = 0.08f, EngelUst = 2.0f;   // iki sinif: zemin (+-5 cm) ve 8 cm-2 m arasi her sey
         public const int EngelMinKare = 3;
         public static int GuvenEsik = 128; public static bool SadeceGuvenli = true;   // gercek kayitlarda dusuk guvenli noktalar yurunen yolu bile engel yapiyordu
 
-        class Hucre { public int zemin, engel, yol, uzun, ust; public int kz = -1, ke = -1, ku = -1, ks = -1; public bool plan; }
+        class Hucre { public int zemin, zN, engel, yol, uzun, ust; public int kz = -1, ke = -1, ku = -1, ks = -1; public bool plan; }
 
         // "Kesin zemin" (kullanici istegi, 21 Kasim: pürüzlü olacağına hiç gösterme, az ama temiz ve doğru):
         // bir hucre acik zemin sayilir ancak (a) kullanici oradan yurumusse ya da (b) derinlik orayi en az KesinKare karede
         // zemin olarak gorduyse, hic guvenli engel noktasi yoksa ve ustunde (15 cm - 1,2 m) duzenli nokta gorulmediyse
         // (masa / sandalye alti). ARCore duzlemleri artik kanit degil: gorulmemis masa altina tasiyordu.
-        public const int KesinKare = 6;            // ~1,5-2 sn tutma (8 kare canlida kapi aglarinda fazla yavasti)
+        // Derinlik agirlikli teyit (kullanici, 22 Kasim: derinlik gercege cok yakin, daha cok kullan): hucre en az KesinKare
+        // farkli karede ve toplam en az KesinNokta guvenli zemin noktasiyla goruldugunde teyitli. Yakinda (cok nokta) hizli,
+        // uzakta (az nokta) daha uzun tutmak gerekir.
+        public const int KesinKare = 3, KesinNokta = 6;
+        static bool Teyitli(Hucre c) => c.zemin >= KesinKare && c.zN >= KesinNokta;
         public const int AcmaYaricap = 2;        // hucre: 10 cm'den ince saçaklar ve kenar pürüzü atilir (morfolojik acma)
         public const int EnKucukParca = 100;     // hucre: 0,25 m2'den kucuk acik zemin parcalari atilir
         public const int DelikDoldur = 60;       // hucre: icinde engel olmayan 0,15 m2'den kucuk delikler doldurulur
@@ -417,6 +421,7 @@ namespace ArTarama
                         if (d > ZeminMenzil) continue;
                         var c = Al(OdaSonuc.Anah2(ZeminSonuc.Ind(x), ZeminSonuc.Ind(z)));
                         if (c.kz != kare) { c.kz = kare; c.zemin++; }
+                        if (f.g == null || f.g[i] >= 64) c.zN++;
                     }
                     else if (yk >= EngelAlt && yk <= 2.3f)
                     {
@@ -599,7 +604,7 @@ namespace ArTarama
             // butun binayi kaplayan dev bir cokgendi): duzlem hucresi yalniz derinlikte zemin gorulen ya da yurunen yerin
             // 30 cm yakininda sayilir
             var kanit = new HashSet<long>();
-            foreach (var kv in h) if (kv.Value.zemin >= KesinKare || kv.Value.yol > 0) { ZeminSonuc.Coz(kv.Key, out int ix, out int iz); kanit.Add(OdaSonuc.Anah2(FloorDiv(ix, 4), FloorDiv(iz, 4))); }
+            foreach (var kv in h) if (Teyitli(kv.Value) || kv.Value.yol > 0) { ZeminSonuc.Coz(kv.Key, out int ix, out int iz); kanit.Add(OdaSonuc.Anah2(FloorDiv(ix, 4), FloorDiv(iz, 4))); }
             var aday = new HashSet<long>();
             foreach (var p in planlar)
             {
@@ -611,7 +616,7 @@ namespace ArTarama
                     if (yakin) aday.Add(k);
                 }
             }
-            foreach (var kv in h) if (kv.Value.yol > 0 || (kv.Value.zemin >= KesinKare && kv.Value.engel == 0)) aday.Add(kv.Key);
+            foreach (var kv in h) if (kv.Value.yol > 0 || (Teyitli(kv.Value) && kv.Value.engel == 0)) aday.Add(kv.Key);
             foreach (long k in kAcik) aday.Add(k);
             Func<long, bool> kapali = k => duvar.Contains(k) || kKapali.Contains(k) || (!kAcik.Contains(k) && esya.Contains(Kaba(k, ca, sa)));
             aday.RemoveWhere(k => kapali(k));
@@ -667,7 +672,7 @@ namespace ArTarama
             kalici.Clear(); foreach (long k in acik) kalici.Add(k);
 
             // teyit bekleyen (1..KesinKare-1 karede zemin gorulmus) hucreler: yonlendirme halkasi ilerlemesi
-            foreach (var kv in h) if (kv.Value.zemin > 0 && kv.Value.zemin < KesinKare && !acik.Contains(kv.Key)) s.kismi[kv.Key] = (byte)kv.Value.zemin;
+            foreach (var kv in h) if (kv.Value.zemin > 0 && !Teyitli(kv.Value) && !acik.Contains(kv.Key)) s.kismi[kv.Key] = (byte)Math.Min(KesinNokta, Math.Min(kv.Value.zemin * 2, kv.Value.zN));
             // sonuc kumeleri
             s.acik = acik;
             s.duvar = duvar;

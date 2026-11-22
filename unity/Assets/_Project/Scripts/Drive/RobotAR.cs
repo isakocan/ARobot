@@ -39,12 +39,43 @@ namespace ARaki.Drive
             public MaterialPropertyBlock shadowBlock;
             public Transform[] eyes;
             public Vector2 home, pos, target;
-            public float heading, phase, nextTarget, size;
+            public float heading, phase, nextTarget, size, wander = 0.45f;
+        }
+
+        PanoramaViewer view;
+
+        /// <summary>Robotun gösterilen konumu (ev koordinatı, yaw derece: +z'den saat yönü).</summary>
+        public bool HavePose => havePose;
+        public float PoseX => poseX;
+        public float PoseZ => poseZ;
+        public float PoseYaw => poseYaw;
+        /// <summary>AR nesnelerinin ev koordinatındaki yerleri (küçük harita için).</summary>
+        public IEnumerable<Vector2> Objects { get { foreach (var c in creatures) yield return c.pos; } }
+
+        /// <summary>Ekrana çift dokunulan yere (zemine) bir yaratık koyar. Konum bilinmiyorsa ya da yer ufkun üstündeyse / 4 m
+        /// ötedeyse koymaz ve neden döner.</summary>
+        public string PlaceAt(Vector2 screen)
+        {
+            if (!havePose) return "Konum henüz bulunmadı: önce işareti göster";
+            var ray = view.ViewCamera.ScreenPointToRay(screen);
+            Vector3 o = root.InverseTransformPoint(ray.origin), d = root.InverseTransformDirection(ray.direction);
+            if (d.y > -0.03f) return "Zemine dokun";
+            float t = (-CameraHeight - o.y) / d.y; var p = o + d * t;
+            if (new Vector2(p.x, p.z).magnitude > 4f) return "Çok uzak (en çok 4 m)";
+            // robot -> ev: sağ = dx*c - dz*s, ileri = dx*s + dz*c'nin tersi
+            float c = Mathf.Cos(poseYaw * Mathf.Deg2Rad), sn = Mathf.Sin(poseYaw * Mathf.Deg2Rad);
+            var ev = new Vector2(poseX + p.x * c + p.z * sn, poseZ - p.x * sn + p.z * c);
+            var colors = new[] { new Color(1f, 0.62f, 0.25f), new Color(0.35f, 0.85f, 0.75f), new Color(0.75f, 0.5f, 1f), new Color(1f, 0.45f, 0.55f) };
+            var cr = Build(colors[creatures.Count % colors.Length], Random.Range(0.11f, 0.16f));
+            cr.home = cr.pos = cr.target = ev;
+            cr.heading = poseYaw + 180f; cr.phase = Random.value * 10f; cr.wander = 0.2f;
+            creatures.Add(cr);
+            return null;
         }
 
         public void Init(RealRobotLink robotLink, PanoramaViewer viewer)
         {
-            link = robotLink;
+            link = robotLink; view = viewer;
             root = new GameObject("AR (ev)").transform;
             root.SetParent(viewer.transform, false);
             root.localPosition = viewer.ViewCamera.transform.localPosition;
@@ -159,7 +190,7 @@ namespace ARaki.Drive
         {
             if (Time.time > cr.nextTarget || Vector2.Distance(cr.pos, cr.target) < 0.03f)
             {
-                cr.target = cr.home + Random.insideUnitCircle * 0.45f;
+                cr.target = cr.home + Random.insideUnitCircle * cr.wander;
                 cr.nextTarget = Time.time + Random.Range(4f, 9f);
             }
             var d = cr.target - cr.pos;

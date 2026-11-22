@@ -226,7 +226,7 @@ namespace ArTarama
         }
 
         // ------------------------------------------------------------------------------------------ derinlik karesi
-        const int GW = 80, GH = 45;
+        const int GW = 160, GH = 90;     // ARCore derinliginin tam cozunurlugu (S21+: 160x90): her nokta kullanilir
 
         DerinlikKaresi KareOku()
         {

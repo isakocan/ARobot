@@ -697,7 +697,8 @@ namespace ArTarama
                 var db = File.ReadAllBytes(Path.Combine(klasor, df));
                 byte[] gb = null; string gf = MiniJson.S(MiniJson.Al(kj, "conf_file")); if (gf != "" && File.Exists(Path.Combine(klasor, gf))) gb = File.ReadAllBytes(Path.Combine(klasor, gf));
                 byte[] eb = null; string ef = df.Replace("derinlik_", "etiket_"); if (File.Exists(Path.Combine(klasor, ef))) eb = File.ReadAllBytes(Path.Combine(klasor, ef));
-                int w = dw / 2, h = dh / 2;
+                int adim = Environment.GetEnvironmentVariable("YARIM") == "1" ? 2 : 1;   // telefon artik tam cozunurluk kullaniyor
+                int w = dw / adim, h = dh / adim;
                 var f = new DerinlikKaresi
                 {
                     w = w, h = h, d = new float[w * h], g = new byte[w * h],
@@ -709,10 +710,10 @@ namespace ArTarama
                 for (int v = 0; v < h; v++)
                     for (int u = 0; u < w; u++)
                     {
-                        int o = ((2 * v) * dw + 2 * u) * (f32 ? 4 : 2);
+                        int o = ((adim * v) * dw + adim * u) * (f32 ? 4 : 2);
                         f.d[v * w + u] = f32 ? BitConverter.ToSingle(db, o) : (db[o] | (db[o + 1] << 8)) * 0.001f;
-                        f.g[v * w + u] = gb != null ? gb[(2 * v) * dw + 2 * u] : (byte)255;
-                        if (eb != null) { if (f.e == null) f.e = new byte[w * h]; f.e[v * w + u] = eb[(2 * v) * dw + 2 * u]; }
+                        f.g[v * w + u] = gb != null ? gb[(adim * v) * dw + adim * u] : (byte)255;
+                        if (eb != null) { if (f.e == null) f.e = new byte[w * h]; f.e[v * w + u] = eb[(adim * v) * dw + adim * u]; }
                     }
                 OdaSentetik.Besle(k, f, planlar); kareSay++;
                 zh.Isle(f);

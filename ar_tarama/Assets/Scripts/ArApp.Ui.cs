@@ -619,6 +619,10 @@ namespace ArTarama
             var kapat = UiKur.Dugme(bar.transform, "Kapat", "Kapat", UiKur.DugmeStili.Ikincil, UiKur.Body);
             kapat.onClick.AddListener(GozdenKapat);
             kapat.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
+            // robota gonder: robot uygulamasi kucuk haritayi ve konum bulma isaretleri buradan alir
+            var robota = UiKur.Dugme(bar.transform, "Robota", "Robota", UiKur.DugmeStili.Ikincil, out _, out robotaYazi, UiKur.Body);
+            robota.onClick.AddListener(RobotaGonderTikla);
+            robota.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
             var silgi = UiKur.Dugme(bar.transform, "Silgi", "Silgi", UiKur.DugmeStili.Ikincil, out _, out silgiYazi, UiKur.Body);
             silgi.onClick.AddListener(() => { silgiAcik = !silgiAcik; SilgiGorunumu(); Haptik(10); });
             silgi.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
@@ -654,6 +658,21 @@ namespace ArTarama
         {
             if (silgiYazi != null) silgiYazi.color = silgiAcik ? UiKur.Vurgu : UiKur.MetinRenk;
             gozdenIpucu.text = silgiAcik ? "Silmek istediğin yanlış zeminin üstünden parmağını gezdir" : "Düzenle: evi gezip haritayı büyüt · Silgi: yanlış yerleri sil";
+        }
+
+        Text robotaYazi; bool robotaGidiyor;
+        async void RobotaGonderTikla()
+        {
+            if (aktifEv == null || robotaGidiyor) return;
+            robotaGidiyor = true; Haptik(10);
+            try
+            {
+                string hata = await RobotaGonder.Gonder(EvDeposu.Klasor(aktifEv.id), d => { if (robotaYazi != null) robotaYazi.text = "…"; });
+                Toast(hata ?? (aktifEv.ad + " robota gönderildi"));
+                if (hata == null) Haptik(30);
+            }
+            catch (Exception e) { Toast("Gönderilemedi: " + e.Message); }
+            finally { robotaGidiyor = false; if (robotaYazi != null) robotaYazi.text = "Robota"; }
         }
 
         void EvGoster(Ev ev)

@@ -43,6 +43,30 @@ namespace ARaki.Drive
         public int InputTurn { get; private set; }
 
         public bool MusicMenuOpen, SettingsOpen, HornMenuOpen, RobotPanelOpen, RecordsOpen;
+        public RobotAR Ar { get; private set; }
+        DevMap devMap;
+        bool devMode; TouchMode devOncekiDokunma;
+        /// <summary>Dev modu: direksiyon + gaz/fren (dokunmatik direksiyon), sol üstte ev haritası ve canlı konum,
+        /// ekrana çift dokununca zemine AR yaratığı. Kapatınca önceki dokunmatik ayar geri gelir (kaydedilmez).</summary>
+        public bool DevMode
+        {
+            get => devMode;
+            set
+            {
+                if (devMode == value) return;
+                devMode = value;
+                if (value) { devOncekiDokunma = Settings.Touch; Settings.Touch = TouchMode.Wheel; }
+                else Settings.Touch = devOncekiDokunma;
+                devMap.Show(value);
+                ShowToast(value ? "Dev modu: çift dokun = AR nesnesi koy" : "Dev modu kapalı");
+            }
+        }
+        public void DoubleTap(Vector2 screen)
+        {
+            if (!devMode || Ar == null) return;
+            string neden = Ar.PlaceAt(screen);
+            ShowToast(neden ?? "Konuldu");
+        }
         public void CloseMenus() => MusicMenuOpen = SettingsOpen = HornMenuOpen = RobotPanelOpen = RecordsOpen = false;
         public string Toast { get; private set; } = "";
         public float ToastUntil { get; private set; }
@@ -72,7 +96,8 @@ namespace ARaki.Drive
             if (!Application.isMobilePlatform) Application.runInBackground = true;   // PC'de pencere arka plandayken görüntü ve kayıt sürsün (klavye odak kaybında sıfırlanır, robot durur)
             Firmware = FirmwareData.Load();
             viewer.UseKeyboard = false;
-            gameObject.AddComponent<RobotAR>().Init(link, viewer);   // evdeki AR yaratıkları (robotun konumu biliniyorsa)
+            Ar = gameObject.AddComponent<RobotAR>(); Ar.Init(link, viewer);   // evdeki AR yaratıkları (robotun konumu biliniyorsa)
+            devMap = gameObject.AddComponent<DevMap>(); devMap.Init(this);
             Model.SharpTurn = Settings.SharpTurn;
             link.PwmLimit = Settings.PowerLimit;
             Model.SharpTurn = Settings.SharpTurn;
