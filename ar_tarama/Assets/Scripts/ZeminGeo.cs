@@ -33,6 +33,60 @@ namespace ArTarama
             foreach (long k in sil) { h.Remove(k); atilan?.Add(k); }
         }
 
+        /// <summary>Morfolojik acma (r hucre yaricapli disk): once asindir, sonra genislet. r'den ince her sey gider.</summary>
+        public static void Ac(HashSet<long> h, int r)
+        {
+            if (r <= 0 || h.Count == 0) return;
+            var ofs = new List<(int, int)>();
+            for (int dz = -r; dz <= r; dz++) for (int dx = -r; dx <= r; dx++) if (dx * dx + dz * dz <= r * r) ofs.Add((dx, dz));
+            var cekirdek = new List<long>();
+            foreach (long k in h)
+            {
+                ZeminSonuc.Coz(k, out int ix, out int iz); bool tam = true;
+                foreach (var o in ofs) if (!h.Contains(OdaSonuc.Anah2(ix + o.Item1, iz + o.Item2))) { tam = false; break; }
+                if (tam) cekirdek.Add(k);
+            }
+            var yeni = new HashSet<long>();
+            foreach (long k in cekirdek)
+            {
+                ZeminSonuc.Coz(k, out int ix, out int iz);
+                foreach (var o in ofs) { long q = OdaSonuc.Anah2(ix + o.Item1, iz + o.Item2); if (h.Contains(q)) yeni.Add(q); }
+            }
+            h.IntersectWith(yeni);
+        }
+
+        /// <summary>Acik zemin icindeki kucuk delikleri (en cok 'enCok' hucre, icinde engel yok, kenara degmiyor) doldurur.</summary>
+        public static void DelikDoldur(HashSet<long> acik, HashSet<long> engel, int enCok)
+        {
+            if (acik.Count == 0) return;
+            int x0 = int.MaxValue, z0 = int.MaxValue, x1 = int.MinValue, z1 = int.MinValue;
+            foreach (long k in acik) { ZeminSonuc.Coz(k, out int ix, out int iz); if (ix < x0) x0 = ix; if (ix > x1) x1 = ix; if (iz < z0) z0 = iz; if (iz > z1) z1 = iz; }
+            var gez = new HashSet<long>(); var yigin = new Stack<long>(); var parca = new List<long>(); var ekle = new List<long>();
+            for (int z = z0; z <= z1; z++)
+                for (int x = x0; x <= x1; x++)
+                {
+                    long k0 = OdaSonuc.Anah2(x, z);
+                    if (acik.Contains(k0) || !gez.Add(k0)) continue;
+                    parca.Clear(); yigin.Push(k0); bool gecersiz = false;
+                    while (yigin.Count > 0)
+                    {
+                        long k = yigin.Pop(); parca.Add(k); ZeminSonuc.Coz(k, out int ix, out int iz);
+                        if (ix <= x0 || ix >= x1 || iz <= z0 || iz >= z1 || engel.Contains(k) || parca.Count > enCok) gecersiz = true;
+                        if (parca.Count > enCok) break;
+                        foreach (var q in new[] { OdaSonuc.Anah2(ix + 1, iz), OdaSonuc.Anah2(ix - 1, iz), OdaSonuc.Anah2(ix, iz + 1), OdaSonuc.Anah2(ix, iz - 1) })
+                            if (!acik.Contains(q) && gez.Add(q)) yigin.Push(q);
+                    }
+                    if (gecersiz)
+                    {
+                        // tasan parcanin kalanini da gezilmis say (dis bolge), tekrar baslamasin
+                        while (yigin.Count > 0) { long k = yigin.Pop(); ZeminSonuc.Coz(k, out int ix, out int iz); foreach (var q in new[] { OdaSonuc.Anah2(ix + 1, iz), OdaSonuc.Anah2(ix - 1, iz), OdaSonuc.Anah2(ix, iz + 1), OdaSonuc.Anah2(ix, iz - 1) }) { ZeminSonuc.Coz(q, out int qx, out int qz); if (qx >= x0 && qx <= x1 && qz >= z0 && qz <= z1 && !acik.Contains(q) && gez.Add(q)) yigin.Push(q); } }
+                        continue;
+                    }
+                    ekle.AddRange(parca);
+                }
+            foreach (long k in ekle) acik.Add(k);
+        }
+
         /// <summary>Hucre kumesinden 0..1 alan (5 cm), iki kez 3x3 kutu bulaniklastirma (yaklasik Gauss, ~10 cm).</summary>
         public static float[] Alan(HashSet<long> h, int gx0, int gz0, int W, int H)
         {

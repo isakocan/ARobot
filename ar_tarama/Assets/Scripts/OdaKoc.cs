@@ -21,6 +21,7 @@ namespace ArTarama
         public string yazi = ""; public KocSimge simge = KocSimge.Bilgi; public bool uyari;
         public int donus;               // -1 sola, +1 saga (kenar oku)
         public bool okVar; public float okYaw;   // ilerleme oku: dunya yaw'i (derece)
+        public bool hedefVar; public float hx, hz;   // zeminde kucuk isaret: taranmamis zeminin baslangici (dunya x, z)
         public int kural;               // 1..7 (7: oda tamam), 0 varsayilan/baslangic
     }
 

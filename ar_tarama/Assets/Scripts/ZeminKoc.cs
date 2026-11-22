@@ -3,9 +3,8 @@ using System;
 namespace ArTarama
 {
     /// <summary>
-    /// Acik zemin taramasi icin yonlendirme (saf C#). Tek satir, kibar, en az 1,5 sn aralikla degisir. Oncelik:
-    /// 1 izleme sorunu, 2 cok yakin, 3 zemin henuz yok, 8 cevrede taranmamis zemin (don / asagi eg), 6 kesif siniri (yuru),
-    /// 7 cevre tamam (baska odaya gec ya da bitir). Cok odali: "oda bitti" yerine "bu cevre tamam" der.
+    /// Acik zemin taramasi icin yonlendirme (saf C#). Yazi yalniz sorun varken: 1 izleme sorunu / hizli, 2 cok yakin,
+    /// 3 zemin henuz yok. Gerisi yazisiz: zeminde kucuk bir isaret taranmamis zemine gosterir (hedefVar).
     /// </summary>
     public class ZeminKoc
     {
@@ -26,6 +25,10 @@ namespace ArTarama
             var aday = Sec(g, s);
             if (Mevcut.yazi != aday.yazi && g.zaman - sonDegisim >= Debounce) { Mevcut = aday; sonDegisim = g.zaman; }
             else if (Mevcut.yazi == aday.yazi) { Mevcut.donus = aday.donus; Mevcut.okVar = aday.okVar; Mevcut.okYaw = aday.okYaw; }
+            // isaret yazidan bagimsiz, hemen guncellenir (ayni hedefte kalmak icin 30 cm'den az degisim yok sayilir)
+            if (!aday.hedefVar) Mevcut.hedefVar = false;
+            else if (!Mevcut.hedefVar || (aday.hx - Mevcut.hx) * (aday.hx - Mevcut.hx) + (aday.hz - Mevcut.hz) * (aday.hz - Mevcut.hz) > 0.09f)
+            { Mevcut.hedefVar = true; Mevcut.hx = aday.hx; Mevcut.hz = aday.hz; }
             return Mevcut;
         }
 
@@ -47,39 +50,22 @@ namespace ArTarama
             if (s == null || !s.zeminVar || s.acik.Count < 40) return M(g.pitch > -20f ? "Telefonu hafifçe zemine doğru eğ" : "Zemin aranıyor, telefonu yavaşça gezdir", KocSimge.Egim, 3);
             if (g.zaman - baslangic < 4f) return M(Baslangic, KocSimge.Bilgi, 0);
 
-            // 8) cevrede taranmamis zemin: en yakin (ve cok eksik olan) yon
-            double en = 1e9, enFark = 0; float enOran = 0;
-            for (int b = 0; b < 16; b++)
-            {
-                float o = s.yonEksik[b]; if (o < 0.4f) continue;
-                double f = Fark((b + 0.5) * 22.5, g.yaw);
-                double maliyet = Math.Abs(f) - 40.0 * o;
-                if (maliyet < en) { en = maliyet; enFark = f; enOran = o; }
-            }
-            if (enOran > 0f)
-            {
-                if (Math.Abs(enFark) <= 30)
-                    return g.pitch > -25f ? M("Telefonu biraz aşağı eğ, önündeki zemini göster", KocSimge.Egim, 8)
-                                          : M("Zemin taranıyor, telefonu yavaşça sağa sola gezdir", KocSimge.Bekle, 8);
-                var m = M(Math.Abs(enFark) >= 135 ? "Arkana dön, oradaki zemin henüz taranmadı" : enFark >= 0 ? "Sağa dön, oradaki zemin henüz taranmadı" : "Sola dön, oradaki zemin henüz taranmadı", KocSimge.Don, 8);
-                m.donus = enFark >= 0 ? 1 : -1; return m;
-            }
-
-            // 6) kesif siniri: 1,2 m'den uzak en yakin taranmamis kenara yuru
+            // Kullanici istegi (21 Kasim): surekli yazi yok; boyanan zeminden neyin tarandigi anlasiliyor. Yalniz eksik
+            // yerin uzerine zeminde kucuk bir isaret: kullanicinin onune en yakin (0,8-6 m) taranmamis zemin siniri.
             double ed = 1e9; float ex = 0, ez = 0; bool var = false;
             for (int i = 0; i + 1 < s.sinir.Length; i += 2)
             {
                 double dx = s.sinir[i] - g.kx, dz = s.sinir[i + 1] - g.kz, d = Math.Sqrt(dx * dx + dz * dz);
-                if (d < 1.2 || d >= ed) continue;
-                ed = d; ex = s.sinir[i]; ez = s.sinir[i + 1]; var = true;
+                if (d < 0.8 || d > 6) continue;
+                // onundekine oncelik: arkadaki 2 kat uzak sayilir
+                double fark = Math.Abs(Fark(Math.Atan2(dx, dz) * 180.0 / Math.PI, g.yaw));
+                double m = d * (1.0 + fark / 180.0);
+                if (m >= ed) continue;
+                ed = m; ex = s.sinir[i]; ez = s.sinir[i + 1]; var = true;
             }
-            if (var && ed < 8)
-            {
-                var m = M("Taranmamış zemine doğru yürü", KocSimge.Yuru, 6);
-                m.okVar = true; m.okYaw = (float)(Math.Atan2(ex - g.kx, ez - g.kz) * 180.0 / Math.PI); if (m.okYaw < 0) m.okYaw += 360f;
-                return m;
-            }
-            return M("Burası tamam. Başka odaya geçebilir ya da Bitir'e dokunabilirsin", KocSimge.Tamam, 7);
+            var sonuc = M("", KocSimge.Bilgi, var ? 6 : 7);
+            if (var) { sonuc.hedefVar = true; sonuc.hx = ex; sonuc.hz = ez; }
+            return sonuc;
         }
     }
 }

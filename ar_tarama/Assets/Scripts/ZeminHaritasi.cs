@@ -62,13 +62,24 @@ namespace ArTarama
             for (int i = 0; i < W * H; i++)
             {
                 float a = Yum(fa[i]), e = Yum(fe[i]);
-                // acik zemin turkuaz, engel acik gri (ustte)
+                // acik zemin turkuaz
                 float r = 67, g = 217, b = 190, al = a * 235f;
-                if (e > 0f) { r = r + (214 - r) * e; g = g + (218 - g) * e; b = b + (225 - b) * e; al = Math.Max(al, e * 255f); }
+                // engeller cizilmez (kullanici istegi: yalniz kesin zemin, temiz gorunsun)
                 if (al < 1f) continue;
                 int o = i * 4; p[o] = (byte)r; p[o + 1] = (byte)g; p[o + 2] = (byte)b; p[o + 3] = (byte)Math.Min(255f, al);
             }
             return p;
+        }
+
+        /// <summary>Yumusatilmis acik zemin alani (0..1) dunya (x, z) noktasinda, cift dogrusal.</summary>
+        public float AlanDeger(float x, float z)
+        {
+            if (fa.Length == 0) return 0f;
+            float fx = x / V - 0.5f - gx0, fz = z / V - 0.5f - gz0;
+            int ix = (int)Math.Floor(fx), iz = (int)Math.Floor(fz); float tx = fx - ix, tz = fz - iz;
+            if (ix < 0 || iz < 0 || ix + 1 >= gw || iz + 1 >= gh) return 0f;
+            float a = fa[iz * gw + ix], b = fa[iz * gw + ix + 1], c = fa[(iz + 1) * gw + ix], d = fa[(iz + 1) * gw + ix + 1];
+            return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
         }
 
         static float Yum(float x) { x = (x - 0.35f) / 0.3f; if (x <= 0f) return 0f; if (x >= 1f) return 1f; return x * x * (3f - 2f * x); }
@@ -179,7 +190,16 @@ namespace ArTarama
         public const int EngelMinKare = 3;
         public static int GuvenEsik = 128; public static bool SadeceGuvenli = true;   // gercek kayitlarda dusuk guvenli noktalar yurunen yolu bile engel yapiyordu
 
-        class Hucre { public int zemin, engel, yol, uzun; public int kz = -1, ke = -1, ku = -1; public bool plan; }
+        class Hucre { public int zemin, engel, yol, uzun, ust; public int kz = -1, ke = -1, ku = -1, ks = -1; public bool plan; }
+
+        // "Kesin zemin" (kullanici istegi, 21 Kasim: pürüzlü olacağına hiç gösterme, az ama temiz ve doğru):
+        // bir hucre acik zemin sayilir ancak (a) kullanici oradan yurumusse ya da (b) derinlik orayi en az KesinKare karede
+        // zemin olarak gorduyse, hic guvenli engel noktasi yoksa ve ustunde (15 cm - 1,2 m) duzenli nokta gorulmediyse
+        // (masa / sandalye alti). ARCore duzlemleri artik kanit degil: gorulmemis masa altina tasiyordu.
+        public const int KesinKare = 4;
+        public const int AcmaYaricap = 2;        // hucre: 10 cm'den ince saçaklar ve kenar pürüzü atilir (morfolojik acma)
+        public const int EnKucukParca = 100;     // hucre: 0,25 m2'den kucuk acik zemin parcalari atilir
+        public const int DelikDoldur = 60;       // hucre: icinde engel olmayan 0,15 m2'den kucuk delikler doldurulur
         readonly Dictionary<long, Hucre> h = new Dictionary<long, Hucre>();
         readonly List<float> izX = new List<float>(), izZ = new List<float>();
         readonly float[] mat = new float[9];
@@ -196,7 +216,17 @@ namespace ArTarama
         public bool ZeminVar => zyVar;
         public int HucreSayisi => h.Count;
 
-        public void Sifirla() { h.Clear(); izX.Clear(); izZ.Clear(); zyVar = false; kare = 0; planHucre.Clear(); }
+        // kullanicinin kalemle cektigi zemin siniri (hucreler): engel sayilir, acik zemin oradan gecmez
+        readonly HashSet<long> cizgi = new HashSet<long>();
+        readonly object cizgiKilit = new object();
+        /// <summary>Kalem: (x, z) cevresinde 5 cm yaricapli cizgi hucresi ekler (ana is parcacigindan cagrilabilir).</summary>
+        public void SinirEkle(float x, float z)
+        {
+            int qx = ZeminSonuc.Ind(x), qz = ZeminSonuc.Ind(z);
+            lock (cizgiKilit) for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) cizgi.Add(OdaSonuc.Anah2(qx + dx, qz + dz));
+        }
+
+        public void Sifirla() { lock (cizgiKilit) cizgi.Clear(); h.Clear(); izX.Clear(); izZ.Clear(); zyVar = false; kare = 0; planHucre.Clear(); }
 
         Hucre Al(long k) { if (!h.TryGetValue(k, out var c)) { c = new Hucre(); h[k] = c; } return c; }
 
@@ -252,6 +282,12 @@ namespace ArTarama
                     else if (yk >= EngelAlt && yk <= 2.3f)
                     {
                         // uzun engel (duvar, dolap, kapi kasasi): 1 m ustundeki noktalar zemin gurultusu olamaz, dusuk guvende de sayilir
+                        // ustunde bir sey var (masa, sandalye oturagi): dusuk guvende de sayilir; o hucre kesin zemin olamaz
+                        if (yk >= 0.15f && yk <= 1.2f && (f.g == null || f.g[i] >= 10))
+                        {
+                            var cs = Al(OdaSonuc.Anah2(ZeminSonuc.Ind(x), ZeminSonuc.Ind(z)));
+                            if (cs.ks != kare) { cs.ks = kare; cs.ust++; }
+                        }
                         if (yk >= 1.0f && (f.g == null || f.g[i] >= 10))
                         {
                             var cu = Al(OdaSonuc.Anah2(ZeminSonuc.Ind(x), ZeminSonuc.Ind(z)));
@@ -294,47 +330,35 @@ namespace ArTarama
             }
             s.zeminVar = true; s.zeminY = zy;
 
-            // ARCore zemin duzlemleri hucrelere dokulur
-            foreach (long k in planHucre) if (h.TryGetValue(k, out var c0)) c0.plan = false;
-            planHucre.Clear();
-            foreach (var p in planlar)
-            {
-                if (p.tur != 0 || p.sinir == null || p.sinir.Length < 9) continue;
-                if (Math.Abs(OrtY(p.sinir) - zyPlan) > 0.10f) continue;
-                foreach (long k in PoligonHucreleri(p.sinir)) { Al(k).plan = true; planHucre.Add(k); }
-            }
-
-            // ARCore duzlemi gorulmemis yere de tasabiliyor (duvar arkasina ucgen): duzlem hucresi ancak 15 cm icinde
-            // derinlikte zemin goruldu ise sayilir
-            var zeminKaba = new HashSet<long>();
-            foreach (var kv in h) if (kv.Value.zemin >= 1 || kv.Value.yol > 0) { ZeminSonuc.Coz(kv.Key, out int ix, out int iz); zeminKaba.Add(OdaSonuc.Anah2(FloorDiv(ix, 3), FloorDiv(iz, 3))); }
-            // siniflandirma
-            var bilAday = new HashSet<long>();
+            // siniflandirma (kesin zemin)
             foreach (var kv in h)
             {
                 var c = kv.Value;
-                bool planKanit = false;
-                if (c.plan) { ZeminSonuc.Coz(kv.Key, out int ix, out int iz); int cx = FloorDiv(ix, 3), cz = FloorDiv(iz, 3); for (int dz = -1; dz <= 1 && !planKanit; dz++) for (int dx = -1; dx <= 1; dx++) if (zeminKaba.Contains(OdaSonuc.Anah2(cx + dx, cz + dz))) { planKanit = true; break; } }
-                bool bil = planKanit || c.zemin >= 2 || c.yol > 0;
                 bool duv = c.uzun >= EngelMinKare && c.yol == 0;
                 bool eng = duv || (c.engel >= EngelMinKare && c.engel * 2 >= c.zemin && !(c.yol > 0 && c.engel < 10));
+                bool kesin = c.yol > 0 || (c.zemin >= KesinKare && c.engel == 0 && c.ust * 4 < c.zemin);
                 if (duv) s.duvar.Add(kv.Key);
                 if (eng) s.engel.Add(kv.Key);
-                else if (bil) s.bilinen.Add(kv.Key);
-                if (bil) bilAday.Add(kv.Key);
+                else if (kesin) s.acik.Add(kv.Key);
+                else if (c.zemin > 0 || c.engel > 0 || c.ust > 0) s.bilinen.Add(kv.Key);
             }
             // temizlik: tek tuk engel lekeleri (4 hucreden kucuk) gurultudur
-            var atilan = new HashSet<long>();
-            ZeminGeo.KucukleriAt(s.engel, 4, atilan);
-            foreach (long k in atilan) { s.duvar.Remove(k); if (bilAday.Contains(k)) s.bilinen.Add(k); }
-            foreach (long k in s.bilinen)
+            ZeminGeo.KucukleriAt(s.engel, 4, null);
+            lock (cizgiKilit) foreach (long k in cizgi) { s.engel.Add(k); s.acik.Remove(k); s.bilinen.Remove(k); }
+            s.duvar.IntersectWith(s.engel);
+            // engelin dibi (5 cm) acik sayilmaz: mobilya ayagi cevresi
+            var dip = new List<long>();
+            foreach (long k in s.acik)
             {
-                ZeminSonuc.Coz(k, out int ix, out int iz); bool yakin = false;
-                for (int dz = -1; dz <= 1 && !yakin; dz++) for (int dx = -1; dx <= 1; dx++) if (s.engel.Contains(OdaSonuc.Anah2(ix + dx, iz + dz))) { yakin = true; break; }
-                if (!yakin) s.acik.Add(k);
+                ZeminSonuc.Coz(k, out int ix, out int iz);
+                for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) if (s.engel.Contains(OdaSonuc.Anah2(ix + dx, iz + dz))) { dip.Add(k); dz = 2; break; }
             }
-            // temizlik: 0,08 m2'den kucuk acik zemin parcalari guvenilmez (esya arasindaki bosluk gurultusu)
-            ZeminGeo.KucukleriAt(s.acik, 32, null);
+            foreach (long k in dip) s.acik.Remove(k);
+            // morfolojik acma: ince saçak ve pürüz gider, kenar duzlesir
+            ZeminGeo.Ac(s.acik, AcmaYaricap);
+            ZeminGeo.KucukleriAt(s.acik, EnKucukParca, null);
+            ZeminGeo.DelikDoldur(s.acik, s.engel, DelikDoldur);
+            foreach (long k in s.acik) s.bilinen.Remove(k);
             s.alan = s.acik.Count * V * V;
             var iz2 = new float[izX.Count * 2]; for (int i = 0; i < izX.Count; i++) { iz2[i * 2] = izX[i]; iz2[i * 2 + 1] = izZ[i]; }
             s.iz = iz2;

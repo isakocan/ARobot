@@ -35,7 +35,8 @@ namespace ArTarama
         // hud
         Text kocYazi, odaYazi, bitirYazi, debugYazi, chipYazi;
         Image kocIkon;
-        CanvasGroup kocIcerik, chipGrup, kenarSol, kenarSag, ilerleGrup, debugGrup;
+        ZeminHedef zeminHedef;
+        CanvasGroup kocIcerik, kocPillGrup, chipGrup, kenarSol, kenarSag, ilerleGrup, debugGrup;
         RectTransform ilerleOk;
         string gosterilenKoc = ""; float kocGecis = 1f; bool debugAcik;
         ZeminMini zeminMini, zeminGozden; ZeminSonuc gozdenZemin; GameObject gozdenSekmeler;
@@ -139,6 +140,7 @@ namespace ArTarama
             // ---- koc: tek satir, cam hap ----
             var pill = UiKur.Kutu(hud, "KocPill", UiKur.Panel, true);
             var pr = pill.rectTransform;
+            kocPillGrup = pill.gameObject.AddComponent<CanvasGroup>(); kocPillGrup.blocksRaycasts = false;
             pr.anchorMin = new Vector2(0, 1); pr.anchorMax = new Vector2(1, 1); pr.pivot = new Vector2(0.5f, 1);
             pr.anchoredPosition = new Vector2(0, -16); pr.sizeDelta = new Vector2(-72, 108);
             var ic = UiKur.Obj("Icerik", pr); UiKur.Tam(ic);
@@ -197,9 +199,10 @@ namespace ArTarama
             odaBtn.onClick.AddListener(() => { if (ub.tetiklendi) { ub.tetiklendi = false; return; } OdaTikleriYenile(); ModalGoster(modalOda, true); });
             var le0 = odaBtn.gameObject.AddComponent<LayoutElement>(); le0.flexibleWidth = 1.7f;
 
-            // ARCore gorunumu: oda modelini gizleyip ARCore'un kendi buldugu duzlemleri gosterir (karsilastirma icin)
-            var arcBtn = UiKur.Dugme(bar.transform, "ARCore", "ARCore", UiKur.DugmeStili.Ikincil, out _, out Text arcYazi, UiKur.Body);
-            arcBtn.onClick.AddListener(() => { PlaneStyle.ArcoreGorunum = !PlaneStyle.ArcoreGorunum; arcYazi.color = PlaneStyle.ArcoreGorunum ? UiKur.Vurgu : UiKur.MetinRenk; Haptik(10); });
+            // kalem: tararken zemin sinirini parmakla cek (zemin boyasi cizgiden gecmez)
+            var arcBtn = UiKur.Dugme(bar.transform, "Kalem", "Kalem", UiKur.DugmeStili.Ikincil, out _, out kalemYazi, UiKur.Body);
+            arcBtn.onClick.AddListener(() => { kalemAcik = !kalemAcik; kalemYazi.color = kalemAcik ? UiKur.Vurgu : UiKur.MetinRenk; Haptik(10);
+                if (kalemAcik) Toast("Zemin sınırını parmağınla çiz"); });
             var leA = arcBtn.gameObject.AddComponent<LayoutElement>(); leA.flexibleWidth = 1f;
 
             var sifBtn = UiKur.Dugme(bar.transform, "Sifirla", "Sıfırla", UiKur.DugmeStili.Ikincil, UiKur.Body);
@@ -259,6 +262,10 @@ namespace ArTarama
             }
             else kocGecis = Mathf.Min(1f, kocGecis + dt * 6f);
             kocIcerik.alpha = Mathf.Clamp01(kocGecis);
+            // yazi yokken (yalniz sorun varken yazi cikar) kutu tamamen gizlenir; yonlendirme zemindeki kucuk halka
+            kocPillGrup.alpha = Mathf.MoveTowards(kocPillGrup.alpha, string.IsNullOrEmpty(gosterilenKoc) && string.IsNullOrEmpty(m.yazi) ? 0f : 1f, 4f * dt);
+            if (zeminHedef == null) zeminHedef = new ZeminHedef(Resources.Load<Material>("mat_oda_dolgu"));
+            zeminHedef.Guncelle(m.hedefVar && Takipte && oda != null && oda.ZSon != null, m.hx, m.hz, oda != null && oda.ZSon != null ? oda.ZSon.zeminY : 0f, dt);
 
             // kenar oklari
             float t = Time.unscaledTime;
