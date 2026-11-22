@@ -657,8 +657,8 @@ if _konum is not None and KONUM_HATASI is None:
     try:
         with open(EV_DOSYASI) as _f:
             KONUM.ev_ayarla(json.load(_f).get("isaretler"))
-    except (OSError, ValueError):
-        pass
+    except Exception as e:     # kayıtlı ev okunamazsa sürüş yine açılır (köprü asla burada çökmemeli)
+        log("Kayıtlı ev okunamadı, yok sayıldı:", e)
     KONUM.baslat(lambda: time.time() - _son_ev_istegi[0] < KONUM_ISTEK_SURESI)
 
 
@@ -1007,6 +1007,8 @@ class UdpKanal:
                     _son_ev_istegi[0] = time.time()
                     if KONUM is not None:
                         yeni = m.get("isaretler")
+                        if not isinstance(yeni, list):
+                            continue
                         if KONUM.ev_ayarla(yeni):
                             try:
                                 with open(EV_DOSYASI, "w") as f:

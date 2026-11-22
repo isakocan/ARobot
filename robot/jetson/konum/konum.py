@@ -93,12 +93,17 @@ class KonumBulucu:
 
     # ------------------------------------------------------------ telefon
     def ev_ayarla(self, liste):
-        """liste: [[id, x, z, aci], ...] (ev koordinatı). Ev değiştiyse True (hafıza o evinkine geçer)."""
+        """liste: [[id, x, z, aci], ...] ya da telefonun ev.json biçimi [{"id":..,"x":..,"z":..,"aci":..}, ...]
+        (ev koordinatı). Ev değiştiyse True (hafıza o evinkine geçer). Bozuk öğe atlanır, asla hata vermez
+        (22 Kasım: ev.json'daki sözlük biçimi KeyError ile köprüyü açılışta çökertiyordu)."""
         yeni = {}
         for e in liste or []:
             try:
-                yeni[int(e[0])] = Poz2(float(e[1]), float(e[2]), float(e[3]))
-            except (TypeError, ValueError, IndexError):
+                if isinstance(e, dict):
+                    yeni[int(e["id"])] = Poz2(float(e["x"]), float(e["z"]), float(e.get("aci", 0.0)))
+                else:
+                    yeni[int(e[0])] = Poz2(float(e[1]), float(e[2]), float(e[3]))
+            except (TypeError, ValueError, IndexError, KeyError):
                 continue
         with self.kilit:
             degisti = hafiza.ev_kodu({i: (p.x, p.z, p.aci) for i, p in yeni.items()}) !=                 hafiza.ev_kodu({i: (p.x, p.z, p.aci) for i, p in self.ev.items()})
