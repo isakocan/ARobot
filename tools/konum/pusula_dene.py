@@ -59,7 +59,7 @@ def _da(a):
 class Pusula:
     def __init__(self, yeni):
         self.yeni = yeni; self.var = False; self.yaw = 0.0; self.ref_yaw = 0.0; self.rel = 0.0; self.son = 0.0
-        self.red = 0; self.tahmin_say = 0
+        self.red = 0; self.tahmin_say = 0; self.son_tahmin = False
 
     def kare(self, cur, tahmin):
         if (cur * cur).sum() < 1:
