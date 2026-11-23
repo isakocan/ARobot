@@ -26,6 +26,10 @@ namespace ArTarama
         public float alan;                              // acik zemin, m2
         public float aci = float.NaN;                   // haritanin ana yonu (radyan, 90 derece katlari): kenarlar bu yone hizali duz cizilir
         public Dictionary<long, byte> kismi = new Dictionary<long, byte>();   // teyit bekleyen hucre -> zemin gorulen kare sayisi
+        /// <summary>Kesinlesmis hucreler (24 Kasim): durumu (acik / engel) en az 2 guncellemedir degismedi ve kaniti doygun.
+        /// Boyada dolgun, kesinlesmemis acik soluk; "burasi tamam" bunlarin oranindan.</summary>
+        public HashSet<long> kesin = new HashSet<long>();
+        public float[] voksel = new float[0];           // LIDAR gorunumu: kameranin cevresindeki dolu kupler (x, y, z, tur)
         /// <summary>(x,z) cevresinde r icindeki hucrelerin teyit orani 0..1 (acik = 1, kismi = sayi / KesinKare, bos = 0).</summary>
         public float Teyit(float x, float z, float r)
         {
@@ -278,7 +282,20 @@ namespace ArTarama
         public static bool SadeceDerinlik = true;
         public static int IsinGuven = 64; public static float IsinMenzil = 3.0f;
         readonly DolulukHaritasi dol = new DolulukHaritasi();  // 23 Kasim: zemin yalniz derinlikten; ARCore duzlemi aday/duvar vermez
-        public const int EngelPay = 0;             // hucre: engelin cevresinde birakilan pay (23 Kasim: kullanici biraz daha genis acik alan istedi, 5 cm -> 0)
+        // Engel payi (24 Kasim): 23 Kasim'da pay tamamen kaldirilinca (5 cm kare -> 0) boya kenarlarda titredi; simdi yalniz
+        // kesinlesmis engelin 4 komsusu (eski payin yarisi kadar alan), kapi esigi / kenar gurultusu pay dogurmaz.
+        public const int EngelPay = 1;
+        // Sutun durumu histerezisle (24 Kasim, kullanici: "ayni degerleri gorunce degismesin"): hucre bir kez acik ya da engel
+        // olunca ancak karsi yonde guclu kanit gelirse degisir. Kup degeri: carpma +9, gecis -4 (DolulukHaritasi).
+        public const int EngelGir = 18;            // bilinmeyen -> engel: en az iki karede carpildi
+        public const int EngelKalici = 25;         // acik -> engel: en az uc karede (net) carpildi
+        public const int BosaltCik = -8;           // engel -> acik: sutundaki butun kupler en az iki kez icinden gecildi
+        public const int ZeminDoygun = 35;         // kesin zemin: zemin kupu doygun (4+ kare)
+        readonly Dictionary<long, sbyte> sDurum = new Dictionary<long, sbyte>();   // 1 acik, 2 engel
+        readonly Dictionary<long, byte> sYas = new Dictionary<long, byte>();       // durum kac guncellemedir ayni
+        public static bool LidarAcik;
+        public static bool Histerezis = true;     // false: 23 Kasim kurali (her guncellemede yeniden karar, pay yok); karsilastirma icin              // LIDAR gorunumu istendi: guncellemede kupler kopyalanir
+        float kamYSon;
         static bool EngelHucresi(Hucre c) => (c.engel >= EngelMinKare && c.engel > c.zemin) || (c.ust >= 3 && c.ust > c.zemin);
         public const int AcmaYaricap = 2;        // hucre: 10 cm'den ince saçaklar ve kenar pürüzü atilir (morfolojik acma)
         public const int EnKucukParca = 100;     // hucre: 0,25 m2'den kucuk acik zemin parcalari atilir
@@ -396,14 +413,14 @@ namespace ArTarama
             zAcik.ExceptWith(hat); zKapali.ExceptWith(hat); zAcik.ExceptWith(zKapali);
         }
 
-        public void Sifirla() { lock (cizgiKilit) cizgiler.Clear(); kalici.Clear(); duvarKalici.Clear(); kamYTop = 0; kamYSay = 0; aci = float.NaN; aciKilit = false; h.Clear(); dol.Temizle(); izX.Clear(); izZ.Clear(); zyVar = false; kare = 0; planHucre.Clear(); }
+        public void Sifirla() { lock (cizgiKilit) cizgiler.Clear(); kalici.Clear(); duvarKalici.Clear(); kamYTop = 0; kamYSay = 0; aci = float.NaN; aciKilit = false; h.Clear(); dol.Temizle(); izX.Clear(); izZ.Clear(); zyVar = false; kare = 0; planHucre.Clear(); sDurum.Clear(); sYas.Clear(); }
 
         Hucre Al(long k) { if (!h.TryGetValue(k, out var c)) { c = new Hucre(); h[k] = c; } return c; }
 
         // ---------------------------------------------------------------- kare basina (arka plan is parcacigi)
         public void Isle(DerinlikKaresi f)
         {
-            kare++; kamX = f.px; kamZ = f.pz; kamYTop += f.py; kamYSay++;
+            kare++; kamX = f.px; kamZ = f.pz; kamYTop += f.py; kamYSay++; kamYSon = f.py;
             if (!zyVar) return;
             // kullanici yolu: kamera ayakta tutuluyorsa (zeminden 0,7-2,1 m) altindaki 15 cm yaricap bos zemindir
             float hc = f.py - zy;
@@ -652,12 +669,30 @@ namespace ArTarama
             if (SadeceDerinlik)
             {
                 sutun = dol.Sutunlar(zy);
-                foreach (var kv in sutun) if (kv.Value.engel && !(h.TryGetValue(kv.Key, out var yc) && yc.yol > 0)) engelH.Add(kv.Key);
+                foreach (var kv in sutun)
+                {
+                    var su = kv.Value; sDurum.TryGetValue(kv.Key, out sbyte d0); sbyte d = d0;
+                    bool zeminVar = su.zeminD >= DolulukHaritasi.ZeminKesin;
+                    if (!Histerezis) d = su.enCok > 0 ? (sbyte)2 : zeminVar ? (sbyte)1 : (sbyte)0;
+                    else if (d == 0) { if (su.enCok >= EngelGir) d = 2; else if (zeminVar && su.enCok <= 0) d = 1; }
+                    else if (d == 1) { if (su.enCok >= EngelKalici) d = 2; }
+                    else if (su.enCok <= BosaltCik && zeminVar) d = 1;
+                    if (d != d0) { sDurum[kv.Key] = d; sYas[kv.Key] = 0; }
+                    else if (d != 0) { sYas.TryGetValue(kv.Key, out byte y); if (y < 255) sYas[kv.Key] = (byte)(y + 1); }
+                }
+                foreach (var kv in sDurum) if (kv.Value == 2 && !(h.TryGetValue(kv.Key, out var yc) && yc.yol > 0)) engelH.Add(kv.Key);
                 var pay = new HashSet<long>(engelH);
                 foreach (long k in engelH)
                 {
+                    if (!Histerezis || !sutun.TryGetValue(k, out var su) || su.enCok < EngelKalici) continue;     // yalniz kesin engel pay dogurur
                     ZeminSonuc.Coz(k, out int ix, out int iz);
-                    for (int dz = -EngelPay; dz <= EngelPay; dz++) for (int dx = -EngelPay; dx <= EngelPay; dx++) pay.Add(OdaSonuc.Anah2(ix + dx, iz + dz));
+                    for (int q = 0; q < 4; q++)
+                    {
+                        long a = OdaSonuc.Anah2(ix + (q == 0 ? EngelPay : q == 1 ? -EngelPay : 0), iz + (q == 2 ? EngelPay : q == 3 ? -EngelPay : 0));
+                        // cok kesin gorulmus zemin pay icin kapatilmaz (esya dibine kadar dogru zemin)
+                        if (sutun.TryGetValue(a, out var sa2) && sa2.zeminD >= ZeminDoygun && sa2.enCok <= BosaltCik) continue;
+                        pay.Add(a);
+                    }
                 }
                 foreach (var kv in h) if (kv.Value.yol > 0) pay.Remove(kv.Key);
                 engelH = pay;
@@ -682,7 +717,7 @@ namespace ArTarama
             }
             if (SadeceDerinlik)
             {
-                foreach (var kv in sutun) if (kv.Value.zemin && !kv.Value.engel) aday.Add(kv.Key);
+                foreach (var kv in sDurum) if (kv.Value == 1) aday.Add(kv.Key);
                 foreach (var kv in h) if (kv.Value.yol > 0) aday.Add(kv.Key);
             }
             else
@@ -714,7 +749,7 @@ namespace ArTarama
                 // teyitli zeminde birkac engel noktasi esya kenarindaki derinlik tasmasi olabilir: silmek icin engel kaniti
                 // zemin kanitindan fazla ve en az 6 karede olmali
                 // 22 Kasim (ev 2): bir kez boyanan yer gidince kullanici guvenini kaybediyor; silmek icin engel iki kat baskin olmali
-                if (SadeceDerinlik) return sutun.TryGetValue(k, out var su) && su.engel;
+                if (SadeceDerinlik) return sDurum.TryGetValue(k, out sbyte sd) && sd == 2;
                 return (c.engel >= 8 && c.engel > 2 * c.zemin) || (c.ust >= 8 && c.ust > 2 * c.zemin);
             };
             var kalan = new HashSet<long>(); int gDuvar = 0, gEngel = 0;
@@ -746,6 +781,17 @@ namespace ArTarama
             // teyit bekleyen (1..KesinKare-1 karede zemin gorulmus) hucreler: yonlendirme halkasi ilerlemesi
             if (SadeceDerinlik) { foreach (var kv in sutun) if (kv.Value.zeminKismi && !kv.Value.zemin && !acik.Contains(kv.Key)) s.kismi[kv.Key] = (byte)(KesinNokta / 2); }
             else foreach (var kv in h) if (kv.Value.zemin > 0 && !Teyitli(kv.Value) && !acik.Contains(kv.Key)) s.kismi[kv.Key] = (byte)Math.Min(KesinNokta, Math.Min(kv.Value.zemin * 2, kv.Value.zN));
+            // kesinlesmis hucreler ve LIDAR gorunumu
+            if (SadeceDerinlik)
+            {
+                foreach (var kv in sDurum)
+                {
+                    if (!sYas.TryGetValue(kv.Key, out byte y) || y < 2 || !sutun.TryGetValue(kv.Key, out var su)) continue;
+                    if ((kv.Value == 1 && su.zeminD >= ZeminDoygun && acik.Contains(kv.Key)) || (kv.Value == 2 && su.enCok >= EngelKalici)) s.kesin.Add(kv.Key);
+                }
+                foreach (long k in acik) if (h.TryGetValue(k, out var yc) && yc.yol > 0) s.kesin.Add(k);
+                if (LidarAcik) s.voksel = dol.Noktalar(kamX, kamYSon, kamZ, 4.0f, zy, 40000);
+            }
             // sonuc kumeleri
             s.acik = acik;
             s.duvar = duvar;

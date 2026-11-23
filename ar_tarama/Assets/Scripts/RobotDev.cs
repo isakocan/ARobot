@@ -17,10 +17,16 @@ namespace ArTarama
     /// Robot Dev ekranı (23 Kasım, kullanıcı: dev modu tarama uygulamasında, yalnız yön tuşlarıyla sürüş). Robotun 360
     /// görüntüsü (köprü /goruntu.mjpg) ekranda öne bakış olarak çizilir, üstüne evdeki AR yaratıkları konur.
     ///
-    /// Robotun konumu: dönüş ve ileri/yan hareket telefonda, ekrandaki karenin kendisinden ölçülür (RobotGorselIz); robotun
-    /// kendi konumu (işaret + zemin izi, UDP durum cevabında) yalnızca robot dururken farkı yavaşça kapatır. Böylece nesne
-    /// görüntüyle aynı anda hareket eder, geç gelen konum yüzünden "önce uzaklaşıp sonra yakınlaşma" ve sıçrama olmaz.
-    /// Yaratıklar yerinde durur (dolaşmaz), yarım çözünürlükte çizilip hafif bulanık bindirilir.
+    /// Robotun konumu (24 Kasım): dönüş ve ileri/yan hareket telefonda, ekrandaki karenin kendisinden ölçülür (RobotGorselIz,
+    /// her karede, gecikmesiz). Robotun kendi konumu (işaret + Kalman süzgeci) hangi kamera karesine ait olduğunu söyler
+    /// (konum.kare; görüntü akışında her karenin numarası X-Kare başlığında). Telefon o karedeki kendi ölçümüyle robotun
+    /// konumunu karşılaştırıp aradaki farkı düzeltir: ağ gecikmesi ne olursa olsun karşılaştırma aynı an içindir, bu yüzden
+    /// düzeltme hareket ederken de yapılır (eskiden yalnız dururken ve yavaşça yapılıyordu, telefonun kaybettiği açı sürüş
+    /// boyunca hiç düzelmiyordu). Ne kadar düzeltileceği iki tarafın belirsizliğinden (robot: sy/sp, telefon: son
+    /// düzeltmeden beri ne kadar dönüp gittiği) hesaplanır.
+    /// Ölçüm (geliştirici için): robot işareti gördüğünde, o karede telefonun gösterdiği konuma göre işaretin hangi açıda
+    /// görünmesi gerektiği ile robotun gördüğü açı karşılaştırılır = "AR hatası" (ekranda nesnelerin yana kayması). Ekranda
+    /// ve konum.csv'de. İşaretin yerine sanal çerçeve çizilir: gerçek işaretin üstünde kalmalı.
     ///
     /// Kayıt: files/dev/yyyyMMdd_HHmmss/ altına her kare (k00000.jpg) ve kare başına ölçümler (iz.csv): bilgisayarda
     /// aynen tekrar oynatılabilir. Robot da kendi tarafını ~/konum_kayit altına yazar (konum_kayit_ac açıkken).
@@ -36,13 +42,16 @@ namespace ArTarama
         string ip; UdpClient udp; Thread alici, akis; volatile bool calis;
         readonly object kilit = new object();
         byte[] sonJpeg; int jpegNo, islenenNo;
+        struct KareBilgi { public int kare; public double zamanMs; public int sol, sag; public bool motorVar; }
+        KareBilgi sonBilgi, islenenBilgi, oncekiBilgi; float oncekiKareZamani = -1f;
         string sonDurumJson; int durumNo, islenenDurum;
         int paketNo; float sonPaket;
         int komutSol, komutSag; float sonHareketKomutu = -10f;
 
-        [Serializable] class Konum { public bool var; public float x, z, yaw; public int isaret; public float isaret_sn = -1; public string kaynak = "", hareket = ""; public int nokta; public float olcek; }
+        [Serializable] class Konum { public bool var; public float x, z, yaw; public int isaret; public float isaret_sn = -1; public string kaynak = "", hareket = ""; public int nokta; public float olcek;
+                                     public int kare = -1; public float sy = 5f, sp = 0.1f; public float[] hata; public int kilit; }
         [Serializable] class Motor { public int sol, sag; }
-        [Serializable] class Durum { public Konum konum; public Motor motor; }
+        [Serializable] class Durum { public Konum konum; public Motor motor; public float fps; }
         Durum durum;
 
         // ---- görüntü ve iz
@@ -53,7 +62,16 @@ namespace ArTarama
 
         // ---- konum birleştirme (ev koordinatı; yaw derece, +z'den sağa)
         float gYaw, gX, gZ;                  // görüntüden: toplam
-        bool farkVar; float fYaw, fX, fZ;     // ev = döndür(fYaw)(görüntü) + (fX, fZ)
+        bool farkVar; float fYaw, fX, fZ;     // ev = döndür(fYaw)(görüntü) + (fX, fZ)   (tahmin)
+        float dYaw, dX, dZ;                  // ekrandaki fark (tahmine 0,25 sn'de yumuşakça yetişir: düzeltme sıçramasın)
+        float vYaw = 25f, vPoz = 0.01f;      // telefon farkının belirsizliği (derece², m²): telefon dönüp gittikçe büyür
+        float donusK = 140f;                 // derece/sn, (sol-sag)=510'da; ölçümden öğrenilir (tahminli arama için)
+        struct Gecmis { public int kare; public double zamanMs; public float gYaw, gX, gZ, pX, pZ, pYaw; }
+        readonly List<Gecmis> gecmis = new List<Gecmis>();
+        // ölçüm
+        readonly List<Vector2> arHata = new List<Vector2>();    // (zaman, derece): işaretin beklenen - görülen açısı
+        float sonGecikmeMs = -1f; int sonGecikmeKare = -1; int eslesmeyen; float sonTahmin; int tahminKare;
+        StreamWriter konumCsv;
         public bool PozVar { get; private set; }
         public float PozX { get; private set; }
         public float PozZ { get; private set; }
@@ -71,7 +89,7 @@ namespace ArTarama
         float hox, hoz; int hW, hH; float sonHarita = -100f;
         readonly List<RectTransform> isaretler = new List<RectTransform>();
         [Serializable] class ZeminJson { public int[] acik; }
-        [Serializable] class Isaret { public int id; public float x, z, aci; }
+        [Serializable] class Isaret { public int id; public float x, z, aci, yukseklik; }
         [Serializable] class EvJson { public string ad; public Isaret[] isaretler; }
         EvJson ev;
         readonly Dictionary<string, bool> basili = new Dictionary<string, bool>();
@@ -316,16 +334,24 @@ namespace ArTarama
                     {
                         while (calis)
                         {
-                            int uzunluk = -1; string satir;
+                            int uzunluk = -1; string satir; var kb = new KareBilgi { kare = -1 };
+                            var ci = System.Globalization.CultureInfo.InvariantCulture;
                             while ((satir = Satir(s)) != null)
                             {
                                 if (satir.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) int.TryParse(satir.Substring(15).Trim(), out uzunluk);
+                                else if (satir.StartsWith("X-Kare:", StringComparison.OrdinalIgnoreCase)) int.TryParse(satir.Substring(7).Trim(), out kb.kare);
+                                else if (satir.StartsWith("X-Zaman:", StringComparison.OrdinalIgnoreCase)) double.TryParse(satir.Substring(8).Trim(), System.Globalization.NumberStyles.Float, ci, out kb.zamanMs);
+                                else if (satir.StartsWith("X-Motor:", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    var m = satir.Substring(8).Split(',');
+                                    kb.motorVar = m.Length == 2 && int.TryParse(m[0].Trim(), out kb.sol) && int.TryParse(m[1].Trim(), out kb.sag);
+                                }
                                 else if (satir.Length == 0 && uzunluk > 0) break;
                             }
                             if (satir == null) break;
                             var j = new byte[uzunluk]; int o = 0;
                             while (o < uzunluk) { int n = s.Read(j, o, uzunluk - o); if (n <= 0) throw new IOException("akis bitti"); o += n; }
-                            lock (kilit) { sonJpeg = j; jpegNo++; }
+                            lock (kilit) { sonJpeg = j; sonBilgi = kb; jpegNo++; }
                         }
                     }
                 }
@@ -408,81 +434,265 @@ namespace ArTarama
             // robot durumu
             string dj = null;
             lock (kilit) { if (durumNo != islenenDurum) { islenenDurum = durumNo; dj = sonDurumJson; } }
-            bool yeniKonum = false;
+            bool yeniKonum = false; string konumJson = null;
             if (dj != null)
             {
                 try { durum = JsonUtility.FromJson<Durum>(dj); } catch (Exception) { }
                 var k = durum?.konum;
-                if (k != null && k.var && (k.x != sonKonumX || k.z != sonKonumZ || k.yaw != sonKonumYaw)) { sonKonumX = k.x; sonKonumZ = k.z; sonKonumYaw = k.yaw; yeniKonum = true; }
+                if (k != null && k.var && (k.x != sonKonumX || k.z != sonKonumZ || k.yaw != sonKonumYaw || (k.kare >= 0 && k.kare != sonKonumKare)))
+                { sonKonumX = k.x; sonKonumZ = k.z; sonKonumYaw = k.yaw; sonKonumKare = k.kare; yeniKonum = true; konumJson = dj; }
             }
 
             // yeni kare: göster ve ölç
-            byte[] jpeg = null; int no = 0;
-            lock (kilit) { if (jpegNo != islenenNo) { islenenNo = jpegNo; jpeg = sonJpeg; no = jpegNo; } }
+            byte[] jpeg = null; int no = 0; KareBilgi kb = default;
+            lock (kilit) { if (jpegNo != islenenNo) { islenenNo = jpegNo; jpeg = sonJpeg; no = jpegNo; kb = sonBilgi; } }
             if (jpeg != null)
             {
                 if (kareTex == null) kareTex = new Texture2D(2, 2, TextureFormat.RGB24, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
                 if (kareTex.LoadImage(jpeg))
                 {
-                    iz.Kare(kareTex);
+                    oncekiBilgi = islenenBilgi; islenenBilgi = kb;
+                    sonTahmin = DonusTahmini(kb);
+                    iz.Kare(kareTex, sonTahmin);
                     GorselAdim();
                     KareKaydet(jpeg);
                 }
             }
-            if (yeniKonum) KonumGeldi(durum.konum);
+            if (yeniKonum) KonumGeldi(durum.konum, konumJson);
             PozGuncelle();
+            Isaretler();
             Gorus();
             Yaratiklar();
             Harita();
             Bilgi();
         }
 
+        /// <summary>Bu karede beklenen dönüş (derece): karenin çekildiği andaki motorlar (köprü X-Motor) ve önceki işlenen
+        /// kareden beri geçen süre (X-Zaman, robot saati: ağdaki takılma süreyi bozmaz). Görüntü pusulası bunun çevresinde arar.</summary>
+        float DonusTahmini(KareBilgi kb)
+        {
+            float simdi = Time.realtimeSinceStartup;
+            float dt = oncekiKareZamani < 0 ? 0f : simdi - oncekiKareZamani;
+            oncekiKareZamani = simdi;
+            if (kb.zamanMs > 0 && oncekiBilgi.zamanMs > 0 && kb.zamanMs > oncekiBilgi.zamanMs) dt = (float)((kb.zamanMs - oncekiBilgi.zamanMs) / 1000.0);
+            dt = Mathf.Clamp(dt, 0f, 1.5f);
+            int sol, sag;
+            if (kb.motorVar) { sol = (kb.sol + (oncekiBilgi.motorVar ? oncekiBilgi.sol : kb.sol)) / 2; sag = (kb.sag + (oncekiBilgi.motorVar ? oncekiBilgi.sag : kb.sag)) / 2; }
+            else if (durum?.motor != null) { sol = durum.motor.sol; sag = durum.motor.sag; }
+            else { sol = komutSol; sag = komutSag; }
+            tahminSol = sol; tahminSag = sag; tahminDt = dt;
+            return donusK * (sol - sag) / 510f * dt;
+        }
+        int tahminSol, tahminSag; float tahminDt; int sonKonumKare = -1;
+
         void GorselAdim()
         {
-            if (iz.PusulaTuttu) gYaw += iz.AdimDonus;
+            if (iz.PusulaTuttu || iz.TahminKullanildi)
+            {
+                gYaw += iz.AdimDonus;
+                // telefonun yönü dönüş başına belirsizleşir (ölçüm %5, tahmin %30)
+                float s = (iz.TahminKullanildi ? 0.3f : 0.05f) * Mathf.Abs(iz.AdimDonus) + 0.05f;
+                vYaw += s * s;
+                if (iz.TahminKullanildi) tahminKare++;
+                // dönüş hızı katsayısı (yalnız güvenilir ölçümle)
+                if (iz.PusulaTuttu && tahminDt > 0.03f && Mathf.Abs(tahminSol - tahminSag) > 150 && Mathf.Abs(iz.AdimDonus) > 3f)
+                {
+                    float olc = iz.AdimDonus / tahminDt / ((tahminSol - tahminSag) / 510f);
+                    if (olc > 40f && olc < 400f) donusK = donusK * 0.95f + olc * 0.05f;
+                }
+            }
+            else vYaw += 4f;      // ölçülemedi: dönüş bilinmiyor
             if (iz.ZeminTuttu)
             {
                 float s = Mathf.Sin(gYaw * Mathf.Deg2Rad), c = Mathf.Cos(gYaw * Mathf.Deg2Rad);
                 gX += s * iz.AdimIleri + c * iz.AdimSag; gZ += c * iz.AdimIleri - s * iz.AdimSag;
+                float yol = Mathf.Sqrt(iz.AdimIleri * iz.AdimIleri + iz.AdimSag * iz.AdimSag);
+                vPoz += (0.08f * yol + 0.001f) * (0.08f * yol + 0.001f);
             }
+            else if (komutSol != 0 || komutSag != 0) vPoz += 0.0004f;     // gidiyor ama ölçülemiyor
             if (iz.PusulaTuttu) sonGorselZaman = Time.unscaledTime;
+            vYaw = Mathf.Min(vYaw, 90f * 90f); vPoz = Mathf.Min(vPoz, 4f);
+            // bu karenin görüntü ölçümü ve ekranda gösterilen konum (robot konumu geldiğinde aynı kareyle karşılaştırılır)
+            gecmis.Add(new Gecmis { kare = islenenBilgi.kare, zamanMs = islenenBilgi.zamanMs, gYaw = gYaw, gX = gX, gZ = gZ, pX = PozX, pZ = PozZ, pYaw = PozYaw });
+            if (gecmis.Count > 400) gecmis.RemoveRange(0, gecmis.Count - 400);
         }
 
         bool GorselSaglam => Time.unscaledTime - sonGorselZaman < 0.6f;
 
-        /// <summary>Robotun konumu geldi: görüntü ile ev arasındaki farkı ilk seferde koyar, sonra yalnız robot dururken
-        /// (konum ~0,3 sn geç geldiği için hareket ederken karşılaştırma yanlış olur) yavaşça kapatır.</summary>
-        void KonumGeldi(Konum k)
+        /// <summary>Robotun konumu geldi (kare numarasıyla). O karedeki telefon ölçümü bulunur, ikisi arasındaki fark
+        /// belirsizliklere göre düzeltilir. Kare numarası yoksa (eski köprü) yalnız robot dururken yavaşça (eski yol).</summary>
+        void KonumGeldi(Konum k, string json)
         {
-            if (!GorselSaglam) return;
-            float hYaw = Mathf.DeltaAngle(0f, k.yaw - gYaw);
-            float c = Mathf.Cos(hYaw * Mathf.Deg2Rad), s = Mathf.Sin(hYaw * Mathf.Deg2Rad);
-            // ev = R(hYaw) * görüntü + fark  (R: +z'den sağa dönüş)
-            float rx = gX * c + gZ * s, rz = -gX * s + gZ * c;
-            float hX = k.x - rx, hZ = k.z - rz;
-            bool duruyor = Time.unscaledTime - sonHareketKomutu > 1.0f && (durum?.motor == null || (durum.motor.sol == 0 && durum.motor.sag == 0));
-            if (!farkVar) { fYaw = hYaw; fX = hX; fZ = hZ; farkVar = true; Gunluk.Yaz("dev", "ilk konum: " + k.x.ToString("F2") + "," + k.z.ToString("F2") + " yon " + k.yaw.ToString("F0")); return; }
-            if (!duruyor) return;
-            fYaw += Mathf.DeltaAngle(fYaw, hYaw) * 0.15f;
-            // yön farkı değişince konum farkı da yeni yöne göre hesaplanır
-            c = Mathf.Cos(fYaw * Mathf.Deg2Rad); s = Mathf.Sin(fYaw * Mathf.Deg2Rad);
-            rx = gX * c + gZ * s; rz = -gX * s + gZ * c;
-            fX += (k.x - rx - fX) * 0.15f; fZ += (k.z - rz - fZ) * 0.15f;
+            int i = -1;
+            if (k.kare >= 0)
+                for (int j = gecmis.Count - 1; j >= 0; j--) if (gecmis[j].kare >= 0 && gecmis[j].kare <= k.kare) { i = j; break; }
+            Gecmis g;
+            if (i >= 0)
+            {
+                g = gecmis[i];
+                // robot o kareyi işlemiş, telefona gelmemiş olabilir (akış kareleri atlar): sonraki kareyle ara değer
+                if (g.kare != k.kare && i + 1 < gecmis.Count && gecmis[i + 1].kare > k.kare)
+                {
+                    var h = gecmis[i + 1]; float t = (k.kare - g.kare) / (float)(h.kare - g.kare);
+                    g.gYaw = g.gYaw + Mathf.DeltaAngle(g.gYaw, h.gYaw) * t; g.gX = Mathf.Lerp(g.gX, h.gX, t); g.gZ = Mathf.Lerp(g.gZ, h.gZ, t);
+                    g.pYaw = g.pYaw + Mathf.DeltaAngle(g.pYaw, h.pYaw) * t; g.pX = Mathf.Lerp(g.pX, h.pX, t); g.pZ = Mathf.Lerp(g.pZ, h.pZ, t);
+                }
+                var son = gecmis[gecmis.Count - 1];
+                sonGecikmeKare = son.kare - k.kare;
+                sonGecikmeMs = son.zamanMs > 0 && g.zamanMs > 0 ? (float)(son.zamanMs - g.zamanMs) : -1f;
+            }
+            else
+            {
+                eslesmeyen++;
+                if (k.kare >= 0 && gecmis.Count > 0 && gecmis[0].kare > k.kare) return;   // çok eski konum
+                bool duruyor = Time.unscaledTime - sonHareketKomutu > 1.0f && (durum?.motor == null || (durum.motor.sol == 0 && durum.motor.sag == 0));
+                if (farkVar && !duruyor) return;
+                g = new Gecmis { kare = -1, gYaw = gYaw, gX = gX, gZ = gZ, pX = PozX, pZ = PozZ, pYaw = PozYaw };
+            }
+
+            // ölçüm: robot işareti bu karede gördüyse, telefonun o karede gösterdiği konuma göre işaret hangi açıda olmalıydı
+            float arH = float.NaN; int arId = -1;
+            if (PozVar && i >= 0 && ev?.isaretler != null)
+                foreach (var gr in Gorulen(json))
+                    foreach (var e in ev.isaretler)
+                        if (e.id == gr.x && gr.y < 2.5f)
+                        {
+                            float c0 = Mathf.Cos(g.pYaw * Mathf.Deg2Rad), s0 = Mathf.Sin(g.pYaw * Mathf.Deg2Rad);
+                            float dx = e.x - g.pX, dz = e.z - g.pZ;
+                            float sag = dx * c0 - dz * s0, ileri = dx * s0 + dz * c0;
+                            arH = Mathf.DeltaAngle(gr.z, Mathf.Atan2(sag, ileri) * Mathf.Rad2Deg); arId = e.id;
+                            arHata.Add(new Vector2(Time.unscaledTime, arH));
+                        }
+            if (arHata.Count > 0 && Time.unscaledTime - arHata[0].x > 30f) arHata.RemoveAll(q => Time.unscaledTime - q.x > 30f);
+
+            float hYaw = Mathf.DeltaAngle(0f, k.yaw - g.gYaw);
+            float ry = Mathf.Max(k.sy, 0.8f), rp = Mathf.Max(k.sp, 0.015f);
+            float ky, kp;
+            if (!farkVar)
+            {
+                fYaw = hYaw; vYaw = ry * ry; ky = 1f;
+                Dondur(fYaw, g.gX, g.gZ, out float rx0, out float rz0);
+                fX = k.x - rx0; fZ = k.z - rz0; vPoz = rp * rp; kp = 1f;
+                dYaw = fYaw; dX = fX; dZ = fZ; farkVar = true;
+                Gunluk.Yaz("dev", "ilk konum: " + k.x.ToString("F2") + "," + k.z.ToString("F2") + " yon " + k.yaw.ToString("F0") + " kare " + k.kare + (i >= 0 ? " (eslesti)" : " (kare eslesmedi)"));
+            }
+            else
+            {
+                ky = vYaw / (vYaw + ry * ry);
+                fYaw += Mathf.DeltaAngle(fYaw, hYaw) * ky; vYaw *= 1f - ky;
+                // yön düzeltilince konum farkı yeni yöne göre (robotun o karedeki yeri sabit kalsın)
+                Dondur(fYaw, g.gX, g.gZ, out float rx, out float rz);
+                kp = vPoz / (vPoz + rp * rp);
+                fX += (k.x - rx - fX) * kp; fZ += (k.z - rz - fZ) * kp; vPoz *= 1f - kp;
+            }
+            // yaratıklar ancak robot işareti yeni görmüşken ve konumu kesinken (eski / tahmini konumla yanlış yere konuyordu)
+            if (!yaratikKonuldu && k.kaynak == "isaret" && k.isaret_sn >= 0 && k.isaret_sn < 1.5f && k.sy < 5f && (i >= 0 || k.kare < 0))
+            { yaratikKonuldu = true; koyBekle = 0.4f; }
+            KonumKaydet(k, i >= 0, ky, kp, arH, arId);
+        }
+        bool yaratikKonuldu; float koyBekle = -1f;
+
+        static void Dondur(float yaw, float x, float z, out float rx, out float rz)
+        {
+            float c = Mathf.Cos(yaw * Mathf.Deg2Rad), s = Mathf.Sin(yaw * Mathf.Deg2Rad);
+            rx = x * c + z * s; rz = -x * s + z * c;
+        }
+
+        /// <summary>Durum JSON'undaki "gorulen": [[id, mesafe, yon], ...] (JsonUtility iç içe dizi okumuyor).</summary>
+        static List<Vector3> Gorulen(string json)
+        {
+            var l = new List<Vector3>();
+            if (json == null) return l;
+            int a = json.IndexOf("\"gorulen\"", StringComparison.Ordinal); if (a < 0) return l;
+            a = json.IndexOf('[', a); if (a < 0) return l;
+            int d = 0, b = a;
+            for (; b < json.Length; b++) { if (json[b] == '[') d++; else if (json[b] == ']') { d--; if (d == 0) break; } }
+            var ic = json.Substring(a + 1, Math.Max(0, b - a - 1));
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            foreach (var parca in ic.Split(new[] { ']' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var t = parca.Trim(' ', ',', '[').Split(',');
+                if (t.Length >= 3 && float.TryParse(t[0], System.Globalization.NumberStyles.Float, ci, out float id) &&
+                    float.TryParse(t[1], System.Globalization.NumberStyles.Float, ci, out float m) && float.TryParse(t[2], System.Globalization.NumberStyles.Float, ci, out float y))
+                    l.Add(new Vector3(id, m, y));
+            }
+            return l;
         }
 
         void PozGuncelle()
         {
             if (farkVar)
             {
-                float c = Mathf.Cos(fYaw * Mathf.Deg2Rad), s = Mathf.Sin(fYaw * Mathf.Deg2Rad);
-                PozX = gX * c + gZ * s + fX; PozZ = -gX * s + gZ * c + fZ; PozYaw = gYaw + fYaw;
-                if (!PozVar) { PozVar = true; YaratiklariKoy(); }
+                float a = 1f - Mathf.Exp(-Time.unscaledDeltaTime / 0.25f);
+                dYaw += Mathf.DeltaAngle(dYaw, fYaw) * a; dX += (fX - dX) * a; dZ += (fZ - dZ) * a;
+                Dondur(dYaw, gX, gZ, out float rx, out float rz);
+                PozX = rx + dX; PozZ = rz + dZ; PozYaw = gYaw + dYaw;
+                PozVar = true;
             }
             else if (!GorselSaglam && durum?.konum != null && durum.konum.var)
             {
-                // görüntü ölçümü yoksa: robotun konumu (gecikmeli)
+                // görüntü ölçümü yoksa: robotun konumu (gecikmeli; yalnız harita için, yaratık bununla konmaz)
                 PozX = durum.konum.x; PozZ = durum.konum.z; PozYaw = durum.konum.yaw;
-                if (!PozVar) { PozVar = true; YaratiklariKoy(); }
+                PozVar = true;
+            }
+            if (koyBekle > 0f && farkVar)
+            {
+                koyBekle -= Time.unscaledDeltaTime;
+                if (koyBekle <= 0f) { YaratiklariKoy(); Gunluk.Yaz("dev", "yaratiklar kondu: isaret yeni goruldu, yon belirsizligi kucuk"); }
+            }
+        }
+
+        // ------------------------------------------------------------------ sanal işaret çerçevesi (ölçüm)
+        Canvas olcumKatmani; readonly List<RectTransform[]> cerceveler = new List<RectTransform[]>();
+
+        /// <summary>Evdeki işaretlerin yerine, telefonun şu anki konumuna göre 18 cm'lik çerçeve: dönerken ve giderken gerçek
+        /// işaretin üstünde kalıyorsa AR doğru. Çerçeve keskin çizilir (yaratıklar yumuşak), kayma göze batsın diye.</summary>
+        void Isaretler()
+        {
+            if (ev?.isaretler == null || !PozVar) { foreach (var c in cerceveler) foreach (var r in c) r.gameObject.SetActive(false); return; }
+            if (olcumKatmani == null)
+            {
+                var go = new GameObject("Dev olcum", typeof(Canvas)); go.transform.SetParent(transform, false);
+                olcumKatmani = go.GetComponent<Canvas>(); olcumKatmani.renderMode = RenderMode.ScreenSpaceOverlay; olcumKatmani.sortingOrder = 105;
+            }
+            float c0 = Mathf.Cos(PozYaw * Mathf.Deg2Rad), s0 = Mathf.Sin(PozYaw * Mathf.Deg2Rad);
+            for (int n = 0; n < ev.isaretler.Length; n++)
+            {
+                var e = ev.isaretler[n];
+                if (n >= cerceveler.Count)
+                {
+                    var c = new RectTransform[4];
+                    for (int j = 0; j < 4; j++)
+                    {
+                        var r = Rect("Cizgi", olcumKatmani.transform); r.pivot = new Vector2(0f, 0.5f); r.anchorMin = r.anchorMax = Vector2.zero;
+                        var im = r.gameObject.AddComponent<Image>(); im.color = new Color(1f, 0.25f, 0.85f, 0.95f); im.raycastTarget = false;
+                        c[j] = r;
+                    }
+                    cerceveler.Add(c);
+                }
+                // köşeler: ev -> robot (sağ, yukarı, ileri) -> ekran
+                float yuk = e.yukseklik > 0.02f ? e.yukseklik : 0.25f;
+                float nx = Mathf.Sin(e.aci), nz = Mathf.Cos(e.aci), ux = nz, uz = -nx;   // işaretin sağı (ona bakana göre sol, önemsiz)
+                var p = new Vector2[4]; bool gorunur = true;
+                for (int j = 0; j < 4; j++)
+                {
+                    float su = (j == 0 || j == 3) ? -0.09f : 0.09f, sv = j < 2 ? 0.09f : -0.09f;
+                    float wx = e.x + ux * su, wz = e.z + uz * su, wy = yuk + sv;
+                    float dx = wx - PozX, dz = wz - PozZ;
+                    float sag = dx * c0 - dz * s0, ileri = dx * s0 + dz * c0;
+                    var v = yumusakCam.WorldToViewportPoint(kok.TransformPoint(new Vector3(sag, wy - KameraYuksek, ileri)));
+                    if (v.z < 0.05f) gorunur = false;
+                    p[j] = new Vector2(v.x * Screen.width, v.y * Screen.height);
+                }
+                var cz = cerceveler[n];
+                for (int j = 0; j < 4; j++)
+                {
+                    cz[j].gameObject.SetActive(gorunur);
+                    if (!gorunur) continue;
+                    var a = p[j]; var b = p[(j + 1) % 4]; var d = b - a;
+                    cz[j].anchoredPosition = a; cz[j].sizeDelta = new Vector2(d.magnitude, 4f);
+                    cz[j].localRotation = Quaternion.Euler(0, 0, Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg);
+                }
             }
         }
 
@@ -526,6 +736,7 @@ namespace ArTarama
             var y = new Yaratik { ev = ev, bas = bas, faz = UnityEngine.Random.value * 10f, boy = 0.13f };
             y.t = new GameObject("Yaratik").transform; y.t.SetParent(kok, false);
             y.govde = Kure(y.t, renk, Vector3.zero, Vector3.one * y.boy);
+            Golge(y.t, y.boy);
             foreach (float yan in new[] { -1f, 1f })
             {
                 var g = Kure(y.govde, Color.white, new Vector3(yan * 0.2f, 0.12f, 0.42f), Vector3.one * 0.22f);
@@ -535,13 +746,57 @@ namespace ArTarama
             Gunluk.Yaz("dev", "yaratik: " + ev.x.ToString("F2") + "," + ev.y.ToString("F2"));
         }
 
+        // fizik modülü yok: CreatePrimitive her kürede "SphereCollider yok" hatası veriyordu (23 Kasım günlüğü); küre elle
+        static Mesh kureMesh, golgeMesh; static Material yaratikMat, golgeMat;
+        static Mesh KureMesh()
+        {
+            if (kureMesh != null) return kureMesh;
+            const int B = 16, D = 24; var v = new List<Vector3>(); var t = new List<int>();
+            for (int i = 0; i <= B; i++)
+                for (int j = 0; j <= D; j++)
+                {
+                    float a = Mathf.PI * i / B, b = 2f * Mathf.PI * j / D;
+                    v.Add(new Vector3(Mathf.Sin(a) * Mathf.Cos(b), Mathf.Cos(a), Mathf.Sin(a) * Mathf.Sin(b)) * 0.5f);
+                }
+            for (int i = 0; i < B; i++)
+                for (int j = 0; j < D; j++)
+                {
+                    int q = i * (D + 1) + j;
+                    t.Add(q); t.Add(q + 1); t.Add(q + D + 1); t.Add(q + 1); t.Add(q + D + 2); t.Add(q + D + 1);
+                }
+            kureMesh = new Mesh(); kureMesh.SetVertices(v); kureMesh.SetTriangles(t, 0); kureMesh.RecalculateNormals(); kureMesh.RecalculateBounds();
+            return kureMesh;
+        }
+        static Mesh GolgeMesh()
+        {
+            if (golgeMesh != null) return golgeMesh;
+            golgeMesh = new Mesh();
+            golgeMesh.vertices = new[] { new Vector3(-0.5f, 0, -0.5f), new Vector3(0.5f, 0, -0.5f), new Vector3(0.5f, 0, 0.5f), new Vector3(-0.5f, 0, 0.5f) };
+            golgeMesh.uv = new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1) };
+            golgeMesh.triangles = new[] { 0, 2, 1, 0, 3, 2 }; golgeMesh.RecalculateBounds();
+            return golgeMesh;
+        }
+
         static Transform Kure(Transform p, Color c, Vector3 yer, Vector3 olcek)
         {
-            var g = GameObject.CreatePrimitive(PrimitiveType.Sphere); Destroy(g.GetComponent<Collider>());
+            if (yaratikMat == null) { var sh = Shader.Find("ArTarama/RobotYaratik"); yaratikMat = new Material(sh != null ? sh : Shader.Find("Unlit/Color")); }
+            var g = new GameObject("Kure", typeof(MeshFilter), typeof(MeshRenderer));
             g.layer = Katman; g.transform.SetParent(p, false); g.transform.localPosition = yer; g.transform.localScale = olcek;
-            var r = g.GetComponent<Renderer>(); var b = new MaterialPropertyBlock(); c.a = 1f; b.SetColor("_Color", c); r.SetPropertyBlock(b);
+            g.GetComponent<MeshFilter>().sharedMesh = KureMesh();
+            var r = g.GetComponent<MeshRenderer>(); r.sharedMaterial = yaratikMat;
+            var b = new MaterialPropertyBlock(); c.a = 1f; b.SetColor("_Color", c); r.SetPropertyBlock(b);
             r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
             return g.transform;
+        }
+
+        static void Golge(Transform p, float boy)
+        {
+            if (golgeMat == null) { var sh = Shader.Find("ArTarama/RobotYaratikGolge"); if (sh == null) return; golgeMat = new Material(sh); }
+            var g = new GameObject("Golge", typeof(MeshFilter), typeof(MeshRenderer));
+            g.layer = Katman; g.transform.SetParent(p, false); g.transform.localPosition = new Vector3(0, 0.003f, 0); g.transform.localScale = new Vector3(boy * 2.2f, 1f, boy * 2.2f);
+            g.GetComponent<MeshFilter>().sharedMesh = GolgeMesh();
+            var r = g.GetComponent<MeshRenderer>(); r.sharedMaterial = golgeMat;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
         }
 
         void Yaratiklar()
@@ -606,7 +861,20 @@ namespace ArTarama
             sb.Append("görüntü: dönüş ").Append(iz.PusulaTuttu ? "var (" + iz.PusulaGuven.ToString("F2") + ")" : "YOK")
               .Append(", zemin ").Append(iz.ZeminTuttu ? iz.ZeminNokta + " nokta" : "YOK").Append('\n');
             if (k != null && k.var)
-                sb.Append("robot: ").Append(k.kaynak == "hafiza" ? "anahtar kare" : "işaret " + k.isaret).Append(" ").Append(k.isaret_sn.ToString("F0")).Append(" sn önce, ilerleme ").Append(k.hareket == "goruntu" ? "zemin izi" : "motor").Append('\n');
+            {
+                sb.Append("robot: ").Append(k.kaynak == "hafiza" ? "anahtar kare" : "işaret " + k.isaret).Append(" ").Append(k.isaret_sn.ToString("F0")).Append(" sn önce, ilerleme ").Append(k.hareket == "goruntu" ? "zemin izi" : "motor")
+                  .Append(", belirsizlik yön ±").Append(k.sy.ToString("F1")).Append("° yer ±").Append((k.sp * 100f).ToString("F0")).Append(" cm");
+                if (k.kilit > 0) sb.Append(", yeniden kilit ").Append(k.kilit);
+                sb.Append('\n');
+            }
+            // ölçüm: AR hatası (işaret görünürken), gecikme, dönüş tahmini
+            int n = 0; float enCok = 0f; var son = new List<float>();
+            foreach (var q in arHata) if (Time.unscaledTime - q.x < 10f) { n++; son.Add(Mathf.Abs(q.y)); enCok = Mathf.Max(enCok, Mathf.Abs(q.y)); }
+            if (n > 0) { son.Sort(); sb.Append("AR hatası (son 10 sn, işarete göre): ortanca ").Append(son[son.Count / 2].ToString("F1")).Append("°, en çok ").Append(enCok.ToString("F1")).Append("°  (").Append(n).Append(" ölçüm)\n"); }
+            else sb.Append("AR hatası: ölçüm yok (robot işareti görmüyor)\n");
+            sb.Append("gecikme: ").Append(sonGecikmeKare >= 0 ? sonGecikmeKare + " kare" + (sonGecikmeMs >= 0 ? " (" + sonGecikmeMs.ToString("F0") + " ms)" : "") : "?")
+              .Append(", telefon belirsizliği yön ±").Append(Mathf.Sqrt(vYaw).ToString("F1")).Append("°, dönüş tahminiyle geçilen ").Append(tahminKare)
+              .Append(", reddedilen ").Append(iz.ReddedilenAdim).Append(eslesmeyen > 0 ? ", eşleşmeyen konum " + eslesmeyen : "").Append('\n');
             sb.Append(kayitKlasor != null ? "kayıt: " + Path.GetFileName(kayitKlasor) + " (" + kayitKare + " kare)" : "kayıt yok");
             bilgi.text = sb.ToString();
         }
@@ -619,7 +887,10 @@ namespace ArTarama
                 kayitKlasor = Path.Combine(Application.persistentDataPath, "dev", DateTime.Now.ToString("yyyyMMdd_HHmmss"));
                 Directory.CreateDirectory(kayitKlasor);
                 csv = new StreamWriter(Path.Combine(kayitKlasor, "iz.csv"), false, new UTF8Encoding(false));
-                csv.WriteLine("t,kare,jpg,adim_donus,pusula_guven,pusula_tuttu,adim_ileri,adim_sag,zemin_nokta,zemin_tuttu,g_yaw,g_x,g_z,fark_yaw,fark_x,fark_z,poz_x,poz_z,poz_yaw,komut_sol,komut_sag,motor_sol,motor_sag,k_var,k_x,k_z,k_yaw,k_isaret,k_isaret_sn,k_kaynak,k_hareket,k_nokta");
+                csv.WriteLine("t,kare,jpg,adim_donus,pusula_guven,pusula_tuttu,adim_ileri,adim_sag,zemin_nokta,zemin_tuttu,g_yaw,g_x,g_z,fark_yaw,fark_x,fark_z,poz_x,poz_z,poz_yaw,komut_sol,komut_sag,motor_sol,motor_sag,k_var,k_x,k_z,k_yaw,k_isaret,k_isaret_sn,k_kaynak,k_hareket,k_nokta,"
+                              + "robot_kare,robot_zaman_ms,kare_motor_sol,kare_motor_sag,tahmin,tahmin_kullanildi,v_yaw,v_poz,donus_k,k_kare,k_sy,k_sp");
+                konumCsv = new StreamWriter(Path.Combine(kayitKlasor, "konum.csv"), false, new UTF8Encoding(false));
+                konumCsv.WriteLine("t,k_kare,eslesti,gecikme_kare,gecikme_ms,k_x,k_z,k_yaw,k_sy,k_sp,k_kaynak,k_isaret_sn,k_hata_yon,k_kilit,ky,kp,fark_yaw,fark_x,fark_z,v_yaw,v_poz,ar_hata,ar_isaret,poz_x,poz_z,poz_yaw");
             }
             catch (Exception e) { kayitKlasor = null; Gunluk.Yaz("dev", "kayit acilamadi: " + e.Message); }
         }
@@ -640,8 +911,23 @@ namespace ArTarama
                 PozX.ToString("F3", ci), PozZ.ToString("F3", ci), PozYaw.ToString("F2", ci), komutSol.ToString(), komutSag.ToString(),
                 (m != null ? m.sol : 0).ToString(), (m != null ? m.sag : 0).ToString(),
                 k != null && k.var ? "1" : "0", (k != null ? k.x : 0).ToString("F3", ci), (k != null ? k.z : 0).ToString("F3", ci), (k != null ? k.yaw : 0).ToString("F1", ci),
-                (k != null ? k.isaret : -1).ToString(), (k != null ? k.isaret_sn : -1).ToString("F1", ci), k?.kaynak ?? "", k?.hareket ?? "", (k != null ? k.nokta : 0).ToString() }));
-            if (Time.unscaledTime - sonCsvFlush > 1f) { sonCsvFlush = Time.unscaledTime; csv.Flush(); }
+                (k != null ? k.isaret : -1).ToString(), (k != null ? k.isaret_sn : -1).ToString("F1", ci), k?.kaynak ?? "", k?.hareket ?? "", (k != null ? k.nokta : 0).ToString(),
+                islenenBilgi.kare.ToString(), islenenBilgi.zamanMs.ToString("F1", ci), (islenenBilgi.motorVar ? islenenBilgi.sol : -999).ToString(), (islenenBilgi.motorVar ? islenenBilgi.sag : -999).ToString(),
+                sonTahmin.ToString("F2", ci), iz.TahminKullanildi ? "1" : "0", vYaw.ToString("F2", ci), vPoz.ToString("F5", ci), donusK.ToString("F0", ci),
+                (k != null ? k.kare : -1).ToString(), (k != null ? k.sy : 0).ToString("F1", ci), (k != null ? k.sp : 0).ToString("F3", ci) }));
+            if (Time.unscaledTime - sonCsvFlush > 1f) { sonCsvFlush = Time.unscaledTime; csv.Flush(); konumCsv?.Flush(); }
+        }
+
+        void KonumKaydet(Konum k, bool eslesti, float ky, float kp, float arH, int arId)
+        {
+            if (konumCsv == null) return;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            konumCsv.WriteLine(string.Join(",", new[] {
+                Time.realtimeSinceStartup.ToString("F3", ci), k.kare.ToString(), eslesti ? "1" : "0", sonGecikmeKare.ToString(), sonGecikmeMs.ToString("F0", ci),
+                k.x.ToString("F3", ci), k.z.ToString("F3", ci), k.yaw.ToString("F1", ci), k.sy.ToString("F1", ci), k.sp.ToString("F3", ci), k.kaynak ?? "", k.isaret_sn.ToString("F1", ci),
+                k.hata != null && k.hata.Length > 0 ? k.hata[0].ToString("F2", ci) : "", k.kilit.ToString(), ky.ToString("F3", ci), kp.ToString("F3", ci),
+                fYaw.ToString("F2", ci), fX.ToString("F3", ci), fZ.ToString("F3", ci), vYaw.ToString("F2", ci), vPoz.ToString("F5", ci),
+                float.IsNaN(arH) ? "" : arH.ToString("F2", ci), arId.ToString(), PozX.ToString("F3", ci), PozZ.ToString("F3", ci), PozYaw.ToString("F2", ci) }));
         }
 
         // ------------------------------------------------------------------ kapanış
@@ -658,6 +944,7 @@ namespace ArTarama
             try { if (udp != null && ip != null) { var b = Encoding.ASCII.GetBytes("{\"t\":\"d\",\"n\":" + (paketNo + 1) + ",\"sol\":0,\"sag\":0}"); udp.Send(b, b.Length, ip, UdpPort); } } catch (Exception) { }
             try { udp?.Close(); } catch (Exception) { }
             try { csv?.Flush(); csv?.Dispose(); } catch (Exception) { }
+            try { konumCsv?.Flush(); konumCsv?.Dispose(); } catch (Exception) { }
             iz?.Birak();
             if (yumusakRt != null) yumusakRt.Release();
             if (gorusRt != null) gorusRt.Release();

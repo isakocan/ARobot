@@ -37,9 +37,22 @@ HAFIZA_KAYIT_MENZIL = 1.5  # m: yalniz bu kadar yakin, belirsiz olmayan isaretle
 HAFIZA_YEREL = 0.6         # m: isaret yokken tahmini konumun bu cevresindeki anahtar karelerle eslesir
 HAFIZA_YEREL_ESIK = 0.25   # benzerlik
 HAFIZA_GENEL_ESIK = 0.45   # hic bilinmiyorken yalniz cok guclu ve tek anlamli eslesmeyle yer bulunur
-DUVAR_PAYI = 0.15          # m: robot isaretin arkasinda (duvarin icinde) olamaz
 HIZ_TAM = 0.45             # m/s: PWM 255'te ileri hız ilk tahmini (CLAUDE.md: ~1-2 km/s)
 DONUS_TAM = 140.0          # derece/s: (sol-sag)=510'da donus ilk tahmini (21 Kasim kaydi: fark 408'de ~110 derece/s); surerken ogrenir
+
+# Birleştirme (24 Kasım): Kalman süzgeci. Durum (x, z, yaw) + belirsizlik (P). Hareket belirsizliği büyütür (dönüşte yön,
+# gidişte konum; güvenilmez ölçümde çok), işaret küçültür. Böylece robot dururken işaretin gürültüsü konumu sürükleyemez,
+# hızlı dönüşten sonra ise yön belirsiz olduğu için işaret yönü hemen düzeltir (eski kural: 30 dereceden büyük farkı hiç
+# kabul etmiyordu, yön bir kez bozulunca robot işaretin önünde dururken konum 1 m kayıyordu).
+S_YON = math.radians(1.5)          # işaretin robottan görülme açısı (kareden kareye 0,4 derece içinde)
+S_UZAK = (0.02, 0.02)              # uzaklık: a + b * r
+S_NORMAL = (math.radians(3.0), math.radians(5.0))   # işaretin baktığı yön: a + b * max(0, r - 0.8) (uzakta zayıf)
+KAPI = 16.0                        # Mahalanobis² eşiği (3 serbestlik, %99,9): üstü aykırı sayılır
+KILIT_GOZLEM = 3                   # aykırı ama birbiriyle tutarlı bu kadar gözlem KILIT_SURE içinde: konum yeniden kurulur
+KILIT_SURE = 3.0
+KILIT_SAPMA = (0.25, math.radians(12.0))   # işaretin baktığı yön 1,7 m'de kareden kareye ~9 derece oynuyor
+P_TABAN = (0.015, math.radians(0.8))  # süzgeç bundan emin olmaz (işaret hataları birbirinden bağımsız değil; aşırı güven
+                                      # küçük ama gerçek farkları reddettirir)
 
 
 def _dondur(x, z, aci):
@@ -101,6 +114,14 @@ class KonumBulucu:
         self.ms = 0.0
         self.son_t = None
         self.pusula_guven = 0.0
+        self.P = np.diag([1.0, 1.0, 1.0])     # belirsizlik (x, z m²; yaw rad²)
+        self.kare = -1             # işlenen kamera karesinin numarası (köprünün sayacı; telefon görüntüyü bununla eşler)
+        self.kare_t = 0.0
+        self.hata = None           # son işaret ölçümünde düzeltmeden önceki fark: [yön derece, uzaklık m, kabul 0/1]
+        self.kilit_sayisi = 0      # aykırı ama tutarlı gözlemlerle yeniden kurulma sayısı
+        self._kilit = []           # (zaman, dx, dz, dyaw): aykırı gözlemlerin işaretten çıkan konumu - süzgecin konumu
+        self.olcumler = []         # PC ölçüm aracı için kare başına kayıt (yalnız olcum_ac True iken)
+        self.olcum_ac = False
 
     # ------------------------------------------------------------ telefon
     def ev_ayarla(self, liste):
@@ -131,7 +152,10 @@ class KonumBulucu:
                     "isaret_sn": round(time.time() - self.son_isaret, 1) if self.son_isaret else -1,
                     "isaret": self.son_isaret_id, "gorulen": self.gorulen, "ms": round(self.ms),
                     "kaynak": self.kaynak, "hafiza": len(self.hafiza), "hareket": self.hareket, "nokta": self.nokta,
-                    "olcek": round(self.olcek, 2), "pusula": round(self.pusula_guven, 2)}
+                    "olcek": round(self.olcek, 2), "pusula": round(self.pusula_guven, 2),
+                    "kare": self.kare, "sp": round(math.sqrt(max(0.0, (self.P[0, 0] + self.P[1, 1]) / 2)), 3),
+                    "sy": round(math.degrees(math.sqrt(max(0.0, self.P[2, 2]))), 1),
+                    "hata": self.hata or [], "kilit": self.kilit_sayisi}
 
     def hafiza_listesi(self):
         """Dev haritası için anahtar karelerin yerleri [[x, z, yaw_derece], ...] ve son iz."""
@@ -142,14 +166,14 @@ class KonumBulucu:
         return {"kareler": p, "iz": iz}
 
     # ------------------------------------------------------------ kare işleme
-    def isle(self, ham_gri, simdi=None, sol_sag=None):
-        """Bir kareyi işler (PC testinde de doğrudan çağrılır)."""
+    def isle(self, ham_gri, simdi=None, sol_sag=None, kare=None):
+        """Bir kareyi işler (PC testinde de doğrudan çağrılır). kare: köprünün kare numarası (telefon eşlemesi)."""
         t0 = time.time()
         simdi = simdi if simdi is not None else t0
         dt = 0.0 if self.son_t is None else max(0.0, min(1.0, simdi - self.son_t))
         self.son_t = simdi
         sol, sag = sol_sag if sol_sag is not None else (self.motor() if self.motor else (0, 0))
-        # dönüş: görsel pusula, güvenilmezse komut
+        # dönüş: görsel pusula, güvenilmezse zemin izi ya da komut
         komut_donus = self.donus_k * (sol - sag) / 510.0 * dt
         d_derece, guven = self.pusula.guncelle(ham_gri, komut_donus)
         # donus hizi katsayisini ogren (kesin donuste, guvenli olcumle)
@@ -160,8 +184,12 @@ class KonumBulucu:
         self.pusula_guven = guven
         od = self.izi.guncelle(ham_gri)
         self.nokta = od[3] if od else 0
+        yon_guvenli = True
         if guven < 0.08 or abs(d_derece) > 60.0:
             d_derece = od[2] if od else komut_donus
+            yon_guvenli = od is not None
+        elif abs(sol - sag) > 100 and abs(d_derece - komut_donus) > max(10.0, 0.5 * abs(komut_donus)):
+            yon_guvenli = False            # pusula komutla çelişiyor (hızlı dönüşte yanlış eşleşme olabilir): belirsiz say
         if od:
             ileri, yan = od[0] * self.olcek, od[1] * self.olcek
             self.hareket = "goruntu"
@@ -171,83 +199,167 @@ class KonumBulucu:
         gorulen = isaret.bul(ham_gri)
         F = hafiza.Hafiza.ozellik(self.pusula.onceki)
         with self.kilit:
-            self.yaw += math.radians(d_derece)
-            sn, cs = math.sin(self.yaw), math.cos(self.yaw)
-            self.x += sn * ileri + cs * yan; self.z += cs * ileri - sn * yan
+            if kare is not None:
+                self.kare, self.kare_t = int(kare), simdi
+            self._tahmin(math.radians(d_derece), ileri, yan, yon_guvenli, od is not None, sol == 0 and sag == 0)
             self._yol_tahmin += math.hypot(ileri, yan)
             if od:
                 self._yol_goruntu += math.hypot(ileri, yan)
-            # işaret düzeltmesi: evde kayıtlı, menzil içindeki en yakın işaret
+            # işaret: evde kayıtlı, menzil içindeki en yakın
             en = None
-            ilk = not self.bilinen or simdi - self.son_isaret > 20.0
             for g in gorulen:
                 if g["id"] in self.ev and g["mesafe"] < ISARET_MENZIL and (en is None or g["mesafe"] < en["mesafe"]):
                     en = g
+            self.hata = None
+            duzeldi = False
             if en is not None:
-                E = self.ev[en["id"]]
-                S = Poz2(en["x"], en["z"], en["aci"])          # işaret yerel -> robot
-                robot_ev = E.sonra(S.ters())                     # robot -> ev (işaretin yönüyle)
-                belirsiz = en.get("belirsiz", False)
-                # İşaretin YERİ uzakta da doğru (1,5 m'de 3,7 cm), baktığı YÖN uzakta gürültülü. Bu yüzden yön
-                # işaretten yalnız yavaşça (ya da ilk konumda), konum ise pusulayla izlenen yön + işaretin göreli yerinden.
-                fark = _aci_fark(robot_ev.aci, self.yaw)
-                if ilk:
-                    w_yaw = None
-                    if en["mesafe"] < ILK_MENZIL and not belirsiz:
-                        w_yaw = 1.0
-                    elif not belirsiz:
-                        # uzaktan: robot dururken ya da dönerken birkaç gözlem pusulayla aynı yönü gösterirse
-                        self._aday = [a for a in self._aday if simdi - a[0] < ILK_SURE] + [(simdi, fark)]
-                        if len(self._aday) >= ILK_GOZLEM:
-                            c = sum(math.cos(a[1]) for a in self._aday); s_ = sum(math.sin(a[1]) for a in self._aday)
-                            ort = math.atan2(s_, c)
-                            if max(abs(_aci_fark(a[1], ort)) for a in self._aday) < math.radians(ILK_SAPMA):
-                                fark, w_yaw = ort, 1.0
-                    if w_yaw is None:
-                        en = None
-                elif belirsiz or abs(fark) > math.radians(30):
-                    w_yaw = 0.0                                   # pusulayla celisen ya da belirsiz yon: yalniz konum
-                else:
-                    w_yaw = 0.25 if en["mesafe"] < 1.0 else (0.08 if en["mesafe"] < 1.6 else 0.02)
-            if en is not None:
-                self.yaw += fark * w_yaw
-                rx, rz = _dondur(en["x"], en["z"], self.yaw)     # işaretin robota göre yeri, ev yönünde
-                ex, ez = E.x, E.z
-                yx, yz = ex - rx, ez - rz
-                # robot işaretin hemen arkasında olamaz (işaretin yapıştığı duvar): oraya düşüyorsa pusula yönü kaymıştır,
-                # yön işaretten güçlü alınır. Yalnız işaretin ±40 cm hizası: toplantı odası haritasında işaret hizasının
-                # arkasında da (girintide) açık zemin var, duvarın nereye kadar sürdüğünü robot bilmiyor.
-                yerel = E.ters().uygula(yx, yz)
-                if not belirsiz and yerel[1] < DUVAR_PAYI and abs(yerel[0]) < 0.4 and w_yaw < 0.6:
-                    self.yaw += _aci_fark(robot_ev.aci, self.yaw) * 0.6
-                    rx, rz = _dondur(en["x"], en["z"], self.yaw)
-                    yx, yz = ex - rx, ez - rz
-                w_poz = 1.0 if ilk else (0.7 if en["mesafe"] < 1.5 else (0.35 if en["mesafe"] < 2.0 else 0.2))
+                duzeldi = self._isaret(en, simdi)
+            if duzeldi:
+                yx, yz = self.x, self.z
                 # hız katsayısı: iki düzeltme arası gerçek yol / tahmin edilen yol
-                if self._son_fix is not None and self._yol_tahmin > 0.5:
+                if self._son_fix is not None and self._yol_tahmin > 0.5 and en["mesafe"] < 1.5:
                     gercek = math.hypot(yx - self._son_fix[0], yz - self._son_fix[1])
                     oran = max(0.4, min(2.5, gercek / self._yol_tahmin))
                     if self._yol_goruntu > 0.8 * self._yol_tahmin:
-                        # çoğu yol zemin iziyle ölçüldü: onun ölçeğini (yalnız yakın işaretle, yavaşça) ayarla
-                        if en["mesafe"] < 1.5:
-                            self.olcek = max(0.7, min(1.4, self.olcek * (1.0 + 0.15 * (min(1.3, max(0.77, oran)) - 1.0))))
+                        self.olcek = max(0.7, min(1.4, self.olcek * (1.0 + 0.15 * (min(1.3, max(0.77, oran)) - 1.0))))
                     else:
                         self.hiz_k = self.hiz_k * 0.7 + self.hiz_k * oran * 0.3
-                self.x += (yx - self.x) * w_poz; self.z += (yz - self.z) * w_poz
-                self.bilinen = True; self.son_isaret = simdi; self.son_isaret_id = en["id"]
-                self._son_fix = (self.x, self.z); self._yol_tahmin = 0.0; self._yol_goruntu = 0.0; self._aday = []
+                self.son_isaret = simdi; self.son_isaret_id = en["id"]
+                self._son_fix = (self.x, self.z); self._yol_tahmin = 0.0; self._yol_goruntu = 0.0
                 self.kaynak = "isaret"
-                if en["mesafe"] < HAFIZA_KAYIT_MENZIL and not belirsiz:
+                if en["mesafe"] < HAFIZA_KAYIT_MENZIL and not en.get("belirsiz") and self.P[2, 2] < math.radians(4) ** 2:
                     self.hafiza.ekle(F, self.x, self.z, self.yaw)
-            elif simdi - self._son_hafiza > 1.0 and len(self.hafiza):
+            elif en is None and simdi - self._son_hafiza > 1.0 and len(self.hafiza):
                 self._son_hafiza = simdi
                 self._hafizadan(F, simdi)
             self.gorulen = [[g["id"], round(g["mesafe"], 2), round(g["yon"], 1)] for g in gorulen]
             if self.bilinen and (not self.iz or math.hypot(self.x - self.iz[-1][0], self.z - self.iz[-1][1]) > 0.05):
                 self.iz.append([round(self.x, 3), round(self.z, 3)])
                 del self.iz[:-400]
+            if self.olcum_ac:
+                self.olcumler.append({"t": simdi, "x": self.x, "z": self.z, "yaw": math.degrees(self.yaw), "var": self.bilinen,
+                                      "sol": sol, "sag": sag, "hata": self.hata, "sp": math.sqrt((self.P[0, 0] + self.P[1, 1]) / 2),
+                                      "sy": math.degrees(math.sqrt(self.P[2, 2])), "hareket": self.hareket, "guven": guven,
+                                      "isaret": [[g["id"], g["mesafe"], g["yon"], math.degrees(g["aci"]), g.get("belirsiz", False)] for g in gorulen]})
         self.ms = (time.time() - t0) * 1000.0
         return gorulen
+
+    # ------------------------------------------------------------ Kalman süzgeci
+    def _tahmin(self, dyaw, ileri, yan, yon_guvenli, iz_var, duruyor):
+        """Hareket adımı: durum ilerler, belirsizlik hareketle (ve güvenilmez ölçümde çok) büyür."""
+        sn, cs = math.sin(self.yaw), math.cos(self.yaw)
+        Fm = np.eye(3)
+        Fm[0, 2] = cs * ileri - sn * yan
+        Fm[1, 2] = -sn * ileri - cs * yan
+        self.x += sn * ileri + cs * yan; self.z += cs * ileri - sn * yan
+        self.yaw += dyaw
+        yol = math.hypot(ileri, yan)
+        if duruyor and abs(dyaw) < math.radians(0.5) and yol < 0.01:
+            s_yaw, s_poz = math.radians(0.05), 0.001                   # duran robot: neredeyse hiç
+        else:
+            # büyük adım (hızlı dönüş, düşük kare hızı) daha belirsiz: 40 derecelik adımda ~14 derece
+            s_yaw = (0.04 if yon_guvenli else 0.3) * abs(dyaw) + 0.46 * dyaw * dyaw + math.radians(0.3)
+            s_poz = (0.06 if iz_var else 0.3) * yol + 0.005
+        self.P = Fm @ self.P @ Fm.T + np.diag([s_poz ** 2, s_poz ** 2, s_yaw ** 2])
+
+    def _olcum(self, s, E):
+        """Durum s (x, z, yaw) iken işaret E için beklenen [görülme açısı, uzaklık, işaretin robot yönünde baktığı açı]."""
+        lx, lz = _dondur(E.x - s[0], E.z - s[1], -s[2])
+        return np.array([math.atan2(lx, lz), math.hypot(lx, lz), E.aci - s[2]])
+
+    def _isaret(self, en, simdi):
+        """İşaret gözlemi (kilit içinde). True: konum düzeltildi (ya da ilk kez / yeniden kuruldu)."""
+        E = self.ev[en["id"]]
+        belirsiz = en.get("belirsiz", False)
+        r = en["mesafe"]
+        zm = np.array([math.atan2(en["x"], en["z"]), r, en["aci"]])
+        # yalnız işaretten çıkan konum (yönü işaretin normalinden): ilk kurulum ve yeniden kilit için
+        tek = E.sonra(Poz2(en["x"], en["z"], en["aci"]).ters())
+        if not self.bilinen:
+            if r < ILK_MENZIL and not belirsiz:
+                self._kur(tek, math.radians(3.0), 0.04, "ilk (yakin isaret)")
+                return True
+            if not belirsiz:
+                self._kilit = [a for a in self._kilit if simdi - a[0] < ILK_SURE] + [(simdi, tek.x - self.x, tek.z - self.z, _aci_fark(tek.aci, self.yaw))]
+                if self._tutarli(ILK_GOZLEM, ILK_SAPMA):
+                    self._kilitle("ilk (uzak isaret, tutarli gozlemler)", en, E)
+                    return True
+            return False
+        s = np.array([self.x, self.z, self.yaw])
+        h = self._olcum(s, E)
+        n = 2 if belirsiz else 3
+        H = np.zeros((3, 3))
+        for j in range(3):
+            d = np.zeros(3); d[j] = 1e-4
+            H[:, j] = (self._olcum(s + d, E) - h) / 1e-4
+        y = zm - h
+        y[0] = _aci_fark(y[0], 0.0); y[2] = _aci_fark(y[2], 0.0)
+        Rm = np.diag([S_YON ** 2, (S_UZAK[0] + S_UZAK[1] * r) ** 2, (S_NORMAL[0] + S_NORMAL[1] * max(0.0, r - 0.8)) ** 2])
+        H, y, Rm = H[:n], y[:n], Rm[:n, :n]
+        S = H @ self.P @ H.T + Rm
+        try:
+            Si = np.linalg.inv(S)
+        except np.linalg.LinAlgError:
+            return False
+        d2 = float(y @ Si @ y)
+        self.hata = [round(math.degrees(y[0]), 2), round(float(y[1]), 3), 0]
+        if d2 > KAPI:
+            # süzgeç kendini fazla güvenilir sanıyor olabilir: her aykırı gözlemde belirsizliği biraz büyüt
+            self.P[2, 2] += math.radians(6.0) ** 2
+            self.P[0, 0] += 0.05 ** 2; self.P[1, 1] += 0.05 ** 2
+            # aykırı: süzgeç kendinden çok emin ama işaret başka yer diyor. Birkaç tutarlı aykırı gözlem = süzgeç yanılmış.
+            if not belirsiz:
+                self._kilit = [a for a in self._kilit if simdi - a[0] < KILIT_SURE] + [(simdi, tek.x - self.x, tek.z - self.z, _aci_fark(tek.aci, self.yaw))]
+                if self._tutarli(KILIT_GOZLEM, KILIT_SAPMA[1], KILIT_SAPMA[0]):
+                    self.kilit_sayisi += 1
+                    self._kilitle("yeniden kilit (%d aykiri gozlem, fark %.0f derece)" % (len(self._kilit), math.degrees(self._kilit[-1][3])), en, E)
+                    return True
+            return False
+        self._kilit = []
+        K = self.P @ H.T @ Si
+        dx = K @ y
+        self.x += dx[0]; self.z += dx[1]; self.yaw += dx[2]
+        self.P = (np.eye(3) - K @ H) @ self.P
+        self.P = (self.P + self.P.T) / 2
+        self.P[0, 0] = max(self.P[0, 0], P_TABAN[0] ** 2); self.P[1, 1] = max(self.P[1, 1], P_TABAN[0] ** 2)
+        self.P[2, 2] = max(self.P[2, 2], P_TABAN[1] ** 2)
+        self.hata[2] = 1
+        return True
+
+    def _tutarli(self, adet, s_yaw, s_poz=None):
+        if len(self._kilit) < adet:
+            return False
+        a = self._kilit[-adet:]
+        c = sum(math.cos(q[3]) for q in a); s_ = sum(math.sin(q[3]) for q in a)
+        ort = math.atan2(s_, c)
+        if max(abs(_aci_fark(q[3], ort)) for q in a) > s_yaw:
+            return False
+        if s_poz is not None:
+            mx = sum(q[1] for q in a) / adet; mz = sum(q[2] for q in a) / adet
+            if max(math.hypot(q[1] - mx, q[2] - mz) for q in a) > s_poz:
+                return False
+        return True
+
+    def _kilitle(self, neden, en=None, E=None):
+        """Son tutarlı gözlemlerin ortalama yön farkı kadar döndür ve süzgeci yeniden başlat. Konum, yeni yönle şimdiki
+        gözlemin açı + uzaklığından (bunlar kesin; işaretin baktığı yön uzakta gürültülü, yalnız ortalaması kullanılır)."""
+        a = self._kilit[-KILIT_GOZLEM:] if self.bilinen else self._kilit[-ILK_GOZLEM:]
+        n = len(a)
+        c = sum(math.cos(q[3]) for q in a); s_ = sum(math.sin(q[3]) for q in a)
+        yaw = self.yaw + math.atan2(s_, c)
+        if en is not None:
+            rx, rz = _dondur(en["x"], en["z"], yaw)
+            p = Poz2(E.x - rx, E.z - rz, yaw)
+        else:
+            p = Poz2(self.x + sum(q[1] for q in a) / n, self.z + sum(q[2] for q in a) / n, yaw)
+        self._kur(p, math.radians(4.0), 0.06, neden)
+
+    def _kur(self, p, s_yaw, s_poz, neden):
+        self.x, self.z, self.yaw = p.x, p.z, p.aci
+        self.P = np.diag([s_poz ** 2, s_poz ** 2, s_yaw ** 2])
+        self.bilinen = True
+        self._kilit = []
+        print("[konum] %s: (%.2f, %.2f) yon %.0f" % (neden, self.x, self.z, math.degrees(self.yaw)))
 
     def _hafizadan(self, F, simdi):
         """İşaret görünmüyorken anahtar karelerle düzeltme (kilit içinde çağrılır).
@@ -276,9 +388,8 @@ class KonumBulucu:
         ikinci = next((q[0] for q in m[1:] if math.hypot(q[1] - mx, q[2] - mz) > 0.8), 0.0)
         if ikinci > 0.7 * s:
             return
-        self.x, self.z, self.yaw = mx, mz, myaw
-        self.bilinen = True; self.kaynak = "hafiza"
-        print("[konum] hafizadan yer bulundu: (%.2f, %.2f) benzerlik %.2f" % (mx, mz, s))
+        self._kur(Poz2(mx, mz, myaw), math.radians(10.0), 0.3, "hafizadan yer bulundu (benzerlik %.2f)" % s)
+        self.kaynak = "hafiza"
 
     # ------------------------------------------------------------ kayıt (PC'de tekrar oynatmak için)
     KAYIT_ANAHTARI = os.path.expanduser("~/robot/konum_kayit_ac")
@@ -301,6 +412,7 @@ class KonumBulucu:
             g.write(jpeg)
         o = self.ozet()
         f.write(json.dumps({"t": t, "jpg": ad, "sol": sol_sag[0], "sag": sol_sag[1], "x": o["x"], "z": o["z"], "yaw": o["yaw"],
+                            "kare": o["kare"], "sy": o["sy"], "sp": o["sp"], "hata": o["hata"], "kilit": o["kilit"],
                             "gorulen": [[g2["id"], g2["x"], g2["z"], g2["aci"]] for g2 in gorulen]}) + "\n")
         f.flush()
         self._kayit[1] = n + 1
@@ -330,7 +442,7 @@ class KonumBulucu:
                         continue
                     sol_sag = self.motor() if self.motor else (0, 0)
                     t_kare = time.time()
-                    gorulen = self.isle(gri, t_kare, sol_sag)
+                    gorulen = self.isle(gri, t_kare, sol_sag, sayac)
                     self._kaydet(jpeg, t_kare, sol_sag, gorulen)
                     time.sleep(max(0.0, ARALIK - (time.time() - bas)))
                 except Exception as e:          # konum hatası sürüşü etkilemesin

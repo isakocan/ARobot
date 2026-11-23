@@ -394,6 +394,9 @@ class Kamera:
         self.yeniden_nedeni = None # bekçi hattı öldürdüyse nedeni
         self.kare_yok_say = 0      # art arda kaç hat hiç JPEG kare vermeden bitti
         self.izleyici_kbps = {}    # (IP, abone) → ona giden akışın bit hızı (durum paketinde IP başına toplanır)
+        self.kare_zaman = 0.0      # son JPEG karenin geldiği an (robot saati, sn)
+        self.kare_motor = (0, 0)   # o andaki motorlar (sol, sag): telefon dönüşü karenin kendi anına göre tahmin eder
+        self.motor_al = None       # () -> (sol, sag); köprü kurulurken atanır
         threading.Thread(target=self._dongu, daemon=True).start()
         threading.Thread(target=self._hiz_olc, daemon=True).start()
 
@@ -504,8 +507,14 @@ class Kamera:
                     veri += parca
                 kare_geldi = True
                 self.son_jpeg = time.time()
+                try:
+                    km = self.motor_al() if self.motor_al else (0, 0)
+                except Exception:
+                    km = (0, 0)
                 with self.kosul:
                     self.kare = veri
+                    self.kare_zaman = time.time()
+                    self.kare_motor = km
                     self.sayac += 1
                     self.durum = "aktif"
                     self.kosul.notify_all()
@@ -585,6 +594,11 @@ class Kamera:
             self.kosul.wait_for(lambda: self.kare is not None and self.sayac != son_sayac, timeout=sure)
             return self.sayac, self.kare
 
+    def kare_bilgisi(self):
+        """Son karenin numarası, zamanı (ms) ve o andaki motorlar (MJPEG başlıkları için)."""
+        with self.kosul:
+            return self.sayac, self.kare_zaman * 1000.0, self.kare_motor
+
 
 # ---------------------------------------------------------------- sürücü ve sinyal
 
@@ -646,13 +660,16 @@ KAM = Kamera()
 SURUCU = Surucu()
 _son_ev_istegi = [0.0]
 KONUM = None
+def _motor():
+    d = ARDUINO.durum if time.time() - ARDUINO.son_durum_zamani < 1 else {}
+    try:
+        return int(d.get("sol", 0)), int(d.get("sag", 0))
+    except (TypeError, ValueError):
+        return 0, 0
+
+
+KAM.motor_al = _motor
 if _konum is not None and KONUM_HATASI is None:
-    def _motor():
-        d = ARDUINO.durum if time.time() - ARDUINO.son_durum_zamani < 1 else {}
-        try:
-            return int(d.get("sol", 0)), int(d.get("sag", 0))
-        except (TypeError, ValueError):
-            return 0, 0
     KONUM = _konum.KonumBulucu(kamera=KAM, motor=_motor, hafiza_klasoru=os.path.expanduser("~/robot/konum_hafiza"))
     # son bildirilen ev saklanır: robot uygulaması evi bilmeden {"t":"d", ..., "konum":1} ile konum isteyebilir
     try:
@@ -986,9 +1003,17 @@ class Istek(BaseHTTPRequestHandler):
                 sayac, kare = KAM.sonraki_kare(sayac)
                 if not kare:
                     continue
+                no, zaman_ms, km = KAM.kare_bilgisi()
+                if no != sayac:
+                    zaman_ms, km = 0.0, (0, 0)          # arada yeni kare geldi: bilgisi bu kareye ait değil
                 son = time.time()
-                self.wfile.write(b"--kare\r\nContent-Type: image/jpeg\r\nContent-Length: " +
-                                 str(len(kare)).encode() + b"\r\n\r\n" + kare + b"\r\n")
+                # X-Kare: kamera karesinin numarası. Konum aynı numarayla gelir (konum.ozet "kare"): telefon AR nesnesini
+                # tam o karenin konumuyla eşler, ağ gecikmesi ne olursa olsun (24 Kasım).
+                # X-Zaman: karenin robota geldiği an (ms; iki kare arası süre ağdaki takılmadan etkilenmez), X-Motor: o
+                # andaki motorlar (telefonun görüntü pusulası dönüşü bununla tahmin edip arar)
+                self.wfile.write(b"--kare\r\nContent-Type: image/jpeg\r\nX-Kare: " + str(sayac).encode() +
+                                 b"\r\nX-Zaman: " + ("%.1f" % zaman_ms).encode() + b"\r\nX-Motor: " + ("%d,%d" % km).encode() +
+                                 b"\r\nContent-Length: " + str(len(kare)).encode() + b"\r\n\r\n" + kare + b"\r\n")
                 KAM.gonderilen += len(kare)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass

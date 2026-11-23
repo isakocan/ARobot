@@ -684,6 +684,7 @@ namespace ArTarama
             var k = OdaSentetik.Yeni(); double ilkT = -1; int kareSay = 0;
             if (Environment.GetEnvironmentVariable("ZEMIN_GUVENLI") == "1") ZeminHaritasi.SadeceGuvenli = true;
             if (Environment.GetEnvironmentVariable("ZEMIN_ESKI") == "1") ZeminHaritasi.SadeceDerinlik = false;
+            if (Environment.GetEnvironmentVariable("ZEMIN_HIST") == "0") ZeminHaritasi.Histerezis = false;   // 23 Kasim kurali (karsilastirma)
             if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_UST_GUVEN"), out int ug)) ZeminHaritasi.UstGuven = ug;
             if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ISIN_GUVEN"), out int ig)) ZeminHaritasi.IsinGuven = ig;
             if (float.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ISIN_MENZIL"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float im)) ZeminHaritasi.IsinMenzil = im;
@@ -691,7 +692,7 @@ namespace ArTarama
             if (float.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ENGEL_MENZIL"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float em)) ZeminHaritasi.EngelMenzil = em;
             ZeminHaritasi.DokumYolu = Environment.GetEnvironmentVariable("ZEMIN_DOKUM");   // son guncellemenin hucre dokumu
             var zh = new ZeminHaritasi(); zh.Guncelle(planlar, 0f);
-            HashSet<long> araOnce = null;
+            HashSet<long> araOnce = null; var araHic = new HashSet<long>(); int araKayipTop = 0, araGeriGelen = 0;
             foreach (var satir in File.ReadAllLines(Path.Combine(klasor, "kareler.jsonl")))
             {
                 if (string.IsNullOrWhiteSpace(satir)) continue;
@@ -729,6 +730,9 @@ namespace ArTarama
                 {
                     var za = zh.Guncelle(planlar, f.zaman);
                     int kayip = 0; if (araOnce != null) foreach (long q in araOnce) if (!za.acik.Contains(q)) kayip++;
+                    // titreme: bir kez acik gorulup sonra kaybolan hucre (kullanici "geri donunce eskisi degismesin" istedi)
+                    if (araOnce != null) foreach (long q in za.acik) if (araHic.Contains(q) && !araOnce.Contains(q)) araGeriGelen++;
+                    araHic.UnionWith(za.acik); araKayipTop += kayip;
                     araOnce = new HashSet<long>(za.acik);
                     yaz("ARA kare " + kareSay + " t=" + F(f.zaman, 1) + " acik=" + F(za.alan) + " m2 hucre=" + za.acik.Count + " kayip=" + kayip + " | " + zh.Teshis);
                     if (ciktiDir != null) { Directory.CreateDirectory(ciktiDir); ZeminPng(za, Path.Combine(ciktiDir, "ara_" + kareSay.ToString("0000") + ".png")); }
@@ -758,11 +762,12 @@ namespace ArTarama
                     }
                 yaz("kalem.json: " + zh.CizgiSayisi + " cizgi");
             }
+            if (araHic.Count > 0) yaz("TITREME: toplam kayip " + araKayipTop + " hucre, geri gelen " + araGeriGelen + " (bir kez acik gorulen " + araHic.Count + ")");
             // son kare sonrasi bir son guncelleme
             zh.Guncelle(planlar, k.model.izgara.SonZaman + 0.5f);
             var sw0 = Stopwatch.StartNew();
             var zs = zh.Guncelle(planlar, k.model.izgara.SonZaman + 1f);
-            yaz("ZEMIN: y=" + F(zs.zeminY, 3) + " acik=" + F(zs.alan) + " m2, duvar hucre=" + zs.duvar.Count + ", ucgen=" + zs.acikUcgen.Length / 6 + "+" + zs.engelUcgen.Length / 6 + ", engel hucre=" + zs.engel.Count + ", bilinen=" + zs.bilinen.Count + ", sinir=" + zs.sinir.Length / 2 + ", guncelleme " + sw0.ElapsedMilliseconds + " ms, hucre " + zh.HucreSayisi);
+            yaz("ZEMIN: y=" + F(zs.zeminY, 3) + " acik=" + F(zs.alan) + " m2, kesin " + zs.kesin.Count + " hucre, duvar hucre=" + zs.duvar.Count + ", ucgen=" + zs.acikUcgen.Length / 6 + "+" + zs.engelUcgen.Length / 6 + ", engel hucre=" + zs.engel.Count + ", bilinen=" + zs.bilinen.Count + ", sinir=" + zs.sinir.Length / 2 + ", guncelleme " + sw0.ElapsedMilliseconds + " ms, hucre " + zh.HucreSayisi);
             { var sb = new StringBuilder("engel yk (2cm): "); for (int q = 0; q < 30; q++) sb.Append(zh.TeshisYk[q]).Append(' '); yaz(sb.ToString()); }
             Directory.CreateDirectory(ciktiDir);
             ZeminPng(zs, Path.Combine(ciktiDir, "zemin_ustten.png"));

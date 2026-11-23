@@ -33,6 +33,10 @@ namespace ArTarama
         public int ZeminNokta { get; private set; }           // ortak harekete uyan yama sayısı
         public bool ZeminTuttu { get; private set; }
         public bool PusulaTuttu { get; private set; }
+        /// <summary>Görüntü ölçümü motor tahminiyle çelişti, adım tahminden alındı (24 Kasım: video takılınca 20 derecelik
+        /// atlamada yanlış / ters yönlü eşleşmeler 370 derecelik dönüşte 100 derece kaybettiriyordu).</summary>
+        public bool TahminKullanildi { get; private set; }
+        public int ReddedilenAdim { get; private set; }
 
         public RobotGorselIz(Material m)
         {
@@ -60,19 +64,20 @@ namespace ArTarama
             return r.hasError ? null : r.GetData<Color32>().ToArray();
         }
 
-        /// <summary>Yeni kare (çift balık gözü doku) geldi: dönüş ve yer değiştirme adımını ölçer.</summary>
-        public void Kare(Texture kare)
+        /// <summary>Yeni kare (çift balık gözü doku) geldi: dönüş ve yer değiştirme adımını ölçer. tahmin: motor
+        /// komutundan beklenen dönüş (derece, önceki işlenen kareden beri; takılmada büyür). Arama bunun çevresinde yapılır.</summary>
+        public void Kare(Texture kare, float tahmin = 0f)
         {
             Graphics.Blit(kare, bandRt, mat, 1);
             Graphics.Blit(kare, kusRt, mat, 2);
             var bd = Oku(bandRt); var kd = Oku(kusRt);
-            AdimDonus = 0f; AdimIleri = 0f; AdimSag = 0f; ZeminNokta = 0; ZeminTuttu = false; PusulaTuttu = false;
-            if (bd != null) Pusula(bd);
+            AdimDonus = 0f; AdimIleri = 0f; AdimSag = 0f; ZeminNokta = 0; ZeminTuttu = false; PusulaTuttu = false; TahminKullanildi = false;
+            if (bd != null) Pusula(bd, tahmin);
             if (kd != null) Zemin(kd);
         }
 
         // ------------------------------------------------------------------ dönüş
-        void Pusula(Color32[] d)
+        void Pusula(Color32[] d, float tahmin)
         {
             float e = 0f;
             for (int y = 0; y < BH; y++)
@@ -87,17 +92,35 @@ namespace ArTarama
             if (e < 1f) return;
             float once = Yaw;
             if (!bVar) { System.Array.Copy(bCur, bRef, bCur.Length); System.Array.Copy(bCur, bPrev, bCur.Length); bVar = true; refYaw = Yaw; relYaw = 0; return; }
-            Eslestir(bRef, bCur, relYaw * PxDerece, 24, out float s, out float c);
-            if (c >= 0.3f)
+            // arama merkezi: önceki adım değil motor tahmini (dönüş başında / takılmadan sonra önceki adım yanıltır)
+            float merkez = Mathf.Abs(tahmin) > 0.5f ? tahmin : sonAdim;
+            Eslestir(bRef, bCur, (relYaw + merkez) * PxDerece, 24, out float s, out float c);
+            bool refle = c >= 0.3f;
+            if (!refle)
             {
-                relYaw = s / PxDerece; Yaw = refYaw + relYaw; PusulaGuven = c; PusulaTuttu = true;
+                int aralik = Mathf.Clamp(70 + Mathf.RoundToInt(Mathf.Abs(merkez) * PxDerece * 0.5f), 70, 200);
+                Eslestir(bPrev, bCur, merkez * PxDerece, aralik, out s, out c);
+            }
+            PusulaGuven = c;
+            float adim = refle ? Mathf.DeltaAngle(0f, refYaw + s / PxDerece - once) : s / PxDerece;
+            bool tuttu = refle || c >= 0.24f;
+            // motorla çelişen ölçüm -> tahmini kullan: dönüş komutu varken ters yön ya da (büyük beklenen adımda) eşleşme yok.
+            // Yalnız bu ikisi: "tahminden çok farklı" kuralı da denendi, 23 Kasım kayıtlarında kısa dokunuşlu dönüşlerde
+            // tahmin karelerle tam hizalı olmadığı için 120 derece fazla saydırdı (tools/konum/pusula_dene.py, MOD=tam / ters).
+            if (Mathf.Abs(tahmin) > 4f && ((!tuttu && Mathf.Abs(tahmin) > 8f) || (Mathf.Sign(adim) != Mathf.Sign(tahmin) && Mathf.Abs(adim) > 2f)))
+            {
+                if (tuttu) ReddedilenAdim++;
+                Yaw = once + tahmin; TahminKullanildi = true;
+                System.Array.Copy(bCur, bRef, bCur.Length); refYaw = Yaw; relYaw = 0;
+            }
+            else if (refle)
+            {
+                relYaw = s / PxDerece; Yaw = refYaw + relYaw; PusulaTuttu = true;
                 if (Mathf.Abs(relYaw) > 25f || c < 0.45f) { System.Array.Copy(bCur, bRef, bCur.Length); refYaw = Yaw; relYaw = 0; }
             }
             else
             {
-                Eslestir(bPrev, bCur, sonAdim * PxDerece, 70, out s, out c);
-                PusulaGuven = c;
-                if (c >= 0.24f) { Yaw += s / PxDerece; PusulaTuttu = true; }
+                if (tuttu) { Yaw += adim; PusulaTuttu = true; }
                 System.Array.Copy(bCur, bRef, bCur.Length); refYaw = Yaw; relYaw = 0;
             }
             AdimDonus = Mathf.DeltaAngle(0f, Yaw - once); sonAdim = AdimDonus;

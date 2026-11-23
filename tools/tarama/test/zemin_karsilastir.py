@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 cikti, kayitlar = sys.argv[1], sys.argv[2:]
-surumler = [("eski", {"ZEMIN_ESKI": "1"}), ("simdi", {})]
+# ESKI=hist: "eski" 23 Kasim derinlik kurali (histerezis ve pay yok), yoksa derinlikten onceki cogunluk kurali
+surumler = [("eski", {"ZEMIN_HIST": "0"} if os.environ.get("ESKI") == "hist" else {"ZEMIN_ESKI": "1"}), ("simdi", {})]
 fig, ax = plt.subplots(len(kayitlar), 1 + len(surumler), figsize=(6 * (1 + len(surumler)), 6 * len(kayitlar)), squeeze=False)
 for r, K in enumerate(kayitlar):
     yol = [(json.loads(l)["px"], json.loads(l)["pz"]) for l in open(os.path.join(K, "kareler.jsonl"))]

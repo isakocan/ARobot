@@ -206,6 +206,15 @@ namespace ArTarama
             arcBtn.onClick.AddListener(() => { KalemModu(!kalemAcik); Haptik(10);
                 if (kalemAcik) Toast("Sarı çizgi haritanın sınırı. Düzeltmek için parmağınla çiz"); });
             var leA = arcBtn.gameObject.AddComponent<LayoutElement>(); leA.flexibleWidth = 1f;
+            // LIDAR: uygulamanın derinlikten kurduğu 3B haritayı (zemin / engel küpleri) kameranın üstünde göster
+            var lidBtn = UiKur.Dugme(bar.transform, "Lidar", "LIDAR", UiKur.DugmeStili.Ikincil, out _, out Text lidYazi, UiKur.Body);
+            lidBtn.onClick.AddListener(() => {
+                if (oda == null) return;
+                oda.LidarGoster = !oda.LidarGoster; lidYazi.color = oda.LidarGoster ? UiKur.Vurgu : UiKur.MetinRenk; Haptik(10);
+                Gunluk.Yaz("tarama", "lidar gorunumu " + (oda.LidarGoster ? "acik" : "kapali"));
+                if (oda.LidarGoster) Toast("Yeşil zemin, turuncu engel, mor duvar: uygulamanın derinlikten gördüğü");
+            });
+            var leL = lidBtn.gameObject.AddComponent<LayoutElement>(); leL.flexibleWidth = 1f;
             // silgi: yalniz kalem acikken gorunur; parmagin gectigi kalem cizgisi silinir
             var silBtn = UiKur.Dugme(bar.transform, "Silgi", "Silgi", UiKur.DugmeStili.Ikincil, out _, out kSilYazi, UiKur.Body);
             silBtn.onClick.AddListener(() => { kSilAcik = !kSilAcik; kSilYazi.color = kSilAcik ? UiKur.Vurgu : UiKur.MetinRenk; Haptik(10);

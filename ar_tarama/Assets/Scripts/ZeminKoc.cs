@@ -33,6 +33,27 @@ namespace ArTarama
             return Mevcut;
         }
 
+        /// <summary>Kameranin baktigi zemin (yatayda +-25 derece, dikeyde +-12 derece, 0,4-2,5 m) orneklenir: gorulen
+        /// hucrelerin %85'i kesinlesmis ve bakilan yerin en az %60'i gorulmusse tamam.</summary>
+        public static bool BakilanTamam(KocGirdi g, ZeminSonuc s)
+        {
+            if (s == null || s.kesin == null || s.kesin.Count == 0 || g.pitch > -15f) return false;
+            int orn = 0, gor = 0, kes = 0;
+            for (int a = -25; a <= 25; a += 10)
+                for (int b = -12; b <= 12; b += 6)
+                {
+                    double p = (g.pitch + b) * Math.PI / 180, y = (g.yaw + a) * Math.PI / 180;
+                    double dy = Math.Sin(p); if (dy > -0.1) continue;
+                    double t = (s.zeminY - g.ky) / dy, yat = Math.Cos(p) * t;
+                    if (yat < 0.4 || yat > 2.5) continue;
+                    float x = (float)(g.kx + Math.Sin(y) * yat), z = (float)(g.kz + Math.Cos(y) * yat);
+                    long k = OdaSonuc.Anah2(ZeminSonuc.Ind(x), ZeminSonuc.Ind(z)); orn++;
+                    bool goruldu = s.acik.Contains(k) || s.engel.Contains(k) || s.duvar.Contains(k);
+                    if (goruldu) { gor++; if (s.kesin.Contains(k) || s.duvar.Contains(k)) kes++; }
+                }
+            return orn >= 10 && gor >= 0.6f * orn && kes >= 0.85f * gor;
+        }
+
         KocMesaj Sec(KocGirdi g, ZeminSonuc s)
         {
             if (!g.takipte)
@@ -76,6 +97,8 @@ namespace ArTarama
                     if ((lx - ex) * (lx - ex) + (lz - ez) * (lz - ez) < 0.6 * 0.6 && s.Teyit(ex, ez, 0.25f) < 0.8f) yazi = "Burada birkaç saniye tut";
                 }
             }
+            // bakilan bolge kesinlesti mi (24 Kasim, kullanici: telefonu bir yere tutarken orasi bitti mi soylesin)
+            if (yazi == "" && BakilanTamam(g, s)) yazi = "Burası tamam, başka yere çevirebilirsin";
             var sonuc = M(yazi, KocSimge.Bilgi, var ? 6 : 7);
             if (var) { sonuc.hedefVar = true; sonuc.hx = ex; sonuc.hz = ez; }
             return sonuc;

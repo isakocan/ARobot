@@ -116,6 +116,9 @@ namespace ArTarama
             if (silinenOturum != null) foreach (long k in silinenOturum) s.acik.Remove(k);
             s.alan = s.acik.Count * ZeminSonuc.V * ZeminSonuc.V;
             Array.Copy(yeni.yonEksik, s.yonEksik, 16);
+            // kayitli evin zemini zaten kesinlesmis sayilir; LIDAR noktalari bu oturumdan
+            s.kesin = new HashSet<long>(yeni.kesin); foreach (long k in eski.acik) if (s.acik.Contains(k)) s.kesin.Add(k);
+            s.voksel = yeni.voksel; s.kismi = yeni.kismi;
             s.Yumusat();
             return s;
         }

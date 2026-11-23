@@ -88,7 +88,12 @@ namespace ArTarama
         }
 
         /// <summary>Sütun özeti (2B hücre başına): zemin görüldü mü, 8 cm - 2 m arası dolu küp var mı, 1 m üstü dolu var mı.</summary>
-        public struct Sutun { public bool zemin, engel, uzun, bos, zeminKismi; }
+        public struct Sutun
+        {
+            public bool zemin, engel, uzun, bos, zeminKismi;
+            public sbyte enCok;     // 10 cm - 2 m arasındaki en dolu küp (görülmemişse sbyte.MinValue): engel kanıtının gücü
+            public sbyte zeminD;    // zemin yüzeyindeki en dolu küp: zemin kaç kez görüldü (10 bir, 19 iki, 28 üç, 35 doygun)
+        }
 
         /// <summary>Görülen her sütunun durumu. zy: zemin yüksekliği (dünya y).</summary>
         public Dictionary<long, Sutun> Sutunlar(float zy)
@@ -107,21 +112,54 @@ namespace ArTarama
                     for (int lz = 0; lz < P; lz++)
                     {
                         bool zemin = false, engel = false, uzun = false, bos = false, var = false, kismi = false;
+                        sbyte enCok = sbyte.MinValue, zd = sbyte.MinValue;
                         for (int ly = 0; ly < P; ly++)
                         {
                             int y = y0 + ly; sbyte v = p[(lx * P + ly) * P + lz];
                             if (v == 0) continue;
-                            if (y >= yz0 && y <= yz1) { var = true; if (v >= ZeminKesin) zemin = true; else if (v > 0) kismi = true; }
-                            else if (y >= ye0 && y <= ye1) { var = true; if (v > 0) { engel = true; if (y >= yu) uzun = true; } else bos = true; }
+                            if (y >= yz0 && y <= yz1) { var = true; if (v > zd) zd = v; if (v >= ZeminKesin) zemin = true; else if (v > 0) kismi = true; }
+                            else if (y >= ye0 && y <= ye1) { var = true; if (v > enCok) enCok = v; if (v > 0) { engel = true; if (y >= yu) uzun = true; } else bos = true; }
                         }
                         if (!var) continue;
                         long a = OdaSonuc.Anah2(cx * P + lx, cz * P + lz);
-                        s.TryGetValue(a, out var o);
+                        if (!s.TryGetValue(a, out var o)) { o.enCok = sbyte.MinValue; o.zeminD = sbyte.MinValue; }
                         o.zemin |= zemin; o.engel |= engel; o.uzun |= uzun; o.bos |= bos; o.zeminKismi |= kismi;
+                        if (enCok > o.enCok) o.enCok = enCok; if (zd > o.zeminD) o.zeminD = zd;
                         s[a] = o;
                     }
             }
             return s;
+        }
+
+        /// <summary>LIDAR görünümü: kameranın r yakınındaki kesin dolu küpler (x, y, z, tür; tür 0 zemin, 1 engel, 2 uzun
+        /// (1 m üstü), 3 zayıf / tek görülmüş). En çok enCok nokta.</summary>
+        public float[] Noktalar(float kx, float ky, float kz, float r, float zy, int enCok)
+        {
+            var l = new List<float>(4096);
+            int yz0 = Ind(zy - 0.05f), yz1 = Ind(zy + 0.05f), ye0 = Ind(zy + 0.10f), yu = Ind(zy + 1.0f);
+            int cx0 = Ind(kx - r) >> PB, cx1 = Ind(kx + r) >> PB, cz0 = Ind(kz - r) >> PB, cz1 = Ind(kz + r) >> PB;
+            int cy0 = Ind(zy - 0.1f) >> PB, cy1 = Ind(zy + 2.4f) >> PB;
+            for (int cx = cx0; cx <= cx1; cx++)
+                for (int cz = cz0; cz <= cz1; cz++)
+                    for (int cy = cy0; cy <= cy1; cy++)
+                    {
+                        if (!parca.TryGetValue(Anah(cx, cy, cz), out var p)) continue;
+                        for (int i = 0; i < p.Length; i++)
+                        {
+                            sbyte v = p[i]; if (v <= 0) continue;
+                            int lx = i / (P * P), ly = (i / P) % P, lz = i % P;
+                            int x = cx * P + lx, y = cy * P + ly, z = cz * P + lz;
+                            float wx = (x + 0.5f) * V, wy = (y + 0.5f) * V, wz = (z + 0.5f) * V;
+                            if ((wx - kx) * (wx - kx) + (wz - kz) * (wz - kz) > r * r) continue;
+                            float tur;
+                            if (y >= yz0 && y <= yz1) { if (v < ZeminKesin) continue; tur = 0; }
+                            else if (y >= ye0) tur = v < 18 ? 3 : (y >= yu ? 2 : 1);
+                            else continue;
+                            l.Add(wx); l.Add(wy); l.Add(wz); l.Add(tur);
+                            if (l.Count >= enCok * 4) return l.ToArray();
+                        }
+                    }
+            return l.ToArray();
         }
 
         public void Temizle() { parca.Clear(); damga.Clear(); }

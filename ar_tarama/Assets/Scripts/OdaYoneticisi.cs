@@ -122,7 +122,9 @@ namespace ArTarama
         Thread is_; BlockingCollection<Action> kuyruk = new BlockingCollection<Action>(new ConcurrentQueue<Action>());
         volatile int bekleyenIs;
         volatile bool dur;
-        OdaArCizim ar; ZeminCizim zc;
+        OdaArCizim ar; ZeminCizim zc; LidarCizim lc;
+        /// <summary>LIDAR görünümü açık: doluluk haritasının küpleri kameranın üstünde.</summary>
+        public bool LidarGoster { get => ZeminHaritasi.LidarAcik; set => ZeminHaritasi.LidarAcik = value; }
         Material matKati;
         public Material KatiMateryal { get { if (matKati == null) matKati = Resources.Load<Material>("mat_oda_kati"); return matKati; } }
         int hataLog;
@@ -133,6 +135,7 @@ namespace ArTarama
             if (EtiketKullan && etiket == null) { etiket = GetComponent<Etiketleyici>(); if (etiket == null) etiket = gameObject.AddComponent<Etiketleyici>(); }
             ar = new OdaArCizim(Resources.Load<Material>("mat_oda_cizgi"), Resources.Load<Material>("mat_oda_dolgu"));
             zc = new ZeminCizim(Resources.Load<Material>("mat_oda_dolgu"));
+            lc = new LidarCizim();
             oturumBasi = Time.unscaledTime;
             is_ = new Thread(Calis) { IsBackground = true, Name = "OdaYapisi" };
             is_.Start();
@@ -232,6 +235,7 @@ namespace ArTarama
             ar.Guncelle(this, arKamera, Aktif && ArGoster && ZeminVar);
             // kayitli evi acinca: isaret gorulup eski harita yerine oturana kadar zemin cizilmez (sifirdan taraniyor gibi gorunmesin)
             if (zc != null) zc.Guncelle(ZSon, Goruntu.GZeminY, arKamera, Aktif && ArGoster && (ev == null || Hizali));
+            if (lc != null) lc.Guncelle(ZSon, Aktif && ArGoster && LidarGoster);
         }
 
         // ------------------------------------------------------------------------------------------ derinlik karesi
@@ -331,7 +335,7 @@ namespace ArTarama
                 if (zaman - sonGunlukZaman >= 5f)
                 {
                     sonGunlukZaman = zaman;
-                    Gunluk.Yaz("zemin", "t=" + zaman.ToString("F0") + " alan " + r.alan.ToString("F2") + " m2, kamera " + r.kameraX.ToString("F2") + "," + r.kameraZ.ToString("F2") +
+                    Gunluk.Yaz("zemin", "t=" + zaman.ToString("F0") + " alan " + r.alan.ToString("F2") + " m2, kesin " + (r.kesin != null ? r.kesin.Count : 0) + " hucre, kamera " + r.kameraX.ToString("F2") + "," + r.kameraZ.ToString("F2") +
                         ", " + sw.ElapsedMilliseconds + " ms | " + ZeminHaritasi.TeshisSon);
                 }
             });

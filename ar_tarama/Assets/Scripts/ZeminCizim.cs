@@ -19,6 +19,9 @@ namespace ArTarama
         public readonly GorusTablosu Gorus = new GorusTablosu();
 
         static readonly Color Acik = new Color(0.20f, 0.88f, 0.66f, 0.40f);
+        // kesinlesmemis acik zemin (24 Kasim): soluk; hucre birkac kez gorulup durumu oturunca dolgun. "Burasi bitti mi"
+        // boyanin dolgunlugundan anlasilir.
+        const float KesinDegil = 0.45f;
         const float Menzil = 8f, KurMenzil = 12f;
 
         public ZeminCizim(Material dolgu)
@@ -60,6 +63,8 @@ namespace ArTarama
                     // kenara dogru solma: yumusatilmis alan 0,5 (kenar) -> 0, 0,85+ (ic) -> 1
                     float al = kurSonuc.AlanDeger(u[i + q * 2], u[i + q * 2 + 1]);
                     float k = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.5f, 0.85f, al));
+                    if (kurSonuc.kesin != null && kurSonuc.kesin.Count > 0 &&
+                        !kurSonuc.kesin.Contains(OdaSonuc.Anah2(ZeminSonuc.Ind(u[i + q * 2]), ZeminSonuc.Ind(u[i + q * 2 + 1])))) k *= KesinDegil;
                     var rr = r; rr.a = r.a * k; c.Add(rr); taban.Add(rr.a);
                 }
                 t.Add(o); t.Add(o + 1); t.Add(o + 2); t.Add(o); t.Add(o + 2); t.Add(o + 1);
