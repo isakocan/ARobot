@@ -104,10 +104,12 @@ namespace ArTarama
             PusulaGuven = c;
             float adim = refle ? Mathf.DeltaAngle(0f, refYaw + s / PxDerece - once) : s / PxDerece;
             bool tuttu = refle || c >= 0.24f;
-            // motorla çelişen ölçüm -> tahmini kullan: dönüş komutu varken ters yön ya da (büyük beklenen adımda) eşleşme yok.
-            // Yalnız bu ikisi: "tahminden çok farklı" kuralı da denendi, 23 Kasım kayıtlarında kısa dokunuşlu dönüşlerde
-            // tahmin karelerle tam hizalı olmadığı için 120 derece fazla saydırdı (tools/konum/pusula_dene.py, MOD=tam / ters).
-            if (Mathf.Abs(tahmin) > 4f && ((!tuttu && Mathf.Abs(tahmin) > 8f) || (Mathf.Sign(adim) != Mathf.Sign(tahmin) && Mathf.Abs(adim) > 2f)))
+            // motorla çelişen ölçüm -> tahmini kullan: dönüş komutu varken eşleşme yok, ters yön ya da tahminden çok farklı.
+            // Tahmin karenin kendi motorundan (köprü X-Motor) ve robot saatinden (X-Zaman): 24 Kasım kaydında bu kuralla
+            // 190 derecelik dönüş 170 sayıldı (eski yöntem 79). 23 Kasım'da kötü çıkmıştı çünkü motor bilgisi karelerle hizalı
+            // değildi (tools/konum/pusula_dene.py, MOD=tam).
+            if (Mathf.Abs(tahmin) > 3f && (!tuttu || (Mathf.Sign(adim) != Mathf.Sign(tahmin) && Mathf.Abs(adim) > 1f) ||
+                                            Mathf.Abs(adim - tahmin) > Mathf.Max(8f, 0.6f * Mathf.Abs(tahmin))))
             {
                 if (tuttu) ReddedilenAdim++;
                 Yaw = once + tahmin; TahminKullanildi = true;

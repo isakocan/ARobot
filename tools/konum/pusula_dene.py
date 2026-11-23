@@ -129,7 +129,7 @@ def main():
     evj = os.environ.get("EV", os.path.join(os.path.dirname(K.rstrip("/")), "..", "..", "robot", "20261122_233211", "ev.json"))
     kb.ev_ayarla(_json.load(open(evj))["isaretler"] if os.path.exists(evj) else [[1, 0.0, 0.0, 0.0]])
     donus_k = 140.0
-    kuyruk = []; eski_komut = (0, 0)
+    kuyruk = []; eski_komut = (0, 0); onceki_zm = 0.0
     GECIKME = float(os.environ.get("GECIKME", "0.35"))
     t_once = None; ozet = []
     dur_bas = None
@@ -149,6 +149,13 @@ def main():
         else:
             kuyruk.append((t, int(r["komut_sol"]), int(r["komut_sag"])))
         sol, sag = eski_komut
+        # yeni kayıt: karenin kendi motoru (X-Motor) ve robot saatinden süre (X-Zaman)
+        if r.get("kare_motor_sol", "-999") not in ("", "-999"):
+            sol, sag = int(r["kare_motor_sol"]), int(r["kare_motor_sag"])
+            zm = float(r.get("robot_zaman_ms") or 0)
+            if zm > 0 and onceki_zm > 0 and zm > onceki_zm:
+                dt = min(1.5, (zm - onceki_zm) / 1000.0)
+            onceki_zm = zm
         tahmin = donus_k * (sol - sag) / 510.0 * dt
         eski.kare(gx, 0.0)
         a = yeni.kare(gx, tahmin)

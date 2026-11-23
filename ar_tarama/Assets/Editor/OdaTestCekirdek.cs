@@ -684,7 +684,8 @@ namespace ArTarama
             var k = OdaSentetik.Yeni(); double ilkT = -1; int kareSay = 0;
             if (Environment.GetEnvironmentVariable("ZEMIN_GUVENLI") == "1") ZeminHaritasi.SadeceGuvenli = true;
             if (Environment.GetEnvironmentVariable("ZEMIN_ESKI") == "1") ZeminHaritasi.SadeceDerinlik = false;
-            if (Environment.GetEnvironmentVariable("ZEMIN_HIST") == "0") ZeminHaritasi.Histerezis = false;   // 23 Kasim kurali (karsilastirma)
+            if (Environment.GetEnvironmentVariable("ZEMIN_HIST") == "0") ZeminHaritasi.Histerezis = false;
+            if (Environment.GetEnvironmentVariable("ZEMIN_DUZ") == "0") ZeminHaritasi.Duzlestirme = false;   // 23 Kasim kurali (karsilastirma)
             if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_UST_GUVEN"), out int ug)) ZeminHaritasi.UstGuven = ug;
             if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ISIN_GUVEN"), out int ig)) ZeminHaritasi.IsinGuven = ig;
             if (float.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ISIN_MENZIL"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float im)) ZeminHaritasi.IsinMenzil = im;
@@ -692,7 +693,7 @@ namespace ArTarama
             if (float.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ENGEL_MENZIL"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float em)) ZeminHaritasi.EngelMenzil = em;
             ZeminHaritasi.DokumYolu = Environment.GetEnvironmentVariable("ZEMIN_DOKUM");   // son guncellemenin hucre dokumu
             var zh = new ZeminHaritasi(); zh.Guncelle(planlar, 0f);
-            HashSet<long> araOnce = null; var araHic = new HashSet<long>(); int araKayipTop = 0, araGeriGelen = 0;
+            HashSet<long> araOnce = null; var ilkZemin = new Dictionary<long, float>(); var ilkAcik = new Dictionary<long, float>(); var araHic = new HashSet<long>(); int araKayipTop = 0, araGeriGelen = 0;
             foreach (var satir in File.ReadAllLines(Path.Combine(klasor, "kareler.jsonl")))
             {
                 if (string.IsNullOrWhiteSpace(satir)) continue;
@@ -729,10 +730,14 @@ namespace ArTarama
                 if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ARA"), out int ara) && ara > 0 && kareSay % ara == 0)
                 {
                     var za = zh.Guncelle(planlar, f.zaman);
-                    int kayip = 0; if (araOnce != null) foreach (long q in araOnce) if (!za.acik.Contains(q)) kayip++;
+                    int kayip = 0; var kayipL = new List<long>(); if (araOnce != null) foreach (long q in araOnce) if (!za.acik.Contains(q)) { kayip++; kayipL.Add(q); }
+                    if (kayip > 30 && Environment.GetEnvironmentVariable("ZEMIN_KAYIP") == "1") yaz("  KAYIP t=" + F(f.zaman, 1) + " " + kayip + ": " + zh.DurumDokum(kayipL) + " | zy " + F(zh.Zy, 3));
                     // titreme: bir kez acik gorulup sonra kaybolan hucre (kullanici "geri donunce eskisi degismesin" istedi)
                     if (araOnce != null) foreach (long q in za.acik) if (araHic.Contains(q) && !araOnce.Contains(q)) araGeriGelen++;
                     araHic.UnionWith(za.acik); araKayipTop += kayip;
+                    // boyama gecikmesi: zemin derinlikte goruldukten kac sn sonra boyandi
+                    foreach (long q in zh.ZeminGorulen()) if (!ilkZemin.ContainsKey(q)) ilkZemin[q] = f.zaman;
+                    foreach (long q in za.acik) if (!ilkAcik.ContainsKey(q)) ilkAcik[q] = f.zaman;
                     araOnce = new HashSet<long>(za.acik);
                     yaz("ARA kare " + kareSay + " t=" + F(f.zaman, 1) + " acik=" + F(za.alan) + " m2 hucre=" + za.acik.Count + " kayip=" + kayip + " | " + zh.Teshis);
                     if (ciktiDir != null) { Directory.CreateDirectory(ciktiDir); ZeminPng(za, Path.Combine(ciktiDir, "ara_" + kareSay.ToString("0000") + ".png")); }
@@ -762,6 +767,15 @@ namespace ArTarama
                     }
                 yaz("kalem.json: " + zh.CizgiSayisi + " cizgi");
             }
+            if (ilkZemin.Count > 0)
+            {
+                var gec = new List<float>(); int hic = 0;
+                foreach (var kv in ilkZemin) { if (ilkAcik.TryGetValue(kv.Key, out float ta)) gec.Add(Math.Max(0f, ta - kv.Value)); else hic++; }
+                gec.Sort();
+                var hicL = new List<long>(); foreach (var kv in ilkZemin) if (!ilkAcik.ContainsKey(kv.Key)) hicL.Add(kv.Key);
+                yaz("BOYANMAYAN: " + zh.DurumDokum(hicL));
+                if (gec.Count > 0) yaz("BOYAMA: zemin gorulen " + ilkZemin.Count + " hucre, boyanan " + gec.Count + ", hic boyanmayan " + hic + "; gecikme ortanca " + F(gec[gec.Count / 2], 1) + " sn, %90 " + F(gec[gec.Count * 9 / 10], 1) + " sn");
+            }
             if (araHic.Count > 0) yaz("TITREME: toplam kayip " + araKayipTop + " hucre, geri gelen " + araGeriGelen + " (bir kez acik gorulen " + araHic.Count + ")");
             // son kare sonrasi bir son guncelleme
             zh.Guncelle(planlar, k.model.izgara.SonZaman + 0.5f);
@@ -772,6 +786,7 @@ namespace ArTarama
             Directory.CreateDirectory(ciktiDir);
             ZeminPng(zs, Path.Combine(ciktiDir, "zemin_ustten.png"));
             File.WriteAllText(Path.Combine(ciktiDir, "zemin.json"), zs.Json("test"), new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(ciktiDir, "durum.csv"), zh.DurumCsv(), new UTF8Encoding(false));
             var s = k.model.Guncelle(planlar, k.model.izgara.SonZaman + 1f);
             yaz("kare: " + kareSay + ", voksel: " + k.model.izgara.VokselSayisi + ", dolu voksel: " + k.model.izgara.DoluSayisi());
             yaz("etiketli=" + s.etiketli + " etiketli nokta=" + k.model.izgara.EtiketNokta + " esya voksel=" + k.model.izgara.Esya.Count);

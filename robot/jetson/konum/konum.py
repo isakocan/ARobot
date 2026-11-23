@@ -232,7 +232,8 @@ class KonumBulucu:
             elif en is None and simdi - self._son_hafiza > 1.0 and len(self.hafiza):
                 self._son_hafiza = simdi
                 self._hafizadan(F, simdi)
-            self.gorulen = [[g["id"], round(g["mesafe"], 2), round(g["yon"], 1)] for g in gorulen]
+            # [id, uzaklık, görülme açısı, işaret merkezinin kameradan yüksekliği (m)]: telefon AR'da işaretin yerini çizer
+            self.gorulen = [[g["id"], round(g["mesafe"], 2), round(g["yon"], 1), round(g["y"], 3)] for g in gorulen]
             if self.bilinen and (not self.iz or math.hypot(self.x - self.iz[-1][0], self.z - self.iz[-1][1]) > 0.05):
                 self.iz.append([round(self.x, 3), round(self.z, 3)])
                 del self.iz[:-400]

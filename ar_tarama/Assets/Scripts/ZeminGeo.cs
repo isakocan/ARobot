@@ -33,6 +33,59 @@ namespace ArTarama
             foreach (long k in sil) { h.Remove(k); atilan?.Add(k); }
         }
 
+        /// <summary>Kenar duzlestirme (24 Kasim, kullanici: "detayli alalim ama duz hatlarda, biraz kirpilmasi sorun degil").
+        /// Odanin ana yonune (aci) hizali iki eksende: (1) en cok 2 hucrelik girintiler doldurulur (yasak = engel / duvar
+        /// hucresine tasmaz), (2) iki eksenin hicbirinde en az 3 hucrelik dizinin parcasi olmayan cikinti hucreleri atilir.
+        /// Esya bicimi (detay) kalir, 5 cm'lik testere disi ve tek hucre sacaklar gider.</summary>
+        public static void Duzlestir(HashSet<long> acik, float aci, Func<long, bool> yasak, int tekrar = 2)
+        {
+            if (acik.Count == 0) return;
+            float ux = (float)Math.Cos(aci), uz = (float)Math.Sin(aci);
+            var eksen = new[] { (ux, uz), (-uz, ux) };
+            float V = ZeminSonuc.V;
+            Func<float, float, long> hucre = (x, z) => OdaSonuc.Anah2(ZeminSonuc.Ind(x), ZeminSonuc.Ind(z));
+            for (int t = 0; t < tekrar; t++)
+            {
+                // 1) girinti doldurma
+                var aday = new HashSet<long>();
+                foreach (long k in acik)
+                {
+                    ZeminSonuc.Coz(k, out int ix, out int iz);
+                    for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) { long q = OdaSonuc.Anah2(ix + dx, iz + dz); if (!acik.Contains(q)) aday.Add(q); }
+                }
+                var ekle = new List<long>();
+                foreach (long k in aday)
+                {
+                    if (yasak != null && yasak(k)) continue;
+                    ZeminSonuc.Coz(k, out int ix, out int iz); float x = (ix + 0.5f) * V, z = (iz + 0.5f) * V; bool dol = false;
+                    foreach (var (ex, ez) in eksen)
+                    {
+                        for (int a1 = 1; a1 <= 2 && !dol; a1++)
+                            for (int a2 = 1; a1 + a2 <= 3 && !dol; a2++)
+                                if (acik.Contains(hucre(x - ex * V * a1, z - ez * V * a1)) && acik.Contains(hucre(x + ex * V * a2, z + ez * V * a2))) dol = true;
+                        if (dol) break;
+                    }
+                    if (dol) ekle.Add(k);
+                }
+                foreach (long k in ekle) acik.Add(k);
+                // 2) cikinti atma
+                var sil = new List<long>();
+                foreach (long k in acik)
+                {
+                    ZeminSonuc.Coz(k, out int ix, out int iz); float x = (ix + 0.5f) * V, z = (iz + 0.5f) * V; bool kal = false;
+                    foreach (var (ex, ez) in eksen)
+                    {
+                        int n = 1;
+                        for (int a = 1; a <= 2 && acik.Contains(hucre(x + ex * V * a, z + ez * V * a)); a++) n++;
+                        for (int a = 1; a <= 2 && acik.Contains(hucre(x - ex * V * a, z - ez * V * a)); a++) n++;
+                        if (n >= 3) { kal = true; break; }
+                    }
+                    if (!kal) sil.Add(k);
+                }
+                foreach (long k in sil) acik.Remove(k);
+            }
+        }
+
         /// <summary>Morfolojik acma (r hucre yaricapli disk): once asindir, sonra genislet. r'den ince her sey gider.</summary>
         public static void Ac(HashSet<long> h, int r)
         {

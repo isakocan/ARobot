@@ -861,9 +861,13 @@ class Istek(BaseHTTPRequestHandler):
         elif adres.path == "/api/kamera-ayari":
             try:
                 with open(KAMERA_AYARI) as f:
-                    self._json(json.load(f))
+                    d = json.load(f)
             except (OSError, ValueError):
-                self._json({})
+                d = {}
+            # kameranın ölçülmüş eğimi (konum/teta.py, kalibre_egim.py): telefon görüntüyü ve AR'ı buna göre düzeltir
+            if _konum is not None and isinstance(d, dict):
+                d["duz_ileri"], d["duz_yan"] = _konum.teta.EGIM_ILERI, _konum.teta.EGIM_YAN
+            self._json(d)
         else:
             self.send_error(404)
 

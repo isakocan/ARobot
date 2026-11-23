@@ -32,6 +32,7 @@ namespace ArTarama
 
         static long Anah(int x, int y, int z) => ((long)(x + (1 << 20)) << 42) | ((long)(y + (1 << 20)) << 21) | (long)(z + (1 << 20));
         static int Ind(float a) => (int)Math.Floor(a / V);
+        public static int EngelAltKup(float zy) => (int)Math.Ceiling((zy + 0.08f) / V - 1e-4f);
 
         sbyte[] Parca(int cx, int cy, int cz, bool yarat)
         {
@@ -100,7 +101,10 @@ namespace ArTarama
         {
             var s = new Dictionary<long, Sutun>();
             int yz0 = Ind(zy - 0.05f), yz1 = Ind(zy + 0.05f);      // zemin yüzeyi küpleri
-            int ye0 = Ind(zy + 0.10f), ye1 = Ind(zy + 2.0f), yu = Ind(zy + 1.0f);
+            // engel bandi zeminin en az 8 cm ustundeki ilk kupten baslar (24 Kasim: Ind(zy + 0,10) kupu zy + 5 cm'den
+            // baslayabiliyordu; zemin tahmini 1 cm oynayinca bant 5 cm asagi atliyor, zemin gurultusu bir anda 1455 hucreyi
+            // engel yapiyordu)
+            int ye0 = EngelAltKup(zy), ye1 = Ind(zy + 2.0f), yu = Ind(zy + 1.0f);
             foreach (var kv in parca)
             {
                 long k = kv.Key;
@@ -136,7 +140,7 @@ namespace ArTarama
         public float[] Noktalar(float kx, float ky, float kz, float r, float zy, int enCok)
         {
             var l = new List<float>(4096);
-            int yz0 = Ind(zy - 0.05f), yz1 = Ind(zy + 0.05f), ye0 = Ind(zy + 0.10f), yu = Ind(zy + 1.0f);
+            int yz0 = Ind(zy - 0.05f), yz1 = Ind(zy + 0.05f), ye0 = EngelAltKup(zy), yu = Ind(zy + 1.0f);
             int cx0 = Ind(kx - r) >> PB, cx1 = Ind(kx + r) >> PB, cz0 = Ind(kz - r) >> PB, cz1 = Ind(kz + r) >> PB;
             int cy0 = Ind(zy - 0.1f) >> PB, cy1 = Ind(zy + 2.4f) >> PB;
             for (int cx = cx0; cx <= cx1; cx++)

@@ -81,13 +81,13 @@ namespace ArTarama
 
         // ---- yaratıklar
         Transform kok;
-        class Yaratik { public Transform t; public Vector2 ev; public float bas, faz, boy; public Transform govde; }
+        class Yaratik { public Transform t; public Vector2 ev; public float bas, faz, boy; public Transform govde; public Color renk; }
         readonly List<Yaratik> yaratiklar = new List<Yaratik>();
 
         // ---- arayüz
         Canvas arayuz; Text bilgi; RawImage haritaImg; RectTransform haritaPanel, harita, ok; Texture2D haritaTex;
         float hox, hoz; int hW, hH; float sonHarita = -100f;
-        readonly List<RectTransform> isaretler = new List<RectTransform>();
+        readonly List<RectTransform> isaretler = new List<RectTransform>(), haritaYaratik = new List<RectTransform>();
         [Serializable] class ZeminJson { public int[] acik; }
         [Serializable] class Isaret { public int id; public float x, z, aci, yukseklik; }
         [Serializable] class EvJson { public string ad; public Isaret[] isaretler; }
@@ -120,9 +120,11 @@ namespace ArTarama
         }
 
         // ------------------------------------------------------------------ kamera takılışı (robot uygulamasıyla aynı)
-        void Mount(float yon, float egim, float yatma)
+        /// <summary>duzIleri / duzYan: kameranın robota göre ölçülmüş eğimi (robot konum/teta.py EGIM; 24 Kasım: yana 2,5
+        /// derece). Görüntü düzeltilmezse AR nesneleri zemine oturmaz, işaret çerçevesi yanında kalır.</summary>
+        void Mount(float yon, float egim, float yatma, float duzIleri = 0f, float duzYan = 0f)
         {
-            balik.SetMatrix("_Mount", Rz(yatma) * Rx(egim) * Ry(yon));
+            balik.SetMatrix("_Mount", Rz(yatma) * Rx(egim) * Ry(yon) * Rz(duzYan) * Rx(-duzIleri));
             balik.SetMatrix("_Lens2Rotation", Rz(0.683f) * Ry(0.984f) * Rx(-0.141f));
         }
         static Matrix4x4 Rx(float a) { float c = Mathf.Cos(a * Mathf.Deg2Rad), s = Mathf.Sin(a * Mathf.Deg2Rad); return Satir(1, 0, 0, 0, c, -s, 0, s, c); }
@@ -217,6 +219,14 @@ namespace ArTarama
             return r.gameObject.AddComponent<Button>();
         }
 
+        static Sprite daire;
+        static Sprite Daire()
+        {
+            if (daire != null) return daire;
+            const int S = 32; var t = new Texture2D(S, S, TextureFormat.RGBA32, false);
+            for (int y = 0; y < S; y++) for (int x = 0; x < S; x++) { float d = new Vector2(x - S / 2 + 0.5f, y - S / 2 + 0.5f).magnitude; t.SetPixel(x, y, new Color(1, 1, 1, Mathf.Clamp01(S / 2 - 1 - d))); }
+            t.Apply(); return daire = Sprite.Create(t, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f));
+        }
         static Sprite ucgen;
         static Sprite Ucgen()
         {
@@ -295,7 +305,7 @@ namespace ArTarama
                 r.timeout = 4; yield return r.SendWebRequest();
                 if (r.result == UnityWebRequest.Result.Success && r.downloadHandler.text.Length > 3)
                 {
-                    var k = JsonUtility.FromJson<KameraAyari>(r.downloadHandler.text); Mount(k.yon, k.egim, k.yatma);
+                    var k = JsonUtility.FromJson<KameraAyari>(r.downloadHandler.text); Mount(k.yon, k.egim, k.yatma, k.duz_ileri, k.duz_yan);
                     Gunluk.Yaz("dev", "kamera ayari: " + r.downloadHandler.text);
                 }
             }
@@ -305,7 +315,7 @@ namespace ArTarama
             akis = new Thread(MjpegOku) { IsBackground = true }; akis.Start();
             StartCoroutine(HaritaGetir(evKlasoru));
         }
-        [Serializable] class KameraAyari { public float yon = 0f, egim = 0f, yatma = 90f; }
+        [Serializable] class KameraAyari { public float yon = 0f, egim = 0f, yatma = 90f, duz_ileri = 0f, duz_yan = 0f; }
 
         void UdpAl()
         {
@@ -411,9 +421,33 @@ namespace ArTarama
                 for (int i = 0; i + 1 < a.Length; i += 2) { x0 = Math.Min(x0, a[i]); x1 = Math.Max(x1, a[i]); z0 = Math.Min(z0, a[i + 1]); z1 = Math.Max(z1, a[i + 1]); }
                 x0 -= 2; z0 -= 2; hW = x1 - x0 + 3; hH = z1 - z0 + 3;
                 if (hW * hH > 4000000) return;
-                var px = new Color32[hW * hH];
-                for (int i = 0; i + 1 < a.Length; i += 2) px[(a[i + 1] - z0) * hW + (a[i] - x0)] = new Color32(67, 217, 190, 210);
-                haritaTex = new Texture2D(hW, hH, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+                var dolu = new float[hW * hH];
+                for (int i = 0; i + 1 < a.Length; i += 2) dolu[(a[i + 1] - z0) * hW + (a[i] - x0)] = 1f;
+                // 3x3 ortalama (iki kez): kenar yumuşar, tek hücrelik girinti / çıkıntı silinir
+                for (int tekrar = 0; tekrar < 2; tekrar++)
+                {
+                    var b = new float[hW * hH];
+                    for (int z = 0; z < hH; z++) for (int x = 0; x < hW; x++)
+                        {
+                            float t = 0f; int c = 0;
+                            for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) { int xx = x + dx, zz = z + dz; if (xx < 0 || zz < 0 || xx >= hW || zz >= hH) continue; t += dolu[zz * hW + xx]; c++; }
+                            b[z * hW + x] = t / c;
+                        }
+                    dolu = b;
+                }
+                const int U = 4; int W4 = hW * U, H4 = hH * U;
+                var px = new Color32[W4 * H4];
+                for (int z = 0; z < H4; z++)
+                    for (int x = 0; x < W4; x++)
+                    {
+                        float fx = (x + 0.5f) / U - 0.5f, fz = (z + 0.5f) / U - 0.5f;
+                        int ix = Mathf.Clamp((int)Mathf.Floor(fx), 0, hW - 2), iz = Mathf.Clamp((int)Mathf.Floor(fz), 0, hH - 2);
+                        float tx = Mathf.Clamp01(fx - ix), tz = Mathf.Clamp01(fz - iz);
+                        float v = Mathf.Lerp(Mathf.Lerp(dolu[iz * hW + ix], dolu[iz * hW + ix + 1], tx), Mathf.Lerp(dolu[(iz + 1) * hW + ix], dolu[(iz + 1) * hW + ix + 1], tx), tz);
+                        float al = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.42f, 0.58f, v));
+                        px[z * W4 + x] = new Color32(67, 217, 190, (byte)(210 * al));
+                    }
+                haritaTex = new Texture2D(W4, H4, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
                 haritaTex.SetPixels32(px); haritaTex.Apply(false);
                 haritaImg.texture = haritaTex; haritaImg.enabled = true; hox = x0 * 0.05f; hoz = z0 * 0.05f;
                 Gunluk.Yaz("dev", "ev haritasi: " + (ev != null ? ev.ad : "?") + " " + a.Length / 2 + " hucre");
@@ -491,7 +525,8 @@ namespace ArTarama
             {
                 gYaw += iz.AdimDonus;
                 // telefonun yönü dönüş başına belirsizleşir (ölçüm %5, tahmin %30)
-                float s = (iz.TahminKullanildi ? 0.3f : 0.05f) * Mathf.Abs(iz.AdimDonus) + 0.05f;
+                // 24 Kasım kaydı: telefon pusulası hızlı dönüşte %30-50 eksik sayabiliyor (dev_olc.py): belirsizlik buna göre
+                float s = (iz.TahminKullanildi ? 0.5f : 0.3f) * Mathf.Abs(iz.AdimDonus) + 0.1f;
                 vYaw += s * s;
                 if (iz.TahminKullanildi) tahminKare++;
                 // dönüş hızı katsayısı (yalnız güvenilir ölçümle)
@@ -507,7 +542,7 @@ namespace ArTarama
                 float s = Mathf.Sin(gYaw * Mathf.Deg2Rad), c = Mathf.Cos(gYaw * Mathf.Deg2Rad);
                 gX += s * iz.AdimIleri + c * iz.AdimSag; gZ += c * iz.AdimIleri - s * iz.AdimSag;
                 float yol = Mathf.Sqrt(iz.AdimIleri * iz.AdimIleri + iz.AdimSag * iz.AdimSag);
-                vPoz += (0.08f * yol + 0.001f) * (0.08f * yol + 0.001f);
+                vPoz += (0.3f * yol + 0.002f) * (0.3f * yol + 0.002f);
             }
             else if (komutSol != 0 || komutSag != 0) vPoz += 0.0004f;     // gidiyor ama ölçülemiyor
             if (iz.PusulaTuttu) sonGorselZaman = Time.unscaledTime;
@@ -561,6 +596,12 @@ namespace ArTarama
                             float dx = e.x - g.pX, dz = e.z - g.pZ;
                             float sag = dx * c0 - dz * s0, ileri = dx * s0 + dz * c0;
                             arH = Mathf.DeltaAngle(gr.z, Mathf.Atan2(sag, ileri) * Mathf.Rad2Deg); arId = e.id;
+                            if (!float.IsNaN(gr.w) && gr.y < 1.8f)
+                            {
+                                isaretYuk.TryGetValue(e.id, out var ys);
+                                ys = ys.y < 1f ? new Vector2(gr.w, 1f) : new Vector2(ys.x + (gr.w - ys.x) / Mathf.Min(ys.y + 1f, 30f), ys.y + 1f);
+                                isaretYuk[e.id] = ys;
+                            }
                             arHata.Add(new Vector2(Time.unscaledTime, arH));
                         }
             if (arHata.Count > 0 && Time.unscaledTime - arHata[0].x > 30f) arHata.RemoveAll(q => Time.unscaledTime - q.x > 30f);
@@ -579,10 +620,13 @@ namespace ArTarama
             else
             {
                 ky = vYaw / (vYaw + ry * ry);
+                // robot emin olduğu sürece fark en geç ~1 sn'de kapansın (konum saniyede ~3-5 kez geliyor)
+                if (k.sy < 6f) ky = Mathf.Max(ky, 0.5f);
                 fYaw += Mathf.DeltaAngle(fYaw, hYaw) * ky; vYaw *= 1f - ky;
                 // yön düzeltilince konum farkı yeni yöne göre (robotun o karedeki yeri sabit kalsın)
                 Dondur(fYaw, g.gX, g.gZ, out float rx, out float rz);
                 kp = vPoz / (vPoz + rp * rp);
+                if (k.sp < 0.15f) kp = Mathf.Max(kp, 0.5f);
                 fX += (k.x - rx - fX) * kp; fZ += (k.z - rz - fZ) * kp; vPoz *= 1f - kp;
             }
             // yaratıklar ancak robot işareti yeni görmüşken ve konumu kesinken (eski / tahmini konumla yanlış yere konuyordu)
@@ -591,6 +635,7 @@ namespace ArTarama
             KonumKaydet(k, i >= 0, ky, kp, arH, arId);
         }
         bool yaratikKonuldu; float koyBekle = -1f;
+        readonly Dictionary<int, Vector2> isaretYuk = new Dictionary<int, Vector2>();   // id -> (kameradan yükseklik ort., sayı)
 
         static void Dondur(float yaw, float x, float z, out float rx, out float rz)
         {
@@ -599,9 +644,9 @@ namespace ArTarama
         }
 
         /// <summary>Durum JSON'undaki "gorulen": [[id, mesafe, yon], ...] (JsonUtility iç içe dizi okumuyor).</summary>
-        static List<Vector3> Gorulen(string json)
+        static List<Vector4> Gorulen(string json)
         {
-            var l = new List<Vector3>();
+            var l = new List<Vector4>();
             if (json == null) return l;
             int a = json.IndexOf("\"gorulen\"", StringComparison.Ordinal); if (a < 0) return l;
             a = json.IndexOf('[', a); if (a < 0) return l;
@@ -612,9 +657,11 @@ namespace ArTarama
             foreach (var parca in ic.Split(new[] { ']' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var t = parca.Trim(' ', ',', '[').Split(',');
+                float yk = float.NaN;
+                if (t.Length >= 4) float.TryParse(t[3], System.Globalization.NumberStyles.Float, ci, out yk);
                 if (t.Length >= 3 && float.TryParse(t[0], System.Globalization.NumberStyles.Float, ci, out float id) &&
                     float.TryParse(t[1], System.Globalization.NumberStyles.Float, ci, out float m) && float.TryParse(t[2], System.Globalization.NumberStyles.Float, ci, out float y))
-                    l.Add(new Vector3(id, m, y));
+                    l.Add(new Vector4(id, m, y, yk));
             }
             return l;
         }
@@ -623,7 +670,7 @@ namespace ArTarama
         {
             if (farkVar)
             {
-                float a = 1f - Mathf.Exp(-Time.unscaledDeltaTime / 0.25f);
+                float a = 1f - Mathf.Exp(-Time.unscaledDeltaTime / 0.15f);
                 dYaw += Mathf.DeltaAngle(dYaw, fYaw) * a; dX += (fX - dX) * a; dZ += (fZ - dZ) * a;
                 Dondur(dYaw, gX, gZ, out float rx, out float rz);
                 PozX = rx + dX; PozZ = rz + dZ; PozYaw = gYaw + dYaw;
@@ -671,7 +718,7 @@ namespace ArTarama
                     cerceveler.Add(c);
                 }
                 // köşeler: ev -> robot (sağ, yukarı, ileri) -> ekran
-                float yuk = e.yukseklik > 0.02f ? e.yukseklik : 0.25f;
+                float yuk = isaretYuk.TryGetValue(e.id, out var ym) && ym.y >= 3f ? ym.x + KameraYuksek : (e.yukseklik > 0.02f ? e.yukseklik : 0.25f);
                 float nx = Mathf.Sin(e.aci), nz = Mathf.Cos(e.aci), ux = nz, uz = -nx;   // işaretin sağı (ona bakana göre sol, önemsiz)
                 var p = new Vector2[4]; bool gorunur = true;
                 for (int j = 0; j < 4; j++)
@@ -733,7 +780,7 @@ namespace ArTarama
 
         void Ekle(Vector2 ev, Color renk, float bas)
         {
-            var y = new Yaratik { ev = ev, bas = bas, faz = UnityEngine.Random.value * 10f, boy = 0.13f };
+            var y = new Yaratik { ev = ev, bas = bas, faz = UnityEngine.Random.value * 10f, boy = 0.13f, renk = renk };
             y.t = new GameObject("Yaratik").transform; y.t.SetParent(kok, false);
             y.govde = Kure(y.t, renk, Vector3.zero, Vector3.one * y.boy);
             Golge(y.t, y.boy);
@@ -850,6 +897,18 @@ namespace ArTarama
                     if (n >= isaretler.Count) { var r = Rect("Isaret", harita.parent); r.anchorMin = r.anchorMax = new Vector2(0.5f, 0.5f); r.sizeDelta = new Vector2(18, 18); r.gameObject.AddComponent<Image>().raycastTarget = false; isaretler.Add(r); }
                     isaretler[n].anchoredPosition = new Vector2(e.x - PozX, e.z - PozZ) * k; n++;
                 }
+            // yaratıklar (evde sabit yerleri): ekranda kayıyorlarsa haritadaki yerleriyle karşılaştırılabilir
+            for (int i = 0; i < yaratiklar.Count; i++)
+            {
+                if (i >= haritaYaratik.Count)
+                {
+                    var r = Rect("Yaratik", harita.parent); r.anchorMin = r.anchorMax = new Vector2(0.5f, 0.5f); r.sizeDelta = new Vector2(16, 16);
+                    var im = r.gameObject.AddComponent<Image>(); im.raycastTarget = false; im.sprite = Daire(); im.color = yaratiklar[i].renk;
+                    haritaYaratik.Add(r);
+                }
+                haritaYaratik[i].gameObject.SetActive(PozVar);
+                haritaYaratik[i].anchoredPosition = new Vector2(yaratiklar[i].ev.x - PozX, yaratiklar[i].ev.y - PozZ) * k;
+            }
         }
 
         void Bilgi()

@@ -7,7 +7,9 @@ karşılaştırılarak bulundu (14 Kasım kaydı, 3 kare, korelasyon 0,948).
 
 Robot koordinatı: x sağ, y yukarı, z ileri (metre). Telefon (Unity) ile aynı el yönü.
 """
+import json
 import math
+import os
 
 import cv2
 import numpy as np
@@ -37,12 +39,39 @@ def _don(rx, ry, rz):
 
 LENS2_DON = _don(-0.141, 0.984, 0.683)
 
+# Kameranın robota göre eğimi (24 Kasım): kamera tam düz takılı değil. İşaretin kamera karşısındaki yüksekliği bakış
+# yönüne göre değişiyordu (sağda 4 cm yüksek); iki günün kaydından en küçük kareler: yana 2,46, öne 0,73 derece (artık
+# 2,2 cm -> 0,5 cm). Düzeltilmezse AR nesneleri zemine oturmaz, kuşbakışı zemin ve işaret yüksekliği bozulur.
+# ~/.config/robot/kamera_egimi.json {"ileri": derece, "yan": derece} (araç: konum/kalibre_egim.py) varsa ondan.
+EGIM_DOSYASI = os.path.expanduser("~/.config/robot/kamera_egimi.json")
+
+
+def egim_oku():
+    try:
+        with open(EGIM_DOSYASI) as f:
+            e = json.load(f)
+        return float(e.get("ileri", 0.0)), float(e.get("yan", 0.0))
+    except (OSError, ValueError, TypeError):
+        return 0.73, 2.46
+
+
+EGIM_ILERI, EGIM_YAN = egim_oku()
+
+
+def egim_matrisi(ileri, yan):
+    """Gerçek (düz) robot yönü -> kameranın 'düz' sandığı yön: sağ (1,0,0) yan derece yukarı, ön (0,0,1) ileri derece
+    yukarı görünür."""
+    return _don(-ileri, 0.0, 0.0) if yan == 0 else _don(0.0, 0.0, yan) @ _don(-ileri, 0.0, 0.0)
+
+
+EGIM = egim_matrisi(EGIM_ILERI, EGIM_YAN)
+
 
 def yon_pikseller(d):
     """Robot koordinatındaki birim ışınlar (N,3) -> ham karedeki (u, v) piksel (N,2) float32.
 
     Kamera robota yan yatık (yatma 90): kamera = (-y, x, z). Ön yarı küre lens 1, arka lens 2."""
-    d = np.asarray(d, dtype=np.float64)
+    d = np.asarray(d, dtype=np.float64) @ EGIM.T
     c = np.stack([-d[:, 1], d[:, 0], d[:, 2]], -1)
     on = c[:, 2] >= 0
     c2 = np.stack([-c[:, 0], c[:, 1], -c[:, 2]], -1) @ LENS2_DON.T

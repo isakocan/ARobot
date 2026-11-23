@@ -289,12 +289,40 @@ namespace ArTarama
         // olunca ancak karsi yonde guclu kanit gelirse degisir. Kup degeri: carpma +9, gecis -4 (DolulukHaritasi).
         public const int EngelGir = 18;            // bilinmeyen -> engel: en az iki karede carpildi
         public const int EngelKalici = 25;         // acik -> engel: en az uc karede (net) carpildi
-        public const int BosaltCik = -8;           // engel -> acik: sutundaki butun kupler en az iki kez icinden gecildi
+        public const int BosaltCik = -4;           // engel -> acik: sutundaki butun kupler sonradan bos goruldu (24 Kasim: -8 cok
+                                                   // sikiydi, defalarca bos gorulen hucre -5'te takilip engel kaliyordu)
         public const int ZeminDoygun = 35;         // kesin zemin: zemin kupu doygun (4+ kare)
         readonly Dictionary<long, sbyte> sDurum = new Dictionary<long, sbyte>();   // 1 acik, 2 engel
         readonly Dictionary<long, byte> sYas = new Dictionary<long, byte>();       // durum kac guncellemedir ayni
         public static bool LidarAcik;
-        public static bool Histerezis = true;     // false: 23 Kasim kurali (her guncellemede yeniden karar, pay yok); karsilastirma icin              // LIDAR gorunumu istendi: guncellemede kupler kopyalanir
+        public float Zy => zy;
+        /// <summary>Teshis (PC): derinlikte zemini en az iki karede gorulmus hucreler (boyama gecikmesi olcumu).</summary>
+        /// <summary>Teshis: hucrelerin sutun durumu sayilari [bilinmeyen (kanit zayif), acik, engel] ve bilinmeyenlerde en dolu kup dagilimi.</summary>
+        public string DurumDokum(IEnumerable<long> hucreler)
+        {
+            int[] n = new int[3]; int z1 = 0, z2 = 0, z3 = 0; var su = dol.Sutunlar(zy);
+            foreach (long k in hucreler)
+            {
+                sDurum.TryGetValue(k, out sbyte d); n[d]++;
+                if (d == 0 && su.TryGetValue(k, out var c)) { if (c.enCok > 0 && c.enCok < EngelGir) z1++; else if (c.enCok <= 0) z2++; else z3++; }
+            }
+            return "bilinmeyen " + n[0] + " (zayif engel kaniti " + z1 + ", bos " + z2 + ", diger " + z3 + "), acik " + n[1] + ", engel " + n[2];
+        }
+        /// <summary>Teshis CSV: ix,iz,durum,enCok,zeminD,uzun (zemini ya da engeli gorulen her sutun).</summary>
+        public string DurumCsv()
+        {
+            var sb = new System.Text.StringBuilder("ix,iz,durum,encok,zemind,uzun\n");
+            foreach (var kv in dol.Sutunlar(zy))
+            {
+                ZeminSonuc.Coz(kv.Key, out int ix, out int iz); sDurum.TryGetValue(kv.Key, out sbyte d);
+                sb.Append(ix).Append(',').Append(iz).Append(',').Append(d).Append(',').Append(kv.Value.enCok).Append(',').Append(kv.Value.zeminD).Append(',').Append(kv.Value.uzun ? 1 : 0).Append('\n');
+            }
+            return sb.ToString();
+        }
+        public HashSet<long> ZeminGorulen() { var r = new HashSet<long>(); foreach (var kv in dol.Sutunlar(zy)) if (kv.Value.zeminD >= DolulukHaritasi.ZeminKesin) r.Add(kv.Key); return r; }
+        public static bool Histerezis = true;
+        public static bool Duzlestirme = true;    // kenarlari ana yone hizali duzlestir (ZeminGeo.Duzlestir)
+        public const int BuyukParca = 100;        // hucre (0,25 m2): bu buyuklukteki bagimsiz acik zemin de boyanir     // false: 23 Kasim kurali (her guncellemede yeniden karar, pay yok); karsilastirma icin              // LIDAR gorunumu istendi: guncellemede kupler kopyalanir
         float kamYSon;
         static bool EngelHucresi(Hucre c) => (c.engel >= EngelMinKare && c.engel > c.zemin) || (c.ust >= 3 && c.ust > c.zemin);
         public const int AcmaYaricap = 2;        // hucre: 10 cm'den ince saçaklar ve kenar pürüzü atilir (morfolojik acma)
@@ -684,7 +712,7 @@ namespace ArTarama
                 var pay = new HashSet<long>(engelH);
                 foreach (long k in engelH)
                 {
-                    if (!Histerezis || !sutun.TryGetValue(k, out var su) || su.enCok < EngelKalici) continue;     // yalniz kesin engel pay dogurur
+                    if (!Histerezis || !sDurum.TryGetValue(k, out sbyte sdk) || sdk != 2) continue;     // engel durumu (histerezisli: pay titremez)
                     ZeminSonuc.Coz(k, out int ix, out int iz);
                     for (int q = 0; q < 4; q++)
                     {
@@ -718,6 +746,22 @@ namespace ArTarama
             if (SadeceDerinlik)
             {
                 foreach (var kv in sDurum) if (kv.Value == 1) aday.Add(kv.Key);
+                // uzakta derinlik seyrek: zemin hucreleri arasinda bosluk kaliyor, parcalar birbirine baglanmiyordu. Engel olmayan
+                // ve 8 komsusunun en az 4'u zemin olan hucre de aday (tek gecislik kapama)
+                var ek = new List<long>();
+                foreach (long k in aday)
+                {
+                    ZeminSonuc.Coz(k, out int ix, out int iz);
+                    for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++)
+                    {
+                        long q = OdaSonuc.Anah2(ix + dx, iz + dz);
+                        if (aday.Contains(q) || (sDurum.TryGetValue(q, out sbyte dq) && dq == 2)) continue;
+                        int n = 0;
+                        for (int ez = -1; ez <= 1; ez++) for (int ex = -1; ex <= 1; ex++) if ((ex != 0 || ez != 0) && aday.Contains(OdaSonuc.Anah2(ix + dx + ex, iz + dz + ez))) n++;
+                        if (n >= 4) ek.Add(q);
+                    }
+                }
+                foreach (long q in ek) aday.Add(q);
                 foreach (var kv in h) if (kv.Value.yol > 0) aday.Add(kv.Key);
             }
             else
@@ -731,6 +775,28 @@ namespace ArTarama
             foreach (var kv in h) if (kv.Value.yol > 0 && aday.Contains(kv.Key) && acik.Add(kv.Key)) yigin.Push(kv.Key);
             { long kc = OdaSonuc.Anah2(ZeminSonuc.Ind(kamX), ZeminSonuc.Ind(kamZ)); if (aday.Contains(kc) && acik.Add(kc)) yigin.Push(kc); }
             foreach (long k in kalici) if (aday.Contains(k) && acik.Add(k)) yigin.Push(k);
+            // 24 Kasim: derinlikte acik bulunan buyuk zemin parcasi da tohum (en az BuyukParca hucre). Yalniz yurunen yere
+            // bagli olani boyamak ARCore duzlemleri doneminden kalma (duzlem duvar arkasina tasiyordu); derinlikte gorulen
+            // genis zemin gercek, araya giren ince engel seridi yuzunden boyanmiyordu (Ev 7: zemini gorulen hucrelerin %15'i).
+            if (SadeceDerinlik)
+            {
+                var gez = new HashSet<long>(acik); var yg = new Stack<long>(); var parca = new List<long>();
+                foreach (long k0 in aday)
+                {
+                    if (!gez.Add(k0)) continue;
+                    parca.Clear(); yg.Push(k0);
+                    while (yg.Count > 0)
+                    {
+                        long k = yg.Pop(); parca.Add(k); ZeminSonuc.Coz(k, out int ix, out int iz);
+                        long b1 = OdaSonuc.Anah2(ix + 1, iz), b2 = OdaSonuc.Anah2(ix - 1, iz), b3 = OdaSonuc.Anah2(ix, iz + 1), b4 = OdaSonuc.Anah2(ix, iz - 1);
+                        if (aday.Contains(b1) && gez.Add(b1)) yg.Push(b1);
+                        if (aday.Contains(b2) && gez.Add(b2)) yg.Push(b2);
+                        if (aday.Contains(b3) && gez.Add(b3)) yg.Push(b3);
+                        if (aday.Contains(b4) && gez.Add(b4)) yg.Push(b4);
+                    }
+                    if (parca.Count >= BuyukParca) foreach (long k in parca) acik.Add(k);
+                }
+            }
             while (yigin.Count > 0)
             {
                 long k = yigin.Pop(); ZeminSonuc.Coz(k, out int ix, out int iz);
@@ -759,6 +825,7 @@ namespace ArTarama
             ZeminGeo.KucukleriAt(acik, 40, null);
             acik.UnionWith(kalan);
             ZeminGeo.DelikDoldur(acik, duvar, 60);
+            if (SadeceDerinlik && Duzlestirme) ZeminGeo.Duzlestir(acik, aci, k => duvar.Contains(k) || (engelH.Contains(k) && !kAcik.Contains(k)) || kKapali.Contains(k));
             // kalem cizgisi bir yeri ayirdiysa: kullanicinin bulundugu yere bagli olmayan parca (eski kalici dahil) atilir
             if (kHat.Count > 0)
             {
@@ -774,7 +841,29 @@ namespace ArTarama
                     if (acik.Contains(a3) && bag.Add(a3)) yg.Push(a3);
                     if (acik.Contains(a4) && bag.Add(a4)) yg.Push(a4);
                 }
-                if (bag.Count > 0) acik = bag;
+                // 24 Kasim: yalniz kalem cizgisine degen kopuk parca atilir (cizgi onu ayirdi). Cizgiyle ilgisi olmayan uzak
+                // zemin parcasi kalir (Ev 7: 30 cm'lik tek cizgi odanin obur ucundaki genis zemini de siliyordu).
+                if (bag.Count > 0)
+                {
+                    var gez = new HashSet<long>(bag); var parca = new List<long>(); var at = new List<long>();
+                    foreach (long k0 in acik)
+                    {
+                        if (!gez.Add(k0)) continue;
+                        parca.Clear(); yg.Push(k0); bool degiyor = false;
+                        while (yg.Count > 0)
+                        {
+                            long k = yg.Pop(); parca.Add(k); ZeminSonuc.Coz(k, out int ix, out int iz);
+                            for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++)
+                            {
+                                long q = OdaSonuc.Anah2(ix + dx, iz + dz);
+                                if (kHat.Contains(q)) degiyor = true;
+                                if ((dx == 0 || dz == 0) && acik.Contains(q) && gez.Add(q)) yg.Push(q);
+                            }
+                        }
+                        if (degiyor) at.AddRange(parca);
+                    }
+                    foreach (long k in at) acik.Remove(k);
+                }
             }
             kalici.Clear(); foreach (long k in acik) kalici.Add(k);
 
