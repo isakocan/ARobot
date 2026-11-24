@@ -19,31 +19,45 @@ import teta, zemin_izi, sinir, parcacik
 R = [json.loads(l) for l in open(os.path.join(K, "kareler.jsonl")) if l.strip()]
 EV = {int(m[0]): (m[1], m[2], m[3]) for m in json.load(open(os.path.join(K, "ev.json")))["isaretler"]}
 H = sinir.Harita(ZJ)
+GY = {}
+if os.path.exists(os.path.join(K, "gercek_yon.json")):
+    _g = json.load(open(os.path.join(K, "gercek_yon.json"))); GY = dict(zip(_g["kare"], _g["yaw"]))
 S = sinir.Sinir(teta)
 DONUS_K, HIZ_K = 140.0, 0.45
 
 
 def onisle():
     """Her kare için hareket (pusula + zemin izi, konum.py ile aynı kural) ve zemin sınırı tablosu."""
-    pus = teta.Pusula(); izi = zemin_izi.ZeminIzi(); son_t = None; out = []
+    pus = teta.Pusula(); izi = zemin_izi.ZeminIzi(); son_t = None; out = []; onceki = (0, 0)
     for f in R:
         bgr = cv2.imread(os.path.join(K, f["jpg"])); gri = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
         t = f["t"]; dt = 0.0 if son_t is None else max(0.0, min(1.0, t - son_t)); ara = son_t is not None and t - son_t > 10
         son_t = t
         sol, sag = f["sol"], f["sag"]
-        komut = DONUS_K * (sol - sag) / 510.0 * dt
+        # goruntu komuttan ~1 kare gec (25 Kasim, jiroskopla olculdu): hareket onceki karenin komutuyla
+        ksol, ksag = onceki; onceki = (sol, sag)
+        komut = DONUS_K * (ksol - ksag) / 510.0 * dt
         d, guven = pus.guncelle(gri, komut)
         od = izi.guncelle(gri)
-        yg = True
-        if guven < 0.08 or abs(d) > 60:
-            d = od[2] if od else komut; yg = od is not None
-        elif abs(sol - sag) > 100 and abs(d - komut) > max(10.0, 0.5 * abs(komut)):
-            yg = False
-        ileri, yan = (od[0], od[1]) if od else (HIZ_K * (sol + sag) / 510.0 * dt, 0.0)
+        d, yg = konum_donus(d, guven, od, komut)
+        ileri, yan = (od[0], od[1]) if od else (HIZ_K * (ksol + ksag) / 510.0 * dt, 0.0)
+        sol, sag = ksol, ksag
         G = S.hazirla(bgr).copy(); gec = S.gecerli.copy()
         out.append(dict(d=math.radians(d), yg=yg, ileri=ileri, yan=yan, dur=sol == 0 and sag == 0, G=G, gec=gec, ara=ara,
                         donen=abs(sol - sag) > 100 and sol * sag < 0))
     return out
+
+
+def konum_donus(d, guven, od, komut):
+    """Kare başı dönüş kaynağı seçimi (25 Kasım, jiroskop dayanağıyla seçildi): görsel pusula; pusula sıfıra yapıştı
+    (robotun sabit parçalarının sahte tepesi, hızlı dönüşte bulanık kare) ama zemin izi ya da komut dönüyor diyorsa
+    zemin izi, o da yoksa komut. -> (derece, güvenli mi)"""
+    z = od[2] if od else None
+    if guven < 0.08 or abs(d) > 60:
+        return (z, True) if z is not None else (komut, False)
+    if abs(d) < 1.0 and ((z is not None and abs(z) > 4) or abs(komut) > 4):
+        return (z, True) if z is not None else (komut, False)
+    return d, True
 
 
 def tek_poz(g):
@@ -56,7 +70,7 @@ def calistir(O, cesit, tohum=0):
     P = parcacik.Parcacik(H, tohum=tohum)
     kullan_isaret = "isaret" in cesit or cesit == "hepsi"
     kullan_sinir = "sinir" in cesit or cesit == "hepsi"
-    hata = []; t0 = time.time()
+    hata = []; yh = []; t0 = time.time()
     for i, (f, o) in enumerate(zip(R, O)):
         gor = [g for g in f["gorulen"] if g[0] in EV and math.hypot(g[1], g[2]) < 2.5]
         if (not P.var or o["ara"]) and gor:
@@ -82,17 +96,24 @@ def calistir(O, cesit, tohum=0):
             for g in gor:
                 P.isaret(EV[g[0]], g[1], g[2], g[3], math.hypot(g[1], g[2]))
         P.yeniden()
+        if i in GY:
+            yaw_d = math.degrees(P.ozet()[2])
+            yh.append((i, (yaw_d - GY[i] + 180) % 360 - 180))
     a = np.array(hata)
+    calistir.yon = np.array(yh)
     return a, time.time() - t0
 
 
 if __name__ == "__main__":
     t0 = time.time(); O = onisle(); print("onisleme %.0f sn, %d kare" % (time.time() - t0, len(O)))
     for c in CESIT:
-        sonuc = []
+        sonuc = []; yons = []
         for tohum in range(3):
-            a, sure = calistir(O, c, tohum); sonuc.append(a)
+            a, sure = calistir(O, c, tohum); sonuc.append(a); yons.append(calistir.yon)
         a = np.vstack(sonuc)
+        if GY:
+            y = np.abs(np.vstack(yons)[:, 1])
+            print("%-16s GERCEK YON (jiro) hatasi: ortanca %.1f  %%90 %.1f  en cok %.1f der" % (c, np.median(y), np.percentile(y, 90), y.max()))
         ay = np.abs(a[:, 1]); au = np.abs(a[:, 2])
         print("%-16s olcum %3d | gorulme yonu hatasi ortanca %5.1f  %%90 %5.1f der | uzaklik hatasi ortanca %.2f %%90 %.2f m | 10 der + 20 cm icinde %%%d | sure %.1f ms/kare"
               % (c, len(a) // 3, np.median(ay), np.percentile(ay, 90), np.median(au), np.percentile(au, 90),

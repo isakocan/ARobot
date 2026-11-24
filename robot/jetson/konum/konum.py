@@ -91,6 +91,7 @@ class KonumBulucu:
         self.kilit = threading.Lock()
         self.ev = {}               # id -> Poz2 (işaret yerel -> ev)
         self.x = self.z = self.yaw = 0.0
+        self._onceki_komut = (0, 0)
         self.bilinen = False
         self.son_isaret = 0.0
         self.son_isaret_id = -1
@@ -173,35 +174,45 @@ class KonumBulucu:
         dt = 0.0 if self.son_t is None else max(0.0, min(1.0, simdi - self.son_t))
         self.son_t = simdi
         sol, sag = sol_sag if sol_sag is not None else (self.motor() if self.motor else (0, 0))
+        # görüntü komuttan ~1 kare (0,27 sn) geç (25 Kasım, telefon jiroskobuyla ölçüldü): bu karenin hareketi bir önceki
+        # karenin komutuyla eşleşir
+        ksol, ksag = self._onceki_komut
+        self._onceki_komut = (sol, sag)
         # dönüş: görsel pusula, güvenilmezse zemin izi ya da komut
-        komut_donus = self.donus_k * (sol - sag) / 510.0 * dt
+        komut_donus = self.donus_k * (ksol - ksag) / 510.0 * dt
         d_derece, guven = self.pusula.guncelle(ham_gri, komut_donus)
         # donus hizi katsayisini ogren (kesin donuste, guvenli olcumle)
-        if dt > 0.05 and abs(sol - sag) > 150 and guven > 0.3 and abs(d_derece) > 3:
-            olc = d_derece / dt / ((sol - sag) / 510.0)
+        if dt > 0.05 and abs(ksol - ksag) > 150 and guven > 0.3 and abs(d_derece) > 3:
+            olc = d_derece / dt / ((ksol - ksag) / 510.0)
             if 40 < olc < 400:
                 self.donus_k = self.donus_k * 0.9 + olc * 0.1
         self.pusula_guven = guven
         od = self.izi.guncelle(ham_gri)
         self.nokta = od[3] if od else 0
         yon_guvenli = True
+        z_don = od[2] if od else None
         if guven < 0.08 or abs(d_derece) > 60.0:
-            d_derece = od[2] if od else komut_donus
+            d_derece = z_don if od else komut_donus
             yon_guvenli = od is not None
-        elif abs(sol - sag) > 100 and abs(d_derece - komut_donus) > max(10.0, 0.5 * abs(komut_donus)):
+        elif abs(d_derece) < 1.0 and ((od and abs(z_don) > 4.0) or abs(komut_donus) > 4.0):
+            # pusula sıfıra yapıştı (robotun sabit parçalarının sahte tepesi, hızlı dönüşte bulanık kare) ama zemin izi ya da
+            # komut dönüyor diyor: 25 Kasım jiroskop kaydında birikmiş hatanın çoğu buydu (3 dk'da 95 -> 24 derece)
+            d_derece = z_don if od else komut_donus
+            yon_guvenli = od is not None
+        elif abs(ksol - ksag) > 100 and abs(d_derece - komut_donus) > max(10.0, 0.5 * abs(komut_donus)):
             yon_guvenli = False            # pusula komutla çelişiyor (hızlı dönüşte yanlış eşleşme olabilir): belirsiz say
         if od:
             ileri, yan = od[0] * self.olcek, od[1] * self.olcek
             self.hareket = "goruntu"
         else:
-            ileri, yan = self.hiz_k * (sol + sag) / 510.0 * dt, 0.0
+            ileri, yan = self.hiz_k * (ksol + ksag) / 510.0 * dt, 0.0
             self.hareket = "motor"
         gorulen = isaret.bul(ham_gri)
         F = hafiza.Hafiza.ozellik(self.pusula.onceki)
         with self.kilit:
             if kare is not None:
                 self.kare, self.kare_t = int(kare), simdi
-            self._tahmin(math.radians(d_derece), ileri, yan, yon_guvenli, od is not None, sol == 0 and sag == 0)
+            self._tahmin(math.radians(d_derece), ileri, yan, yon_guvenli, od is not None, sol == 0 and sag == 0 and ksol == 0 and ksag == 0)
             self._yol_tahmin += math.hypot(ileri, yan)
             if od:
                 self._yol_goruntu += math.hypot(ileri, yan)
