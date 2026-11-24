@@ -685,9 +685,13 @@ namespace ArTarama
             if (Environment.GetEnvironmentVariable("ZEMIN_GUVENLI") == "1") ZeminHaritasi.SadeceGuvenli = true;
             if (Environment.GetEnvironmentVariable("ZEMIN_ESKI") == "1") ZeminHaritasi.SadeceDerinlik = false;
             if (Environment.GetEnvironmentVariable("ZEMIN_HIST") == "0") ZeminHaritasi.Histerezis = false;
-            ZeminHaritasi.Sade = Environment.GetEnvironmentVariable("ZEMIN_SADE") != "0";     // 0: 24 Kasim oncesi kural (karsilastirma)
+            ZeminHaritasi.Sade = Environment.GetEnvironmentVariable("ZEMIN_SADE") == "1";     // 1: sade kural (denendi, kenara tasiyor)
+            if (Environment.GetEnvironmentVariable("KONTUR") == "duz") ZeminSonuc.HucreKontur = false;
             if (int.TryParse(Environment.GetEnvironmentVariable("SADE_ENGEL"), out int se)) ZeminHaritasi.SadeEngel = se;
             if (int.TryParse(Environment.GetEnvironmentVariable("SADE_BOSALT"), out int sb0)) ZeminHaritasi.SadeBosalt = sb0;
+            if (int.TryParse(Environment.GetEnvironmentVariable("SADE_ACIK"), out int sa0)) ZeminHaritasi.SadeAcik = sa0;
+            if (int.TryParse(Environment.GetEnvironmentVariable("SADE_PAY"), out int sp0)) ZeminHaritasi.SadePay = sp0;
+            if (Environment.GetEnvironmentVariable("SADE_PAY8") == "1") ZeminHaritasi.SadePay8 = true;
             if (Environment.GetEnvironmentVariable("ISINMA") == "0") ZeminHaritasi.IsinmaKullan = false;
             var sicrama = Environment.GetEnvironmentVariable("SICRAMA") == "0" ? null : new PozSureklilik();
             if (Environment.GetEnvironmentVariable("ZEMIN_DUZ") == "0") ZeminHaritasi.Duzlestirme = false;   // 23 Kasim kurali (karsilastirma)
@@ -748,7 +752,7 @@ namespace ArTarama
                     foreach (long q in za.acik) if (!ilkAcik.ContainsKey(q)) ilkAcik[q] = f.zaman;
                     araOnce = new HashSet<long>(za.acik);
                     yaz("ARA kare " + kareSay + " t=" + F(f.zaman, 1) + " acik=" + F(za.alan) + " m2 hucre=" + za.acik.Count + " kayip=" + kayip + " | " + zh.Teshis);
-                    if (ciktiDir != null) { Directory.CreateDirectory(ciktiDir); ZeminPng(za, Path.Combine(ciktiDir, "ara_" + kareSay.ToString("0000") + ".png")); }
+                    if (ciktiDir != null) { Directory.CreateDirectory(ciktiDir); if (Environment.GetEnvironmentVariable("ZEMIN_ARA_JSON") == "1") File.WriteAllText(Path.Combine(ciktiDir, "ara_" + kareSay.ToString("0000") + "_" + F(f.zaman, 1) + ".json"), za.Json("ara"), new UTF8Encoding(false)); else ZeminPng(za, Path.Combine(ciktiDir, "ara_" + kareSay.ToString("0000") + ".png")); }
                 }
             }
             // KALEM="x0,z0,x1,z1,...|kx,kz": kalem cizgisi (kullanici kx,kz'de) son guncellemeden once eklenir
@@ -794,6 +798,7 @@ namespace ArTarama
             Directory.CreateDirectory(ciktiDir);
             ZeminPng(zs, Path.Combine(ciktiDir, "zemin_ustten.png"));
             File.WriteAllText(Path.Combine(ciktiDir, "zemin.json"), zs.Json("test"), new UTF8Encoding(false));
+            { var ci = CultureInfo.InvariantCulture; var sbu = new StringBuilder("{\"ucgen\":["); for (int q = 0; q < zs.acikUcgen.Length; q++) { if (q > 0) sbu.Append(','); sbu.Append(zs.acikUcgen[q].ToString("F3", ci)); } File.WriteAllText(Path.Combine(ciktiDir, "ucgen.json"), sbu.Append("]}").ToString(), new UTF8Encoding(false)); }
             File.WriteAllText(Path.Combine(ciktiDir, "durum.csv"), zh.DurumCsv(), new UTF8Encoding(false));
             var s = k.model.Guncelle(planlar, k.model.izgara.SonZaman + 1f);
             yaz("kare: " + kareSay + ", voksel: " + k.model.izgara.VokselSayisi + ", dolu voksel: " + k.model.izgara.DoluSayisi());

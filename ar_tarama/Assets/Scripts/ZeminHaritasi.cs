@@ -73,6 +73,9 @@ namespace ArTarama
         /// <summary>Resim cercevesi: haritanin ana yonune (aci) hizali eksenler, piksel = ResimPiksel metre. Dunya (x,z) ->
         /// resim (u,w): u = x cos + z sin, w = -x sin + z cos. Gosterimde resim aci kadar dondurulur; boylece egik duz kenarlar
         /// piksel izgarasina paralel olur, merdiven gibi gorunmez.</summary>
+        /// <summary>Sinir hucre hucre (24 Kasim, kullanici: "puruzlu olsun, derinlikteki noktalari hassas alsin"): eski duz
+        /// kontur 10 cm izgarada 20 cm kapama/acma yapip kenari kaydiriyordu. false: eski duz kontur.</summary>
+        public static bool HucreKontur = true;
         public const float ResimPiksel = 0.025f;
         public float ResimCa = 1f, ResimSa = 0f;
         public float ResimAciDerece => (float)(Math.Atan2(ResimSa, ResimCa) * 180.0 / Math.PI);
@@ -161,7 +164,7 @@ namespace ArTarama
             fa = ZeminGeo.Alan(acik, gx0, gz0, gw, gh); fe = ZeminGeo.Alan(engel, gx0, gz0, gw, gh);
             var u = new List<float>(); var k = new List<float>();
             // ana yon biliniyorsa: o yone hizali izgarada bulaniksiz kontur -> duz kenarlar (puruzsuz, kullanici istegi)
-            if (ZeminHaritasi.Sade)
+            if (HucreKontur)
             {
                 // sade (24 Kasim): hucre hucre, bulaniksiz kontur; sinir derinligin gordugu yerden gecer (puruzlu olabilir)
                 var b = new float[gw * gh];
@@ -493,7 +496,6 @@ namespace ArTarama
         public void Isle(DerinlikKaresi f)
         {
             kare++; kamX = f.px; kamZ = f.pz; kamYTop += f.py; kamYSay++; kamYSon = f.py;
-            if (!zyVar && !Sade) return;
             DerinlikKaresi.DonmeMatrisi(f.qx, f.qy, f.qz, f.qw, mat);
             int n0 = f.w * f.h; if (px_.Length < n0) { px_ = new float[n0]; py_ = new float[n0]; pz_ = new float[n0]; pi_ = new int[n0]; }
             int m = 0;
@@ -1009,9 +1011,9 @@ namespace ArTarama
         // Baglantililik, pay, duzlestirme, kalici boya, kalem yok. Yalniz 3 hucreden kucuk tekil lekeler atilir ve icinde
         // engel olmayan en cok 2 hucrelik delikler doldurulur. Sinir hucre hucre (puruzlu ama derinlikle ayni) cizilir.
         // Durum zaten kuplerin log-olasiligindan geliyor (tek karede degismez), ayrica histerezis gerekmiyor.
-        public static bool Sade = true;
+        public static bool Sade = false;   // olculdu (24 Kasim, 5 kayit): zemini %95 boyuyor ama esya kenarina 2,4 kat fazla tasiyor; varsayilan eski kural
         public const int SadeLeke = 3, SadeDelik = 2;
-        public static int SadeEngel = 35, SadeBosalt = 10;
+        public static int SadeEngel = 35, SadeBosalt = 10, SadeAcik = 18, SadePay = 0; public static bool SadePay8;
 
         void SadeSonuc(ZeminSonuc s, float kamY)
         {
@@ -1025,10 +1027,22 @@ namespace ArTarama
                 // engel ancak kup SadeBosalt'in altina inerse acilir (esya kenarinda +9 / -4 gidip gelen kup boyayi oynatmasin)
                 if (d0 == 1) d = su.enCok >= SadeEngel ? (sbyte)2 : (sbyte)1;
                 else if (d0 == 2) d = su.enCok < SadeBosalt && zem ? (sbyte)1 : (sbyte)2;
-                else d = su.enCok >= EngelGir ? (sbyte)2 : zem ? (sbyte)1 : (sbyte)0;
+                else d = su.enCok >= EngelGir ? (sbyte)2 : zem && su.enCok < SadeAcik ? (sbyte)1 : (sbyte)0;
                 if (d != d0) sDurum[kv.Key] = d;
                 if (d == 2) { engel.Add(kv.Key); if (su.uzun) duvar.Add(kv.Key); }
                 else if (d == 1) acik.Add(kv.Key);
+            }
+            if (SadePay > 0)
+            {
+                var at = new List<long>();
+                foreach (long k in acik)
+                {
+                    ZeminSonuc.Coz(k, out int ix, out int iz); bool yakin = false;
+                    for (int dz = -SadePay; dz <= SadePay && !yakin; dz++) for (int dx = -SadePay; dx <= SadePay; dx++)
+                        if ((SadePay8 || dx == 0 || dz == 0) && (dx != 0 || dz != 0) && engel.Contains(OdaSonuc.Anah2(ix + dx, iz + dz))) { yakin = true; break; }
+                    if (yakin) at.Add(k);
+                }
+                foreach (long k in at) acik.Remove(k);
             }
             foreach (var kv in h) if (kv.Value.yol > 0) { acik.Add(kv.Key); engel.Remove(kv.Key); duvar.Remove(kv.Key); }
             ZeminGeo.KucukleriAt(acik, SadeLeke, null);
