@@ -110,6 +110,7 @@ namespace ArTarama
             ekranHud = HudUi(guvenli);
             ekranBaslangic = BaslangicUi(kok);
             modalOnay = OnayUi(kok);
+            JiroUi(kok);
             modalOda = OdaUi(kok);
 
             var tk = UiKur.Kutu(kok, "Toast", UiKur.PanelKoyu, true);
@@ -357,6 +358,44 @@ namespace ArTarama
             if (ac) ModalAcik = true;
         }
 
+        // ---------------- jiroskop kaydi (gelistirici) ----------------
+        JiroKaydi jiroKayit; GameObject jiroEkran; Text jiroYazi; float jiroSonYazi;
+
+        void JiroUi(Transform ebeveyn)
+        {
+            // kayit sirasinda tam ekran siyah (AMOLED): yalniz kucuk soluk yazi; dokununca durur
+            var arka = UiKur.Kutu(ebeveyn, "JiroEkran", Color.black, false, false); arka.raycastTarget = true;
+            UiKur.Tam(arka.rectTransform);
+            jiroYazi = UiKur.Metin(arka.transform, "Yazi", "", UiKur.Body, new Color(1f, 1f, 1f, 0.35f), TextAnchor.MiddleCenter);
+            UiKur.Tam(jiroYazi.rectTransform, 60f);
+            var b = arka.gameObject.AddComponent<Button>(); b.transition = Selectable.Transition.None; b.onClick.AddListener(JiroDurdur);
+            jiroEkran = arka.gameObject; jiroEkran.SetActive(false);
+        }
+
+        void JiroBaslat()
+        {
+            if (jiroKayit == null) jiroKayit = gameObject.AddComponent<JiroKaydi>();
+            if (!jiroKayit.Baslat()) { Toast("Bu telefonda jiroskop bulunamadı"); return; }
+            jiroEkran.transform.SetAsLastSibling(); jiroEkran.SetActive(true); jiroSonYazi = -1f;
+            Haptik(20);
+        }
+
+        void JiroDurdur()
+        {
+            if (jiroKayit == null || !jiroKayit.Kayitta) { jiroEkran.SetActive(false); return; }
+            jiroKayit.Durdur(); jiroEkran.SetActive(false);
+            Toast("Jiroskop kaydı bitti: " + jiroKayit.Satir + " ölçüm");
+            Haptik(20);
+        }
+
+        void JiroGuncelle()
+        {
+            if (jiroEkran == null || !jiroEkran.activeSelf || jiroKayit == null) return;
+            float t = Time.unscaledTime; if (t - jiroSonYazi < 0.5f) return; jiroSonYazi = t;
+            int sn = (int)(Time.realtimeSinceStartupAsDouble - jiroKayit.Baslangic);
+            jiroYazi.text = "Jiroskop kaydı  " + (sn / 60).ToString("00") + ":" + (sn % 60).ToString("00") + "\n\nDurdurmak için dokun";
+        }
+
         Yumusak OnayUi(Transform ebeveyn)
         {
             var y = ModalKok(ebeveyn, "OnayModal", new Color(0, 0, 0, 0.62f));
@@ -448,6 +487,11 @@ namespace ArTarama
             var robot = UiKur.Dugme(ic, "RobotDev", "Robot", UiKur.DugmeStili.Ikincil, 40);
             UiKur.Yerles(robot.GetComponent<RectTransform>(), new Vector2(0, 1), new Vector2(0, 1), new Vector2(308, 140), new Vector2(660, -410));
             robot.onClick.AddListener(RobotDevAc);
+
+            // gelistirici: robot konum denemesi icin telefon jiroskop kaydi (telefon robotun ustunde duz yatar)
+            var jiro = UiKur.Dugme(ic, "Jiro", "Jiroskop kaydı", UiKur.DugmeStili.Ghost, UiKur.Caption);
+            UiKur.Yerles(jiro.GetComponent<RectTransform>(), new Vector2(0, 1), new Vector2(0, 1), new Vector2(308, 60), new Vector2(660, -610));
+            jiro.onClick.AddListener(JiroBaslat);
 
             var etiket = UiKur.Metin(ic, "Etiket", "EVLER", UiKur.Caption, UiKur.Soluk, TextAnchor.MiddleLeft, FontStyle.Bold);
             UiKur.Yerles(etiket.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(700, 40), new Vector2(4, -620));

@@ -333,6 +333,7 @@ namespace ArTarama
         void Update()
         {
             GuvenliAlan();
+            JiroGuncelle();
             var tr = arKamera.transform;
             float dt = Mathf.Max(Time.unscaledDeltaTime, 0.001f);
             AciHizi = Mathf.Lerp(AciHizi, Quaternion.Angle(oncekiRot, tr.rotation) / dt, 0.25f);
