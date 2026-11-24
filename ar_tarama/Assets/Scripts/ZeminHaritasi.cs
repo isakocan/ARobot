@@ -199,11 +199,12 @@ namespace ArTarama
 
         /// <summary>Oyun alani (24 Kasim, kullanici: "oyun icin kullanilabilecek yerler, acik zemin guveni yuksek, daha duz
         /// hatlarda, koyu mavi"): kesinlesmis acik zemin (kesin bilgisi yoksa butun acik zemin), engel / duvar hucresinden
-        /// en az OyunPay hucre uzak; 10 cm'den ince seritler ve 0,25 m2'den kucuk adaciklar atilir; ana yone hizali duz kontur.</summary>
+        /// en az OyunPay hucre (10 cm) uzak; 10 cm'den ince seritler, 0,25 m2'den kucuk adaciklar ve en buyuk parcanin dortte birinden
+        /// kucuk ayri parcalar atilir; ana yone hizali duz kontur.</summary>
         public HashSet<long> oyun = new HashSet<long>();
         public float[] oyunUcgen = new float[0];
         public float oyunAlan, oyunAci;
-        public static int OyunPay = 3; public const int OyunEnKucuk = 100;
+        public static int OyunPay = 2; public const int OyunEnKucuk = 100;   // 10 cm (25 Kasim, kullanici: B; kapi kanadi gibi ince engelde 15 cm alani boluyordu)
         public static int OyunInceAlan = 0, OyunInceRay = 2;
 
         static HashSet<long> KucukParcalar(HashSet<long> h, int enCok)
@@ -228,7 +229,7 @@ namespace ArTarama
         }
 
         /// <summary>Oyun alaninda en buyuk parcanin bu oranindan kucuk ayri parcalar atilir (0: kapali).</summary>
-        public static float OyunParcaOran = 0f;
+        public static float OyunParcaOran = 0.25f;
 
         static void BuyuktenKucukleriAt(HashSet<long> h, float oran)
         {
