@@ -88,6 +88,7 @@ YENIDEN_ARA = 3             # sn: iki kamera hattı başlatması arası en az bu
 H264_BEKCI = 5              # sn: JPEG gelirken H.264 bu kadar kare vermezse kamera hattı yeniden başlatılır
 ISI_ALARMI = 80             # °C: Jetson bunu geçince bir kez alarm sesi (75'in altına inince yeniden kurulur)
 ANAHTAR_ARALIGI = 15        # kare; 15 fps'te saniyede bir tam kare (yeni izleyen en geç 1 sn bekler)
+VBV_KARE = 3                # H.264 kodlayıcı arabelleği, kare cinsinden (düşük gecikmeli yayında 1-3)
 ESKI_KOMUT_MS = 250         # bundan geç gelen hareket komutu uygulanmaz
 TABAN_YENILEME = 1.5        # sn: bu kadar sürekli bayat sayılırsa gecikme kalıcı kabul edilir, taban yenilenir
 UDP_RAPOR_ARALIGI = 10.0    # sn: kopru.log'a istemci başına durum satırı
@@ -459,6 +460,9 @@ class Kamera:
                 bicim = "video/x-raw(memory:NVMM),format=NV12" + (",width={},height={}".format(*boyut) if boyut else "")
                 komut += ["c.", "!", "queue", "leaky=downstream", "max-size-buffers=2", "!"] + donustur + ["!", bicim, "!",
                           "nvv4l2h264enc", "bitrate={}".format(bit),
+                          # kodlayıcı arabelleği VBV_KARE kare kadar (varsayılan 4 Mbit = 4 Mbit/sn'de 1 sn): büyük tam
+                          # kareler Wi-Fi'de patlama yapıp her saniye gecikme sıçratmasın (25 Kasım, sürüşte gecikme hissi)
+                          "vbv-size={}".format(max(1, bit * VBV_KARE // 15)),
                           # idrinterval da şart: yalnız iframeinterval verilirse ara tam kareler IDR
                           # olmaz ve yeni bağlanan tarayıcı çözmeye başlayamaz
                           "iframeinterval={}".format(ANAHTAR_ARALIGI), "idrinterval={}".format(ANAHTAR_ARALIGI),

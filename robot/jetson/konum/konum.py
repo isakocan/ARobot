@@ -37,6 +37,7 @@ HAFIZA_KAYIT_MENZIL = 1.5  # m: yalniz bu kadar yakin, belirsiz olmayan isaretle
 HAFIZA_YEREL = 0.6         # m: isaret yokken tahmini konumun bu cevresindeki anahtar karelerle eslesir
 HAFIZA_YEREL_ESIK = 0.25   # benzerlik
 HAFIZA_GENEL_ESIK = 0.45   # hic bilinmiyorken yalniz cok guclu ve tek anlamli eslesmeyle yer bulunur
+SIFIR_KURALI = True        # pusula sıfıra yapışınca zemin izi / komut (dinamik maskeyle gerekirse kapatılır; ölçüm: tools/konum/konum_gercek.py)
 HIZ_TAM = 0.45             # m/s: PWM 255'te ileri hız ilk tahmini (CLAUDE.md: ~1-2 km/s)
 DONUS_TAM = 140.0          # derece/s: (sol-sag)=510'da donus ilk tahmini (21 Kasim kaydi: fark 408'de ~110 derece/s); surerken ogrenir
 
@@ -46,7 +47,20 @@ DONUS_TAM = 140.0          # derece/s: (sol-sag)=510'da donus ilk tahmini (21 Ka
 # kabul etmiyordu, yön bir kez bozulunca robot işaretin önünde dururken konum 1 m kayıyordu).
 S_YON = math.radians(1.5)          # işaretin robottan görülme açısı (kareden kareye 0,4 derece içinde)
 S_UZAK = (0.02, 0.02)              # uzaklık: a + b * r
-S_NORMAL = (math.radians(3.0), math.radians(5.0))   # işaretin baktığı yön: a + b * max(0, r - 0.8) (uzakta zayıf)
+S_NORMAL = (math.radians(3.0), math.radians(5.0))   # (eski; artık s_normal kullanılır)
+
+
+def s_normal(r, egik):
+    """İşaretin yüzey yönü ölçümünün belirsizliği (radyan). 25 Kasım jiroskop kaydı, eğim düzeltmeli işaret kodu (264
+    gözlem, tools/konum/isaret_olc.py): 0,8 m'den yakın %90 1,9 derece; 0,8-1,6 m %90 13 (çoğu 1,6, kuyruk uzun);
+    karşıdan (<20 derece) %90 1,6; 20-60 derece eğik %90 20, ortanca 7. egik: işaretin normaliyle işaretten robota
+    doğrultu arasındaki açı (radyan)."""
+    return math.radians(2.0 + 8.0 * max(0.0, r - 0.8) + 0.4 * max(0.0, abs(math.degrees(egik)) - 20.0))
+
+
+def egiklik(en):
+    """Gözlemden eğik bakış: işaret normali (en aci, robot çerçevesi) ile işaretten robota doğrultu arasındaki açı."""
+    return _aci_fark(en["aci"], math.atan2(en["x"], en["z"]) + math.pi)
 KAPI = 16.0                        # Mahalanobis² eşiği (3 serbestlik, %99,9): üstü aykırı sayılır
 KILIT_GOZLEM = 3                   # aykırı ama birbiriyle tutarlı bu kadar gözlem KILIT_SURE içinde: konum yeniden kurulur
 KILIT_SURE = 3.0
@@ -194,7 +208,7 @@ class KonumBulucu:
         if guven < 0.08 or abs(d_derece) > 60.0:
             d_derece = z_don if od else komut_donus
             yon_guvenli = od is not None
-        elif abs(d_derece) < 1.0 and ((od and abs(z_don) > 4.0) or abs(komut_donus) > 4.0):
+        elif SIFIR_KURALI and abs(d_derece) < 1.0 and ((od and abs(z_don) > 4.0) or abs(komut_donus) > 4.0):
             # pusula sıfıra yapıştı (robotun sabit parçalarının sahte tepesi, hızlı dönüşte bulanık kare) ama zemin izi ya da
             # komut dönüyor diyor: 25 Kasım jiroskop kaydında birikmiş hatanın çoğu buydu (3 dk'da 95 -> 24 derece)
             d_derece = z_don if od else komut_donus
@@ -288,8 +302,10 @@ class KonumBulucu:
         # yalnız işaretten çıkan konum (yönü işaretin normalinden): ilk kurulum ve yeniden kilit için
         tek = E.sonra(Poz2(en["x"], en["z"], en["aci"]).ters())
         if not self.bilinen:
+            sn = s_normal(r, egiklik(en))
             if r < ILK_MENZIL and not belirsiz:
-                self._kur(tek, math.radians(3.0), 0.04, "ilk (yakin isaret)")
+                # belirsizlik ölçüme göre: yakın ve karşıdan 3 derece, eğik / uzakta 10-20 derece (sonraki gözlemler düzeltir)
+                self._kur(tek, sn, 0.03 + r * sn, "ilk (yakin isaret)")
                 return True
             if not belirsiz:
                 self._kilit = [a for a in self._kilit if simdi - a[0] < ILK_SURE] + [(simdi, tek.x - self.x, tek.z - self.z, _aci_fark(tek.aci, self.yaw))]
@@ -306,7 +322,7 @@ class KonumBulucu:
             H[:, j] = (self._olcum(s + d, E) - h) / 1e-4
         y = zm - h
         y[0] = _aci_fark(y[0], 0.0); y[2] = _aci_fark(y[2], 0.0)
-        Rm = np.diag([S_YON ** 2, (S_UZAK[0] + S_UZAK[1] * r) ** 2, (S_NORMAL[0] + S_NORMAL[1] * max(0.0, r - 0.8)) ** 2])
+        Rm = np.diag([S_YON ** 2, (S_UZAK[0] + S_UZAK[1] * r) ** 2, s_normal(r, egiklik(en)) ** 2])
         H, y, Rm = H[:n], y[:n], Rm[:n, :n]
         S = H @ self.P @ H.T + Rm
         try:
@@ -364,7 +380,8 @@ class KonumBulucu:
             p = Poz2(E.x - rx, E.z - rz, yaw)
         else:
             p = Poz2(self.x + sum(q[1] for q in a) / n, self.z + sum(q[2] for q in a) / n, yaw)
-        self._kur(p, math.radians(4.0), 0.06, neden)
+        sy = max(math.radians(4.0), s_normal(en["mesafe"], egiklik(en)) / math.sqrt(n)) if en is not None else math.radians(4.0)
+        self._kur(p, sy, 0.06, neden)
 
     def _kur(self, p, s_yaw, s_poz, neden):
         self.x, self.z, self.yaw = p.x, p.z, p.aci

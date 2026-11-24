@@ -142,6 +142,43 @@ class SanalKamera:
         return self.R @ np.array([a, b, 1.0])
 
 
+class DinamikMaske:
+    """Robotun kendi gövdesini (direk, anten, kablo, üstüne konan telefon) görüntüden kendiliğinden ayırır (25 Kasım).
+
+    Robot dönerken / giderken oda görüntüde kayar, robotun parçaları yerinde kalır. Hareketli karelerde ardışık iki
+    görüntünün piksel farkı üstel ortalamayla tutulur: farkı sürekli küçük olan piksel gövdedir. Antenler oynasa ya da
+    bir şey takılsa birkaç hareketten sonra yeni yerini öğrenir. Yeterince hareket görülene kadar dosyadaki sabit
+    maske (varsa) kullanılır. Dokusuz yüzey (düz duvar) de "değişmiyor" görünebilir; zaten eşleşmeye katkısı yoktur.
+
+    kullan(): True = kullan (gövde değil), dizi biçimi görüntüyle aynı."""
+
+    def __init__(self, sekil, sabit=None, oran=0.08, esik=0.3, en_az=8):
+        self.fark = np.zeros(sekil, np.float32)
+        self.sabit = sabit
+        self.oran, self.esik, self.en_az = oran, esik, en_az
+        self.sayi = 0
+        self.onceki = None
+        self._m = None
+
+    def guncelle(self, g, hareketli):
+        """g: bu karenin görüntüsü (float32, sabit boyut). hareketli: robot bu adımda belirgin döndü / ilerledi mi."""
+        if self.onceki is not None and hareketli:
+            d = cv2.GaussianBlur(np.abs(g - self.onceki), (0, 0), 1.0)
+            self.fark += self.oran * (d - self.fark) if self.sayi else (d - self.fark)
+            self.sayi += 1
+            self._m = None
+        self.onceki = g
+
+    def kullan(self):
+        if self.sayi < self.en_az:
+            return self.sabit if self.sabit is not None else np.ones(self.fark.shape, bool)
+        if self._m is None:
+            # piksel, sahnenin tipik değişiminin esik katından az değişiyorsa gövde
+            m = self.fark > self.esik * float(np.median(self.fark))
+            self._m = cv2.erode(m.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+        return self._m
+
+
 class Pusula:
     """Görsel pusula: ufuk bandının (enlem -5..+30 derece, robot gövdesinin üstü) 360 derece eş dikdörtgen şeridi
     kareden kareye faz korelasyonuyla kaydırılır; kayma = dönüş. Ölçek: 2 piksel / derece."""
@@ -162,14 +199,24 @@ class Pusula:
         import os
         mp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pusula_maske.png")
         mk = cv2.imread(mp, cv2.IMREAD_GRAYSCALE) if os.path.exists(mp) else None
-        if mk is not None and mk.shape == (self.yuk, self.gen):
-            self.pencere = self.pencere * (mk > 127).astype(np.float32)
+        sabit = (mk > 127) if mk is not None and mk.shape == (self.yuk, self.gen) else None
+        # gövde maskesi kendiliğinden güncellenir (DinamikMaske); dosya yalnız başlangıçta
+        self.maske = DinamikMaske((self.yuk, self.gen), sabit) if Pusula.DINAMIK else None
+        if sabit is not None and not Pusula.DINAMIK:
+            self.pencere = self.pencere * sabit.astype(np.float32)
+        self.son_ham = None
+
+    DINAMIK = True
 
     def serit(self, ham_gri):
         """Ufuk şeridinin yatay kenar görüntüsü (parlaklıktan bağımsız; desensiz duvarda da çalışır)."""
         s = cv2.remap(ham_gri, self.mx, self.my, cv2.INTER_LINEAR).astype(np.float32)
         s = cv2.GaussianBlur(s, (0, 0), 1.5)
-        return cv2.Sobel(s, cv2.CV_32F, 1, 0) * self.pencere
+        self.son_ham = s
+        k = cv2.Sobel(s, cv2.CV_32F, 1, 0) * self.pencere
+        if self.maske is not None:
+            k = k * self.maske.kullan()
+        return k
 
     def _kayma(self, a, b, tahmin):
         """a'dan b'ye dönüş (derece) ve güven. tahmin verilirse ve birden çok güçlü tepe varsa tahmine en yakını."""
@@ -212,6 +259,8 @@ class Pusula:
         g = self.serit(ham_gri)
         if self.onceki is None:
             self.onceki = g; self.ref = g; self.ref_aci = 0.0; self.toplam = 0.0
+            if self.maske is not None:
+                self.maske.guncelle(self.son_ham, False)
             return 0.0, 0.0
         t = 0.0 if tahmin is None else tahmin
         dr, gr = self._kayma(self.ref, g, _fark(self.toplam + t, self.ref_aci))
@@ -225,6 +274,9 @@ class Pusula:
         self.toplam = yeni
         if not (gr >= self.REF_GUVEN and abs(dr) < self.REF_YENILE):
             self.ref = g; self.ref_aci = yeni
+        if self.maske is not None:
+            # hareketli: ölçülen ya da komuttan beklenen dönüş belirgin (sıfıra yapışmış ölçümde de komut söyler)
+            self.maske.guncelle(self.son_ham, abs(d) > 3.0 or abs(t) > 3.0)
         return d, guven
 
 

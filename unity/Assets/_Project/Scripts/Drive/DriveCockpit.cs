@@ -718,6 +718,7 @@ namespace ARaki.Drive
 
             Choice("Vites", new[] { "Otomatik", "Manuel", "Vitessiz" }, () => (int)s.Gearbox, v => s.Gearbox = (GearMode)v);
             Choice("Dönüş", new[] { "Yumuşak", "Keskin" }, () => s.SharpTurn ? 1 : 0, v => s.SharpTurn = v == 1);
+            Toggle("Dönüş öngörüsü", () => s.TurnPredict, v => s.TurnPredict = v);
             Toggle("Geri vites bipi", () => s.ReverseBeep, v => s.ReverseBeep = v);
             Toggle("Efekt sesleri", () => s.Effects, v => s.Effects = v);
             Choice("Kamera hareketi", new[] { "Kapalı", "Hafif", "Belirgin" }, () => s.CameraMotion, v => s.CameraMotion = v);

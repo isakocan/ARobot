@@ -22,6 +22,8 @@ R = 1.0               # m: kuşbakışı görüntünün yarı genişliği
 N = 200               # piksel (1 cm)
 PX = N / (2 * R)
 EN_AZ_NOKTA = 15
+DINAMIK = False      # dinamik gövde maskesi denendi (25 Kasım): yerinde dönüşte merkeze yakın zemin de az kaydığı için
+                     # gövde sanıldı, ölçüm %92 -> %81, hata 9 -> 20 derece; kapalı (pusulada açık)
 
 
 class ZeminIzi:
@@ -38,6 +40,10 @@ class ZeminIzi:
         mk = cv2.imread(os.path.join(os.path.dirname(os.path.abspath(__file__)), "zemin_maske.png"), cv2.IMREAD_GRAYSCALE)
         self.maske = ((mk > 127) if mk is not None and mk.shape == (N, N) else (r > 0.3)) & (r < 0.9)
         self.maske = self.maske.astype(np.uint8)
+        # robotun gövdesi kendiliğinden (25 Kasım): hareket ederken değişmeyen pikseller (teta.DinamikMaske); dosyadaki
+        # maske yalnız yeterince hareket görülene kadar
+        self.halka = (r > 0.25) & (r < 0.9)
+        self.dmaske = teta.DinamikMaske((N, N), self.maske > 0) if DINAMIK else None
         self.onceki = None
         self.son = None            # hata ayıklama: (görüntü, noktalar, yeni yerler, iç nokta maskesi)
 
@@ -49,8 +55,18 @@ class ZeminIzi:
         b = self.kus(ham_gri)
         a, self.onceki = self.onceki, b
         if a is None:
+            if self.dmaske is not None:
+                self.dmaske.guncelle(b.astype(np.float32), False)
             return None
-        pts = cv2.goodFeaturesToTrack(a, 300, 0.01, 5, mask=self.maske)
+        maske = self.maske if self.dmaske is None else (self.dmaske.kullan() & self.halka).astype(np.uint8)
+        sonuc = self._olc(a, b, maske)
+        if self.dmaske is not None:
+            hareketli = sonuc is not None and (math.hypot(sonuc[0], sonuc[1]) > 0.02 or abs(sonuc[2]) > 3.0)
+            self.dmaske.guncelle(b.astype(np.float32), hareketli)
+        return sonuc
+
+    def _olc(self, a, b, maske):
+        pts = cv2.goodFeaturesToTrack(a, 300, 0.01, 5, mask=maske)
         if pts is None or len(pts) < EN_AZ_NOKTA:
             self.son = (b, None, None, None)
             return None

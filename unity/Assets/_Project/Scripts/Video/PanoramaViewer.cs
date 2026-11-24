@@ -31,6 +31,8 @@ namespace ARaki.Video
         /// <summary>Kamera hareketi (derece): eğim + = yukarı bak, yatma + = sağa dönerken dışa (sola) yatma.</summary>
         public float SwayPitch { get; set; }
         public float SwayRoll { get; set; }
+        /// <summary>Dönüş öngörüsü (derece, sağa +): görüntüye henüz yansımamış robot dönüşü kadar bakış önden çevrilir.</summary>
+        public float PredictYaw { get; set; }
 
         /// <summary>Kapalıysa klavye tuşlarını (Q/E, B, Z, boşluk) başka bileşen yönetir (gerçek robot sürüşü).</summary>
         public bool UseKeyboard { get; set; } = true;
@@ -162,7 +164,7 @@ namespace ARaki.Video
             }
             float n = Time.time * 17f;
             Vector3 shake = new Vector3(Mathf.PerlinNoise(n, 0.3f) - 0.5f, Mathf.PerlinNoise(0.7f, n) - 0.5f, Mathf.PerlinNoise(n, n) - 0.5f) * amplitude;
-            viewCamera.transform.localRotation = Quaternion.Euler(Pitch + shake.x - SwayPitch, Yaw + shake.y, shake.z - SwayRoll);
+            viewCamera.transform.localRotation = Quaternion.Euler(Pitch + shake.x - SwayPitch, Yaw + PredictYaw + shake.y, shake.z - SwayRoll);
             if (worldAlignedRobot != null)
                 sphere.transform.localRotation = Quaternion.Euler(0f, -worldAlignedRobot.eulerAngles.y, 0f);
         }
