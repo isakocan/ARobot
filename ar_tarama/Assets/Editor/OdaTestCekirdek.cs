@@ -685,6 +685,11 @@ namespace ArTarama
             if (Environment.GetEnvironmentVariable("ZEMIN_GUVENLI") == "1") ZeminHaritasi.SadeceGuvenli = true;
             if (Environment.GetEnvironmentVariable("ZEMIN_ESKI") == "1") ZeminHaritasi.SadeceDerinlik = false;
             if (Environment.GetEnvironmentVariable("ZEMIN_HIST") == "0") ZeminHaritasi.Histerezis = false;
+            ZeminHaritasi.Sade = Environment.GetEnvironmentVariable("ZEMIN_SADE") != "0";     // 0: 24 Kasim oncesi kural (karsilastirma)
+            if (int.TryParse(Environment.GetEnvironmentVariable("SADE_ENGEL"), out int se)) ZeminHaritasi.SadeEngel = se;
+            if (int.TryParse(Environment.GetEnvironmentVariable("SADE_BOSALT"), out int sb0)) ZeminHaritasi.SadeBosalt = sb0;
+            if (Environment.GetEnvironmentVariable("ISINMA") == "0") ZeminHaritasi.IsinmaKullan = false;
+            var sicrama = Environment.GetEnvironmentVariable("SICRAMA") == "0" ? null : new PozSureklilik();
             if (Environment.GetEnvironmentVariable("ZEMIN_DUZ") == "0") ZeminHaritasi.Duzlestirme = false;   // 23 Kasim kurali (karsilastirma)
             if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_UST_GUVEN"), out int ug)) ZeminHaritasi.UstGuven = ug;
             if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ISIN_GUVEN"), out int ig)) ZeminHaritasi.IsinGuven = ig;
@@ -724,14 +729,17 @@ namespace ArTarama
                         f.g[v * w + u] = gb != null ? gb[(adim * v) * dw + adim * u] : (byte)255;
                         if (eb != null) { if (f.e == null) f.e = new byte[w * h]; f.e[v * w + u] = eb[(adim * v) * dw + adim * u]; }
                     }
+                if (sicrama != null && sicrama.Kare(f)) yaz("  " + sicrama.Son + " (kare " + kareSay + ", t=" + F(f.zaman, 1) + ")");
                 OdaSentetik.Besle(k, f, planlar); kareSay++;
+                bool isinmaOnce = zh.Isindi_;
                 zh.Isle(f);
+                if (!isinmaOnce && zh.Isindi_) yaz("  ISINMA bitti t=" + F(f.zaman, 1) + " zemin " + F(zh.Zy, 3));
                 // ZEMIN_ARA=n: her n karede ara sonuc (alan zamanla nasil degisiyor; once taranan yer siliniyor mu)
                 if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_ARA"), out int ara) && ara > 0 && kareSay % ara == 0)
                 {
                     var za = zh.Guncelle(planlar, f.zaman);
                     int kayip = 0; var kayipL = new List<long>(); if (araOnce != null) foreach (long q in araOnce) if (!za.acik.Contains(q)) { kayip++; kayipL.Add(q); }
-                    if (kayip > 30 && Environment.GetEnvironmentVariable("ZEMIN_KAYIP") == "1") yaz("  KAYIP t=" + F(f.zaman, 1) + " " + kayip + ": " + zh.DurumDokum(kayipL) + " | zy " + F(zh.Zy, 3));
+                    if (kayip > (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_KAYIP_ESIK"), out int ke0) ? ke0 : 30) && Environment.GetEnvironmentVariable("ZEMIN_KAYIP") == "1") yaz("  KAYIP t=" + F(f.zaman, 1) + " " + kayip + ": " + zh.DurumDokum(kayipL) + " | zy " + F(zh.Zy, 3));
                     // titreme: bir kez acik gorulup sonra kaybolan hucre (kullanici "geri donunce eskisi degismesin" istedi)
                     if (araOnce != null) foreach (long q in za.acik) if (araHic.Contains(q) && !araOnce.Contains(q)) araGeriGelen++;
                     araHic.UnionWith(za.acik); araKayipTop += kayip;

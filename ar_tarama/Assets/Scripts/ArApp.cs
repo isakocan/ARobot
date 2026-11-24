@@ -91,11 +91,15 @@ namespace ArTarama
             if (gozden != null) { gozden.katiMateryal = oda != null ? oda.KatiMateryal : null; GozdenUiBagla(); }
             arKamera.cullingMask &= ~((1 << OdaYoneticisi.KatmanMini) | (1 << OdaYoneticisi.KatmanHarita));
             oncekiRot = arKamera.transform.rotation; oncekiKonum = arKamera.transform.position;
+            // ARCore poz sicramasi duzeltmesi: XR Origin tasinir (PozSureklilik)
+            var xo = arKamera.GetComponentInParent<Unity.XR.CoreUtils.XROrigin>();
+            if (xo != null) { sicrama = xo.gameObject.AddComponent<SicramaDuzeltici>(); sicrama.kamera = arKamera.transform; }
             KayitlariListele();
             GosterMod(Mod.Baslangic);
             StartCoroutine(Tanilama());
         }
 
+        SicramaDuzeltici sicrama;
         void OnDestroy() { if (kamera != null) kamera.frameReceived -= KareGeldi; }
 
         // ---------------- tanilama / kamera ayari ----------------
@@ -286,7 +290,7 @@ namespace ArTarama
         void TemizleHepsi(bool oturumuSifirla)
         {
             KalemTemizle();
-            if (oturumuSifirla) { oturum.Reset(); }
+            if (oturumuSifirla) { oturum.Reset(); if (sicrama != null) sicrama.Sifirla(); }
             sifirlaZamani = Time.unscaledTime;
             oncedenTakip = false;
             if (bulut != null) bulut.Temizle();
@@ -356,7 +360,8 @@ namespace ArTarama
             NesneGorunurlugu();
 
             ToastGuncelle();
-            if (mod == Mod.Tarama && !ModalAcik) { if (kalemAcik) KalemIsle(); else DokunmaIsle(); }
+            // Sinir (24 Kasim, kullanici: kalemle cizmiyorum, yalniz sinira bakiyorum): acikken haritanin siniri sari cizgi
+            if (mod == Mod.Tarama && !ModalAcik) { if (kalemAcik) KenarGoster(); DokunmaIsle(); }
         }
 
         void FpsOlc(float dt)

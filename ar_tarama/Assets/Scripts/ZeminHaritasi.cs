@@ -161,7 +161,14 @@ namespace ArTarama
             fa = ZeminGeo.Alan(acik, gx0, gz0, gw, gh); fe = ZeminGeo.Alan(engel, gx0, gz0, gw, gh);
             var u = new List<float>(); var k = new List<float>();
             // ana yon biliniyorsa: o yone hizali izgarada bulaniksiz kontur -> duz kenarlar (puruzsuz, kullanici istegi)
-            if (!float.IsNaN(aci)) ZeminGeo.DuzKontur(acik, aci, u, k);
+            if (ZeminHaritasi.Sade)
+            {
+                // sade (24 Kasim): hucre hucre, bulaniksiz kontur; sinir derinligin gordugu yerden gecer (puruzlu olabilir)
+                var b = new float[gw * gh];
+                foreach (long q in acik) { Coz(q, out int ix, out int iz); int x = ix - gx0, y = iz - gz0; if (x >= 0 && y >= 0 && x < gw && y < gh) b[y * gw + x] = 1f; }
+                ZeminGeo.Kontur(b, gw, gh, gx0, gz0, 1, 0.5f, u, k);
+            }
+            else if (!float.IsNaN(aci)) ZeminGeo.DuzKontur(acik, aci, u, k);
             else ZeminGeo.Kontur(fa, gw, gh, gx0, gz0, 2, 0.5f, u, k);
             acikUcgen = u.ToArray(); acikKenar = k.ToArray(); engelUcgen = new float[0];
         }
@@ -334,7 +341,10 @@ namespace ArTarama
         float zy; bool zyVar; int kare;
         // ARCore zemini zamanla 10-20 cm kayabiliyor (gercek kayitta olculdu): her karede derinlik noktalarinin zemin
         // cevresindeki (+-30 cm) yukseklik histogramindan (1 cm, yavas unutan) tepe alinir; siniflandirma buna gore yapilir.
-        readonly float[] yHist = new float[60]; float yTaban = float.NaN, zyPlan;
+        // Zemin yuksekligi derinlikten (24 Kasim): 1 cm'lik yukseklik histogrami 4 m genisliginde ve bir kez kurulur. Eskiden
+        // ARCore zemin duzlemi 15 cm oynayinca histogram sifirlanip zemin ARCore'a uyuyordu; 24 Kasim taramasinda ARCore 30 cm
+        // asagida sahte duzlem bulunca zemin -0,18'den -0,48'e atladi, boyanan alan 7,7'den 2,1 m2'ye coktu.
+        readonly float[] yHist = new float[400]; float yTaban = float.NaN, zyPlan; bool zyDerin; int zyDegisim; float zyAday;
         float[] px_ = new float[0], py_ = new float[0], pz_ = new float[0]; int[] pi_ = new int[0];
         float kamX, kamZ;
         readonly List<long> planHucre = new List<long>();
@@ -441,7 +451,41 @@ namespace ArTarama
             zAcik.ExceptWith(hat); zKapali.ExceptWith(hat); zAcik.ExceptWith(zKapali);
         }
 
-        public void Sifirla() { lock (cizgiKilit) cizgiler.Clear(); kalici.Clear(); duvarKalici.Clear(); kamYTop = 0; kamYSay = 0; aci = float.NaN; aciKilit = false; h.Clear(); dol.Temizle(); izX.Clear(); izZ.Clear(); zyVar = false; kare = 0; planHucre.Clear(); sDurum.Clear(); sYas.Clear(); }
+        // Isinma (24 Kasim): bes kaydin besinde de ARCore derinliginin olcegi ilk 3-10 sn oturmuyor; kamera yerinde dururken
+        // zemin 15-30 cm asagida goruluyor, sonra yaklasiyor (22:26 taramasi: kamera-zemin 1,56 -> 1,30 m). O karelerin
+        // noktalari haritaya yanlis yerde (yukseklik ve uzaklik ~%20 yanlis) isleniyor, zemin tahminini de yaniltiyordu.
+        // Kare ancak her karenin kendi zemin tepesi son 3 sn'de en az 8 karede 4 cm icinde sabitse islenir; bir kez
+        // oturunca (ARCore olcegi oturdu) bir daha beklenmez.
+        public const float IsinmaPencere = 3f, IsinmaAralik = 0.04f; public const int IsinmaKare = 8;
+        public static bool IsinmaKullan = true;
+        readonly List<float> kareZemin = new List<float>(), kareZaman = new List<float>();
+        readonly float[] kHist = new float[180];
+        bool isindi;
+        public bool Isindi_ => isindi || !IsinmaKullan;
+        public float IsinmaZamani = -1f;
+
+        bool Isindi(DerinlikKaresi f, int m)
+        {
+            if (isindi || !IsinmaKullan) return true;
+            // bu karenin zemin tepesi: kameranin 0,3-2,1 m altinda, 1 cm, 5'li yumusatma, en gucluun %35'ini gecen en alcak tepe
+            Array.Clear(kHist, 0, kHist.Length); float alt = f.py - 2.1f; int say = 0;
+            for (int r = 0; r < m; r++) { int b = (int)Math.Floor((py_[r] - alt) / 0.01f); if (b >= 0 && b < kHist.Length && py_[r] < f.py - 0.3f) { kHist[b] += 1f; say++; } }
+            if (say < 300) return false;
+            float en = 0f; var sm = new float[kHist.Length];
+            for (int b = 2; b < kHist.Length - 2; b++) { sm[b] = kHist[b - 2] + kHist[b - 1] + kHist[b] + kHist[b + 1] + kHist[b + 2]; en = Math.Max(en, sm[b]); }
+            int sec = -1;
+            for (int b = 3; b < kHist.Length - 3; b++) if (sm[b] >= 0.35f * en && sm[b] >= sm[b - 1] && sm[b] >= sm[b + 1]) { sec = b; break; }
+            if (sec < 0) return false;
+            kareZemin.Add(alt + (sec + 0.5f) * 0.01f); kareZaman.Add(f.zaman);
+            while (kareZaman.Count > 0 && f.zaman - kareZaman[0] > IsinmaPencere) { kareZaman.RemoveAt(0); kareZemin.RemoveAt(0); }
+            if (kareZemin.Count < IsinmaKare) return false;
+            float lo = float.MaxValue, hi = float.MinValue; foreach (float z in kareZemin) { lo = Math.Min(lo, z); hi = Math.Max(hi, z); }
+            if (hi - lo > IsinmaAralik) return false;
+            isindi = true; IsinmaZamani = f.zaman;
+            return true;
+        }
+
+        public void Sifirla() { isindi = false; IsinmaZamani = -1f; kareZemin.Clear(); kareZaman.Clear(); lock (cizgiKilit) cizgiler.Clear(); kalici.Clear(); duvarKalici.Clear(); kamYTop = 0; kamYSay = 0; aci = float.NaN; aciKilit = false; h.Clear(); dol.Temizle(); izX.Clear(); izZ.Clear(); zyVar = false; kare = 0; planHucre.Clear(); sDurum.Clear(); sYas.Clear(); zyDerin = false; yTaban = float.NaN; Array.Clear(yHist, 0, yHist.Length); }
 
         Hucre Al(long k) { if (!h.TryGetValue(k, out var c)) { c = new Hucre(); h[k] = c; } return c; }
 
@@ -449,6 +493,28 @@ namespace ArTarama
         public void Isle(DerinlikKaresi f)
         {
             kare++; kamX = f.px; kamZ = f.pz; kamYTop += f.py; kamYSay++; kamYSon = f.py;
+            if (!zyVar && !Sade) return;
+            DerinlikKaresi.DonmeMatrisi(f.qx, f.qy, f.qz, f.qw, mat);
+            int n0 = f.w * f.h; if (px_.Length < n0) { px_ = new float[n0]; py_ = new float[n0]; pz_ = new float[n0]; pi_ = new int[n0]; }
+            int m = 0;
+            for (int v = 0; v < f.h; v++)
+                for (int u = 0; u < f.w; u++)
+                {
+                    int i = v * f.w + u; float d = f.d[i];
+                    if (!(d >= 0.3f && d <= 4.0f)) continue;
+                    if (f.e != null && f.e[i] == OdaEtiket.Insan) continue;
+                    f.YerelYon(u, v, out float lx, out float ly);
+                    float wx = mat[0] * lx + mat[1] * ly + mat[2], wy = mat[3] * lx + mat[4] * ly + mat[5], wz = mat[6] * lx + mat[7] * ly + mat[8];
+                    px_[m] = f.px + wx * d; py_[m] = f.py + wy * d; pz_[m] = f.pz + wz * d; pi_[m] = i; m++;
+                }
+            bool ilkIsinma = !isindi;
+            if (!Isindi(f, m)) return;
+            if (ilkIsinma && IsinmaKullan && kareZemin.Count > 0)
+            {
+                // isinma bitti: son 3 sn'nin zemini (4 cm icinde sabit) dogrudan derinlik zemini olur
+                var ks = new List<float>(kareZemin); ks.Sort(); zy = ks[ks.Count / 2]; zyDerin = true;
+                if (!zyVar) { zyPlan = zy; zyVar = true; }
+            }
             if (!zyVar) return;
             // kullanici yolu: kamera ayakta tutuluyorsa (zeminden 0,7-2,1 m) altindaki 15 cm yaricap bos zemindir
             float hc = f.py - zy;
@@ -462,26 +528,44 @@ namespace ArTarama
                     for (int dz = -3; dz <= 3; dz++) for (int dx = -3; dx <= 3; dx++) if (dx * dx + dz * dz <= 9) Al(OdaSonuc.Anah2(qx + dx, qz + dz)).yol++;
                 }
             }
-            DerinlikKaresi.DonmeMatrisi(f.qx, f.qy, f.qz, f.qw, mat);
-            int n0 = f.w * f.h; if (px_.Length < n0) { px_ = new float[n0]; py_ = new float[n0]; pz_ = new float[n0]; pi_ = new int[n0]; }
-            int m = 0;
-            if (float.IsNaN(yTaban) || Math.Abs(zyPlan - (yTaban + 0.3f)) > 0.15f) { yTaban = zyPlan - 0.3f; Array.Clear(yHist, 0, yHist.Length); }
-            for (int j = 0; j < yHist.Length; j++) yHist[j] *= 0.985f;
-            for (int v = 0; v < f.h; v++)
-                for (int u = 0; u < f.w; u++)
-                {
-                    int i = v * f.w + u; float d = f.d[i];
-                    if (!(d >= 0.3f && d <= 4.0f)) continue;
-                    if (f.e != null && f.e[i] == OdaEtiket.Insan) continue;
-                    f.YerelYon(u, v, out float lx, out float ly);
-                    float wx = mat[0] * lx + mat[1] * ly + mat[2], wy = mat[3] * lx + mat[4] * ly + mat[5], wz = mat[6] * lx + mat[7] * ly + mat[8];
-                    px_[m] = f.px + wx * d; py_[m] = f.py + wy * d; pz_[m] = f.pz + wz * d; pi_[m] = i; m++;
-                    int b = (int)Math.Floor((py_[m - 1] - yTaban) / 0.01f); if (b >= 0 && b < yHist.Length) yHist[b] += 1f;
-                }
+            if (float.IsNaN(yTaban) || f.py - 2.3f < yTaban || f.py - 0.2f > yTaban + yHist.Length * 0.01f)
+            { yTaban = f.py - 2.6f; Array.Clear(yHist, 0, yHist.Length); }
+            for (int j = 0; j < yHist.Length; j++) yHist[j] *= 0.997f;   // yari omur ~20 sn: masaya kisa bakis zemini unutturmaz
+            for (int r = 0; r < m; r++) { int b = (int)Math.Floor((py_[r] - yTaban) / 0.01f); if (b >= 0 && b < yHist.Length) yHist[b] += 1f; }
             {
-                int en = -1; float enS = 0;
-                for (int b = 2; b < yHist.Length - 2; b++) { float t = yHist[b - 2] + yHist[b - 1] + yHist[b] + yHist[b + 1] + yHist[b + 2]; if (t > enS) { enS = t; en = b; } }
-                if (en >= 0 && enS > 300f) zy = yTaban + (en + 0.5f) * 0.01f; else zy = zyPlan;
+                // aday tepeler: kameranin 0,4-2,0 m altinda, en gucluun en az %35'i; zemin en alcak buyuk yatay yuzeydir (masa
+                // ustu daha yukarida). Buyuk degisim (5 cm+) ancak 30 kare surerse kabul (tek bakista atlamaz).
+                float enS = 0f; var sm = new float[yHist.Length];
+                for (int b = 2; b < yHist.Length - 2; b++) { sm[b] = yHist[b - 2] + yHist[b - 1] + yHist[b] + yHist[b + 1] + yHist[b + 2]; }
+                int b0 = Math.Max(2, (int)((f.py - 2.0f - yTaban) / 0.01f)), b1 = Math.Min(yHist.Length - 3, (int)((f.py - 0.4f - yTaban) / 0.01f));
+                for (int b = b0; b <= b1; b++) enS = Math.Max(enS, sm[b]);
+                int sec = -1;
+                if (enS > 300f)
+                    for (int b = b0; b <= b1; b++) if (sm[b] >= 0.35f * enS && sm[b] >= sm[b - 1] && sm[b] >= sm[b + 1]) { sec = b; break; }
+                if (sec >= 0)
+                {
+                    float yeni = yTaban + (sec + 0.5f) * 0.01f;
+                    // 24 Kasim (21:33 taramasi): ilk karelerde ARCore oturmadan gelen yanlis yukseklik (-0,94; gercek -0,13)
+                    // ilk bulusta kilitlenip 33 sn kaldi, o surede zemin boyanmadi. Simdi: ilk kilit 8 tutarli kare ister
+                    // (ARCore zemin duzlemiyle 15 cm'den fazla celisirse 40); kilitliyken 5 cm icindeki degisim izlenir
+                    // (ARCore dusey kaymasi); daha buyuk degisim, mevcut zeminin histogramda destegi kalmadiysa 8, yoksa
+                    // 60 tutarli kare ister (masaya kisa bakis zemini oynatmaz).
+                    if (zyDerin && Math.Abs(yeni - zy) <= 0.05f) { zy = yeni; zyDegisim = 0; }
+                    else
+                    {
+                        if (Math.Abs(yeni - zyAday) <= 0.05f) zyDegisim++; else { zyAday = yeni; zyDegisim = 1; }
+                        int gerek;
+                        if (!zyDerin) gerek = zyVar && Math.Abs(yeni - zyPlan) > 0.15f ? 40 : 8;
+                        else
+                        {
+                            int bz = (int)Math.Floor((zy - yTaban) / 0.01f);
+                            float destek = bz >= 2 && bz < yHist.Length - 2 ? sm[bz] : 0f;
+                            gerek = destek < 0.15f * enS ? 8 : 60;
+                        }
+                        if (zyDegisim >= gerek) { zy = yeni; zyDerin = true; zyDegisim = 0; }
+                    }
+                }
+                if (!zyDerin && zyVar) zy = zyPlan;
             }
             // derinlik LIDAR gibi: guvenli her ikinci pikselden isin (aradan gecilen kupler bos, carpilan dolu)
             if (SadeceDerinlik)
@@ -580,7 +664,7 @@ namespace ArTarama
                     if (uygun && ws > enAlan) { enAlan = (float)ws; secY = y; }
                 }
                 if (float.IsNaN(secY)) secY = secHepsi;
-                if (!zyVar || Math.Abs(secY - zyPlan) > 0.3f) { zyPlan = secY; zy = secY; }      // yanlis secimden kurtul
+                if (!zyVar || Math.Abs(secY - zyPlan) > 0.3f) { zyPlan = secY; if (!zyDerin) zy = secY; }      // yanlis secimden kurtul (derinlik kurduysa zemin onun)
                 else zyPlan += (secY - zyPlan) * 0.3f;
                 zyVar = true;
             }
@@ -638,6 +722,7 @@ namespace ArTarama
             }
             if (float.IsNaN(aci)) aci = 0f;
             s.aci = aci;
+            if (SadeceDerinlik && Sade) { SadeSonuc(s, kamY); return s; }
             float ca = (float)Math.Cos(aci), sa = (float)Math.Sin(aci);
 
             // 3) duvarlar
@@ -911,6 +996,58 @@ namespace ArTarama
             s.Yumusat();
             YonEksik(s);
             return s;
+        }
+
+        // ------------------------------------------------------------------------------------------------ sade kural
+        // 24 Kasim (kullanici: "koydugum kurallari bosver, en bastan amaci belirle"; "lidardaki mavi noktalarin ard arda
+        // oldugu yerleri hassas alsin, sinirlari ona gore"). Amac: robotun gidebilecegi ve AR nesnesinin konabilecegi zemin
+        // = derinligin zemin olarak gordugu ve ustunde hicbir sey olmayan yer. Kural yalniz 3B doluluk haritasindan:
+        //   acik  : zemin yuzeyi kupu en az iki ayri karede carpildi (LIDAR gorunumundeki zemin noktasi) ve zeminin
+        //           8 cm - 2 m ustundeki hicbir kup dolu degil (masa / sandalye alti engel kalir: AR nesnesi oraya konmaz)
+        //   engel : o sutunda en az iki karede carpilmis kup var
+        //   yurunen yer acik (kullanici orada durdu)
+        // Baglantililik, pay, duzlestirme, kalici boya, kalem yok. Yalniz 3 hucreden kucuk tekil lekeler atilir ve icinde
+        // engel olmayan en cok 2 hucrelik delikler doldurulur. Sinir hucre hucre (puruzlu ama derinlikle ayni) cizilir.
+        // Durum zaten kuplerin log-olasiligindan geliyor (tek karede degismez), ayrica histerezis gerekmiyor.
+        public static bool Sade = true;
+        public const int SadeLeke = 3, SadeDelik = 2;
+        public static int SadeEngel = 35, SadeBosalt = 10;
+
+        void SadeSonuc(ZeminSonuc s, float kamY)
+        {
+            var sutun = dol.Sutunlar(zy);
+            var acik = new HashSet<long>(); var engel = new HashSet<long>(); var duvar = new HashSet<long>();
+            foreach (var kv in sutun)
+            {
+                var su = kv.Value; sDurum.TryGetValue(kv.Key, out sbyte d0); sbyte d;
+                bool zem = su.zeminD >= DolulukHaritasi.ZeminKesin;
+                // durum gecisi (titreme olcumuyle secildi): acik bir hucre ancak engel kaniti SadeEngel'e cikarsa engel olur,
+                // engel ancak kup SadeBosalt'in altina inerse acilir (esya kenarinda +9 / -4 gidip gelen kup boyayi oynatmasin)
+                if (d0 == 1) d = su.enCok >= SadeEngel ? (sbyte)2 : (sbyte)1;
+                else if (d0 == 2) d = su.enCok < SadeBosalt && zem ? (sbyte)1 : (sbyte)2;
+                else d = su.enCok >= EngelGir ? (sbyte)2 : zem ? (sbyte)1 : (sbyte)0;
+                if (d != d0) sDurum[kv.Key] = d;
+                if (d == 2) { engel.Add(kv.Key); if (su.uzun) duvar.Add(kv.Key); }
+                else if (d == 1) acik.Add(kv.Key);
+            }
+            foreach (var kv in h) if (kv.Value.yol > 0) { acik.Add(kv.Key); engel.Remove(kv.Key); duvar.Remove(kv.Key); }
+            ZeminGeo.KucukleriAt(acik, SadeLeke, null);
+            ZeminGeo.DelikDoldur(acik, engel, SadeDelik);
+            foreach (var kv in sutun)
+            {
+                if (acik.Contains(kv.Key)) { if (kv.Value.zeminD >= ZeminDoygun) s.kesin.Add(kv.Key); }
+                else if (engel.Contains(kv.Key)) { if (kv.Value.enCok >= EngelKalici) s.kesin.Add(kv.Key); }
+                else { s.bilinen.Add(kv.Key); if (kv.Value.zeminKismi) s.kismi[kv.Key] = (byte)(KesinNokta / 2); }
+            }
+            foreach (var kv in h) if (kv.Value.yol > 0) s.kesin.Add(kv.Key);
+            if (LidarAcik) s.voksel = dol.Noktalar(kamX, kamYSon, kamZ, 4.0f, zy, 40000);
+            s.acik = acik; s.engel = engel; s.duvar = duvar;
+            TeshisSon = Teshis = "sade | acik " + acik.Count + " engel " + engel.Count + " duvar " + duvar.Count + " aci " + (aci * 180 / Math.PI).ToString("F1") + " zy " + zy.ToString("F2") + (zyDerin ? " derinlik" : " duzlem") + " (duzlem " + zyPlan.ToString("F2") + ", aday " + zyAday.ToString("F2") + " x" + zyDegisim + ") kamY " + kamY.ToString("F2");
+            s.alan = acik.Count * V * V;
+            var iz2 = new float[izX.Count * 2]; for (int i = 0; i < izX.Count; i++) { iz2[i * 2] = izX[i]; iz2[i * 2 + 1] = izZ[i]; }
+            s.iz = iz2;
+            s.Yumusat();
+            YonEksik(s);
         }
 
         /// <summary>Noktalarin (c, s) yonune ve ona dik yone 5 cm'lik izdusum histogramlarinin kareler toplami: duvar

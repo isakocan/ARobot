@@ -201,10 +201,10 @@ namespace ArTarama
             odaBtn.onClick.AddListener(() => { if (ub.tetiklendi) { ub.tetiklendi = false; return; } OdaTikleriYenile(); ModalGoster(modalOda, true); });
             var le0 = odaBtn.gameObject.AddComponent<LayoutElement>(); le0.flexibleWidth = 1.7f;
 
-            // kalem: tararken zemin sinirini parmakla cek (zemin boyasi cizgiden gecmez)
-            var arcBtn = UiKur.Dugme(bar.transform, "Kalem", "Kalem", UiKur.DugmeStili.Ikincil, out _, out kalemYazi, UiKur.Body);
+            // sinir: haritanin siniri sari cizgiyle gorunur (yalniz gorunum; kalemle cizim kaldirildi, 24 Kasim)
+            var arcBtn = UiKur.Dugme(bar.transform, "Sinir", "Sınır", UiKur.DugmeStili.Ikincil, out _, out kalemYazi, UiKur.Body);
             arcBtn.onClick.AddListener(() => { KalemModu(!kalemAcik); Haptik(10);
-                if (kalemAcik) Toast("Sarı çizgi haritanın sınırı. Düzeltmek için parmağınla çiz"); });
+                if (kalemAcik) Toast("Sarı çizgi haritanın sınırı"); });
             var leA = arcBtn.gameObject.AddComponent<LayoutElement>(); leA.flexibleWidth = 1f;
             // LIDAR: uygulamanın derinlikten kurduğu 3B haritayı (zemin / engel küpleri) kameranın üstünde göster
             var lidBtn = UiKur.Dugme(bar.transform, "Lidar", "LIDAR", UiKur.DugmeStili.Ikincil, out _, out Text lidYazi, UiKur.Body);
@@ -215,12 +215,6 @@ namespace ArTarama
                 if (oda.LidarGoster) Toast("Yeşil zemin, turuncu engel, mor duvar: uygulamanın derinlikten gördüğü");
             });
             var leL = lidBtn.gameObject.AddComponent<LayoutElement>(); leL.flexibleWidth = 1f;
-            // silgi: yalniz kalem acikken gorunur; parmagin gectigi kalem cizgisi silinir
-            var silBtn = UiKur.Dugme(bar.transform, "Silgi", "Silgi", UiKur.DugmeStili.Ikincil, out _, out kSilYazi, UiKur.Body);
-            silBtn.onClick.AddListener(() => { kSilAcik = !kSilAcik; kSilYazi.color = kSilAcik ? UiKur.Vurgu : UiKur.MetinRenk; Haptik(10);
-                if (kSilAcik) Toast("Silmek için çizginin üstünden parmağını geçir"); });
-            var leS = silBtn.gameObject.AddComponent<LayoutElement>(); leS.flexibleWidth = 1f;
-            kSilBtnGo = silBtn.gameObject; kSilBtnGo.SetActive(false);
 
             var sifBtn = UiKur.Dugme(bar.transform, "Sifirla", "Sıfırla", UiKur.DugmeStili.Ikincil, UiKur.Body);
             sifBtn.onClick.AddListener(() => OnayGoster("Tarama silinsin mi?", "Bu taramanın kaydı ve oda modeli silinir, baştan başlarsın.", "Sil", true, SifirlaTarama));
