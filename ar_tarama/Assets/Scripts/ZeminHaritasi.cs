@@ -174,6 +174,32 @@ namespace ArTarama
             else if (!float.IsNaN(aci)) ZeminGeo.DuzKontur(acik, aci, u, k);
             else ZeminGeo.Kontur(fa, gw, gh, gx0, gz0, 2, 0.5f, u, k);
             acikUcgen = u.ToArray(); acikKenar = k.ToArray(); engelUcgen = new float[0];
+            OyunHesapla();
+        }
+
+        /// <summary>Oyun alani (24 Kasim, kullanici: "oyun icin kullanilabilecek yerler, acik zemin guveni yuksek, daha duz
+        /// hatlarda, koyu mavi"): kesinlesmis acik zemin (kesin bilgisi yoksa butun acik zemin), engel / duvar hucresinden
+        /// en az OyunPay hucre uzak; 10 cm'den ince seritler ve 0,25 m2'den kucuk adaciklar atilir; ana yone hizali duz kontur.</summary>
+        public HashSet<long> oyun = new HashSet<long>();
+        public float[] oyunUcgen = new float[0];
+        public float oyunAlan;
+        public const int OyunPay = 3, OyunEnKucuk = 100;
+        void OyunHesapla()
+        {
+            oyun = new HashSet<long>();
+            var yasak = new HashSet<long>(); int r2 = OyunPay * OyunPay;
+            foreach (long q in engel)
+            {
+                Coz(q, out int ix, out int iz);
+                for (int dz = -OyunPay; dz <= OyunPay; dz++) for (int dx = -OyunPay; dx <= OyunPay; dx++) if (dx * dx + dz * dz <= r2) yasak.Add(OdaSonuc.Anah2(ix + dx, iz + dz));
+            }
+            bool kesinVar = kesin != null && kesin.Count > 0;
+            foreach (long q in acik) if (!yasak.Contains(q) && (!kesinVar || kesin.Contains(q))) oyun.Add(q);
+            ZeminGeo.Ac(oyun, 2);
+            ZeminGeo.KucukleriAt(oyun, OyunEnKucuk, null);
+            var u = new List<float>();
+            ZeminGeo.DuzKontur(oyun, float.IsNaN(aci) ? 0f : aci, u, null);
+            oyunUcgen = u.ToArray(); oyunAlan = oyun.Count * V * V;
         }
 
         static void Boya(byte[] p, int W, int H, long k, int ax, int az, byte r, byte g, byte b, byte a)
@@ -908,10 +934,11 @@ namespace ArTarama
             var kalan = new HashSet<long>(); int gDuvar = 0, gEngel = 0;
             foreach (long k in kalici) { if (!kaliciGider(k)) kalan.Add(k); else if (duvar.Contains(k)) gDuvar++; else gEngel++; }
             acik.UnionWith(kalan);
-            ZeminGeo.Ac(acik, 1);
+            if (AcmaKullan) ZeminGeo.Ac(acik, 1);
             ZeminGeo.KucukleriAt(acik, 40, null);
             acik.UnionWith(kalan);
-            ZeminGeo.DelikDoldur(acik, duvar, 60);
+            if (DelikEngelli) { var dk = new HashSet<long>(duvar); dk.UnionWith(engelH); ZeminGeo.DelikDoldur(acik, dk, DelikEnCok); }
+            else ZeminGeo.DelikDoldur(acik, duvar, DelikEnCok);
             if (SadeceDerinlik && Duzlestirme) ZeminGeo.Duzlestir(acik, aci, k => duvar.Contains(k) || (engelH.Contains(k) && !kAcik.Contains(k)) || kKapali.Contains(k));
             // kalem cizgisi bir yeri ayirdiysa: kullanicinin bulundugu yere bagli olmayan parca (eski kalici dahil) atilir
             if (kHat.Count > 0)
@@ -1011,6 +1038,7 @@ namespace ArTarama
         // Baglantililik, pay, duzlestirme, kalici boya, kalem yok. Yalniz 3 hucreden kucuk tekil lekeler atilir ve icinde
         // engel olmayan en cok 2 hucrelik delikler doldurulur. Sinir hucre hucre (puruzlu ama derinlikle ayni) cizilir.
         // Durum zaten kuplerin log-olasiligindan geliyor (tek karede degismez), ayrica histerezis gerekmiyor.
+        public static int DelikEnCok = 60; public static bool DelikEngelli, AcmaKullan = true;
         public static bool Sade = false;   // olculdu (24 Kasim, 5 kayit): zemini %95 boyuyor ama esya kenarina 2,4 kat fazla tasiyor; varsayilan eski kural
         public const int SadeLeke = 3, SadeDelik = 2;
         public static int SadeEngel = 35, SadeBosalt = 10, SadeAcik = 18, SadePay = 0; public static bool SadePay8;

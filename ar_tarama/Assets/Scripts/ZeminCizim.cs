@@ -19,6 +19,8 @@ namespace ArTarama
         public readonly GorusTablosu Gorus = new GorusTablosu();
 
         static readonly Color Acik = new Color(0.20f, 0.88f, 0.66f, 0.40f);
+        // oyun alani (24 Kasim): guveni yuksek, esyadan payli, duz hatli; acik zeminin ustunde koyu mavi
+        static readonly Color Oyun = new Color(0.10f, 0.28f, 0.92f, 0.55f);
         // kesinlesmemis acik zemin (24 Kasim): soluk; hucre birkac kez gorulup durumu oturunca dolgun. "Burasi bitti mi"
         // boyanin dolgunlugundan anlasilir.
         const float KesinDegil = 0.45f;
@@ -43,7 +45,8 @@ namespace ArTarama
             kurKam = kam;
             v.Clear(); c.Clear(); t.Clear(); taban.Clear();
             kurSonuc = s;
-            Ucgenler(s.acikUcgen, y + 0.006f, Acik);
+            Ucgenler(s.acikUcgen, y + 0.006f, Acik, true);
+            Ucgenler(s.oyunUcgen, y + 0.011f, Oyun, false);
             mesh.Clear();
             mesh.SetVertices(v); mesh.SetColors(c); mesh.SetTriangles(t, 0, false);
             mesh.bounds = new Bounds(new Vector3(0, y, 0), Vector3.one * 400f);
@@ -51,7 +54,7 @@ namespace ArTarama
             kurulan = s; sonGorus = -1f;
         }
 
-        void Ucgenler(float[] u, float y, Color r)
+        void Ucgenler(float[] u, float y, Color r, bool sol)
         {
             for (int i = 0; i + 5 < u.Length; i += 6)
             {
@@ -62,8 +65,8 @@ namespace ArTarama
                 {
                     // kenara dogru solma: yumusatilmis alan 0,5 (kenar) -> 0, 0,85+ (ic) -> 1
                     float al = kurSonuc.AlanDeger(u[i + q * 2], u[i + q * 2 + 1]);
-                    float k = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.5f, 0.85f, al));
-                    if (kurSonuc.kesin != null && kurSonuc.kesin.Count > 0 &&
+                    float k = sol ? Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.5f, 0.85f, al)) : 1f;
+                    if (sol && kurSonuc.kesin != null && kurSonuc.kesin.Count > 0 &&
                         !kurSonuc.kesin.Contains(OdaSonuc.Anah2(ZeminSonuc.Ind(u[i + q * 2]), ZeminSonuc.Ind(u[i + q * 2 + 1])))) k *= KesinDegil;
                     var rr = r; rr.a = r.a * k; c.Add(rr); taban.Add(rr.a);
                 }
