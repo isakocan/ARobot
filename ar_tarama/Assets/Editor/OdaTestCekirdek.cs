@@ -661,6 +661,39 @@ namespace ArTarama
             r.Yaz(yol);
         }
 
+        /// <summary>Kayitli evin 2B haritasi, uygulamadaki ev ekrani gibi: yesil acik zemin, koyu mavi oyun alani, turuncu yol,
+        /// sari kare = ArUco isareti, sari cubuk = isaretin baktigi yon (odaya dogru).</summary>
+        public static void EvPng(string evKlasor, string yol, Action<string> yaz)
+        {
+            var ev = Ev.Yukle(evKlasor); var zs = ev.Sonuc();
+            var rgba = zs.Resim(out int W, out int H, out float ox, out float oz, 10);
+            const float P = ZeminSonuc.ResimPiksel; const int K = 3;
+            var r = new OdaResim(W * K, H * K, 24, 27, 32);
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    int o = (y * W + x) * 4; if (rgba[o + 3] == 0) continue;
+                    for (int q = 0; q < K; q++) for (int t = 0; t < K; t++) r.Nokta(x * K + t, (H - 1 - y) * K + q, rgba[o], rgba[o + 1], rgba[o + 2], rgba[o + 3] / 255f);
+                }
+            for (int i = 0; i + 3 < zs.iz.Length; i += 2)
+            {
+                zs.DunyadanResme(zs.iz[i], zs.iz[i + 1], out float ua, out float wa); zs.DunyadanResme(zs.iz[i + 2], zs.iz[i + 3], out float ub, out float wb);
+                r.Cizgi((ua - ox) / P * K, (H - (wa - oz) / P) * K, (ub - ox) / P * K, (H - (wb - oz) / P) * K, 2.5, 255, 160, 60, 0.8f);
+            }
+            foreach (var m in ev.isaretler.Values)
+            {
+                zs.DunyadanResme((float)m.x, (float)m.z, out float u, out float w);
+                zs.DunyadanResme((float)Math.Sin(m.aci), (float)Math.Cos(m.aci), out float du, out float dw);
+                double cx = (u - ox) / P * K, cy = (H - (w - oz) / P) * K, L = 0.45 / P * K;
+                r.Cizgi(cx, cy, cx + du * L, cy - dw * L, 7, 255, 204, 51);
+                for (int q = -14; q <= 14; q++) r.Cizgi(cx - 14, cy + q, cx + 14, cy + q, 1, 255, 204, 51);
+                for (int q = -8; q <= 8; q++) r.Cizgi(cx - 8, cy + q, cx + 8, cy + q, 1, 20, 23, 28);
+                yaz("isaret " + m.id + ": x=" + F(m.x) + " z=" + F(m.z) + " yon=" + F(m.aci * 180 / Math.PI, 0) + " derece, yukseklik " + F(m.yukseklik) + " m, " + m.gozlem + " gozlem");
+            }
+            yaz("ev: " + F(zs.alan) + " m2 acik, oyun " + F(zs.oyunAlan) + " m2, " + ev.isaretler.Count + " isaret, resim " + W * K + "x" + H * K);
+            r.Yaz(yol);
+        }
+
         public static int Calistir(string klasor, Action<string> yaz, string ciktiDir = null)
         {
             if (!Directory.Exists(klasor)) { yaz("klasor yok: " + klasor); return 2; }

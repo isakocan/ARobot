@@ -49,24 +49,34 @@ namespace ArTarama
 
         public void Yok() { if (tex != null) Object.Destroy(tex); }
 
-        // ArUco isaretleri: haritada isaretin gorulup kaydedildigi yerde kucuk kare simge + numara (kullanici istegi, 22 Kasim)
+        // ArUco isaretleri: haritada isaretin gorulup kaydedildigi yerde kare simge + numara; sari cikinti isaretin baktigi
+        // (odaya dogru) yonu gosterir (kullanici istegi, 22 / 24 Kasim)
         readonly System.Collections.Generic.List<Vector4> isaretler = new System.Collections.Generic.List<Vector4>();   // x, z, aci, id
         readonly System.Collections.Generic.List<RectTransform> isaretUi = new System.Collections.Generic.List<RectTransform>();
+        readonly System.Collections.Generic.List<RectTransform> isaretYon = new System.Collections.Generic.List<RectTransform>();
+        static readonly Color IsaretSari = new Color(1f, 0.80f, 0.20f, 1f);
         public void IsaretAyarla(System.Collections.Generic.IEnumerable<Vector4> liste)
         {
             isaretler.Clear(); if (liste != null) isaretler.AddRange(liste);
             while (isaretUi.Count < isaretler.Count)
             {
-                var dis = UiKur.Kutu(harita, "Isaret", new Color(1f, 1f, 1f, 0.95f), false, false); dis.raycastTarget = false;
-                var r = dis.rectTransform; r.sizeDelta = new Vector2(30, 30); r.pivot = new Vector2(0.5f, 0.5f);
+                // yon: haritanin kendi cercevesinde donen tasiyici; icindeki cubuk +y'ye uzanir
+                var yon = UiKur.Obj("IsaretYon", harita); yon.sizeDelta = Vector2.zero; yon.pivot = new Vector2(0.5f, 0.5f);
+                var cubuk = UiKur.Kutu(yon, "Cubuk", IsaretSari, false, false); cubuk.raycastTarget = false;
+                var cr = cubuk.rectTransform; cr.anchorMin = cr.anchorMax = new Vector2(0.5f, 0.5f); cr.pivot = new Vector2(0.5f, 0f);
+                cr.sizeDelta = new Vector2(8, 34); cr.anchoredPosition = Vector2.zero;
+                isaretYon.Add(yon);
+                var dis = UiKur.Kutu(harita, "Isaret", IsaretSari, false, false); dis.raycastTarget = false;
+                var r = dis.rectTransform; r.sizeDelta = new Vector2(38, 38); r.pivot = new Vector2(0.5f, 0.5f);
                 var ic = UiKur.Kutu(r, "Ic", new Color(0.08f, 0.09f, 0.11f, 1f), false, false); ic.raycastTarget = false; UiKur.Tam(ic.rectTransform, 5f);
-                var no = UiKur.Metin(r, "No", "", 22, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold); no.raycastTarget = false; UiKur.Tam(no.rectTransform);
+                var no = UiKur.Metin(r, "No", "", 24, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold); no.raycastTarget = false; UiKur.Tam(no.rectTransform);
                 isaretUi.Add(r);
             }
             for (int i = 0; i < isaretUi.Count; i++)
             {
-                isaretUi[i].gameObject.SetActive(i < isaretler.Count);
-                if (i < isaretler.Count) isaretUi[i].GetComponentInChildren<Text>().text = ((int)isaretler[i].w).ToString();
+                bool var = i < isaretler.Count;
+                isaretUi[i].gameObject.SetActive(var); isaretYon[i].gameObject.SetActive(var);
+                if (var) isaretUi[i].GetComponentInChildren<Text>().text = ((int)isaretler[i].w).ToString();
             }
         }
 
@@ -75,12 +85,17 @@ namespace ArTarama
             float mw = W * P, mh = H * P; if (mw <= 0f || mh <= 0f || sonCizilen == null) return;
             for (int i = 0; i < isaretler.Count && i < isaretUi.Count; i++)
             {
-                var m = isaretler[i]; var r = isaretUi[i];
+                var m = isaretler[i]; var r = isaretUi[i]; var y = isaretYon[i];
                 sonCizilen.DunyadanResme(m.x, m.y, out float u, out float w);
-                r.anchorMin = r.anchorMax = new Vector2((u - ox) / mw, (w - oz) / mh);
-                r.anchoredPosition = Vector2.zero;
+                var an = new Vector2((u - ox) / mw, (w - oz) / mh);
+                r.anchorMin = r.anchorMax = an; r.anchoredPosition = Vector2.zero;
                 r.localRotation = Quaternion.Euler(0, 0, -icerik.localEulerAngles.z - harita.localEulerAngles.z);   // harita donse de dik kalsin
-                r.SetAsLastSibling();
+                // baktigi yon (dunya: sin aci, cos aci) resim cercevesinde; cubuk +y'de oldugu icin -90
+                sonCizilen.DunyadanResme(Mathf.Sin(m.z), Mathf.Cos(m.z), out float du, out float dw);
+                y.anchorMin = y.anchorMax = an; y.anchoredPosition = Vector2.zero;
+                y.localRotation = Quaternion.Euler(0, 0, Mathf.Atan2(dw, du) * Mathf.Rad2Deg - 90f);
+                y.gameObject.SetActive(!float.IsNaN(m.z));        // yonu henuz bilinmeyen isarette cikinti yok
+                y.SetAsLastSibling(); r.SetAsLastSibling();
             }
         }
 

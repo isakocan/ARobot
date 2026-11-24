@@ -320,7 +320,7 @@ namespace ArTarama
                     foreach (var bi in plan.Isaretler.Values)
                     {
                         if (bi.pozVar) miniIs.Add(new Vector4(bi.merkez.x, bi.merkez.z, bi.aci, bi.id));
-                        else if (bi.konumVar) miniIs.Add(new Vector4(bi.konum.x, bi.konum.z, 0f, bi.id));
+                        else if (bi.konumVar) miniIs.Add(new Vector4(bi.konum.x, bi.konum.z, float.NaN, bi.id));
                     }
                     zeminMini.IsaretAyarla(miniIs);
                 }
@@ -727,7 +727,7 @@ namespace ArTarama
             gozdenZemin = s;
             gozdenBaslik.text = string.IsNullOrEmpty(ad) ? "Tarama" : ad;
             gozdenAlt.text = Metre(s.alan) + " m² açık zemin";
-            gozdenNot.text = "Turkuaz: açık zemin · gri: üstünde eşya olan yer · turuncu: yürüdüğün yol";
+            gozdenNot.text = "Yeşil: açık zemin · mavi: oyun alanı · turuncu: yürüdüğün yol · sarı kare: ArUco (çıkıntı baktığı yön)";
             gozdenIpucu.text = "";
             GosterMod(Mod.Gozden);
         }

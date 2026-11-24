@@ -103,27 +103,23 @@ namespace ArTarama
             W = Math.Max(1, (int)Math.Ceiling((u1 + m - ou) / P)); H = Math.Max(1, (int)Math.Ceiling((w1 + m - ow) / P));
             if ((long)W * H > 4000000) { W = Math.Min(W, 2000); H = Math.Min(H, 2000); }
             var p = new byte[W * H * 4];
-            var al = new float[W * H];
-            for (int t = 0; t + 5 < uc.Length; t += 6)
-            {
-                float ax = (uc[t] - ou) / P, az = (uc[t + 1] - ow) / P, bx = (uc[t + 2] - ou) / P, bz = (uc[t + 3] - ow) / P;
-                float cx = (uc[t + 4] - ou) / P, cz = (uc[t + 5] - ow) / P;
-                int x0 = Math.Max(0, (int)Math.Floor(Math.Min(ax, Math.Min(bx, cx)))), x1 = Math.Min(W - 1, (int)Math.Floor(Math.Max(ax, Math.Max(bx, cx))));
-                int y0 = Math.Max(0, (int)Math.Floor(Math.Min(az, Math.Min(bz, cz)))), y1 = Math.Min(H - 1, (int)Math.Floor(Math.Max(az, Math.Max(bz, cz))));
-                float d = (bx - ax) * (cz - az) - (bz - az) * (cx - ax); if (Math.Abs(d) < 1e-9f) continue;
-                for (int y = y0; y <= y1; y++)
-                    for (int x = x0; x <= x1; x++)
-                        for (int q = 0; q < 4; q++)
-                        {
-                            float px = x + 0.25f + 0.5f * (q & 1), pz = y + 0.25f + 0.5f * (q >> 1);
-                            float l1 = ((bx - px) * (cz - pz) - (bz - pz) * (cx - px)) / d, l2 = ((cx - px) * (az - pz) - (cz - pz) * (ax - px)) / d;
-                            if (l1 >= 0 && l2 >= 0 && l1 + l2 <= 1) al[y * W + x] = Math.Min(1f, al[y * W + x] + 0.25f);
-                        }
-            }
+            var al = Tara(acikUcgen, W, H, ou, ow, P);
             for (int i = 0; i < W * H; i++)
             {
                 if (al[i] <= 0f) continue;
                 int o = i * 4; p[o] = 67; p[o + 1] = 217; p[o + 2] = 190; p[o + 3] = (byte)(al[i] * 235f);
+            }
+            // oyun alani (koyu mavi, AR'daki ayni duz hatli alan) acik zeminin ustune
+            if (oyunUcgen != null && oyunUcgen.Length >= 6)
+            {
+                var ao = Tara(oyunUcgen, W, H, ou, ow, P);
+                for (int i = 0; i < W * H; i++)
+                {
+                    float a = ao[i] * 0.85f; if (a <= 0f) continue;
+                    int o = i * 4;
+                    p[o] = (byte)(p[o] * (1 - a) + 30 * a); p[o + 1] = (byte)(p[o + 1] * (1 - a) + 80 * a); p[o + 2] = (byte)(p[o + 2] * (1 - a) + 225 * a);
+                    p[o + 3] = (byte)Math.Max(p[o + 3], (int)(a * 255f));
+                }
             }
             // sinir: acik zeminin duz kenari ince acik gri cizgi (duvar / esya ayrimi yok; dagik duvar hucreleri leke gibi
             // gorunuyordu). Kenar parcalari AR'daki ayni duz kontur; hizali cercevede yatay / dikey piksel cizgisi olur.
@@ -140,6 +136,30 @@ namespace ArTarama
                 }
             }
             return p;
+        }
+
+        /// <summary>Ucgen listesini (dunya x,z) resim izgarasina 2x2 ornekle tarar: her piksel 0..1 kaplama.</summary>
+        float[] Tara(float[] ucgen, int W, int H, float ou, float ow, float P)
+        {
+            var al = new float[W * H];
+            for (int t = 0; t + 5 < ucgen.Length; t += 6)
+            {
+                DunyadanResme(ucgen[t], ucgen[t + 1], out float ua, out float wa); DunyadanResme(ucgen[t + 2], ucgen[t + 3], out float ub, out float wb); DunyadanResme(ucgen[t + 4], ucgen[t + 5], out float uc2, out float wc);
+                float ax = (ua - ou) / P, az = (wa - ow) / P, bx = (ub - ou) / P, bz = (wb - ow) / P;
+                float cx = (uc2 - ou) / P, cz = (wc - ow) / P;
+                int x0 = Math.Max(0, (int)Math.Floor(Math.Min(ax, Math.Min(bx, cx)))), x1 = Math.Min(W - 1, (int)Math.Floor(Math.Max(ax, Math.Max(bx, cx))));
+                int y0 = Math.Max(0, (int)Math.Floor(Math.Min(az, Math.Min(bz, cz)))), y1 = Math.Min(H - 1, (int)Math.Floor(Math.Max(az, Math.Max(bz, cz))));
+                float d = (bx - ax) * (cz - az) - (bz - az) * (cx - ax); if (Math.Abs(d) < 1e-9f) continue;
+                for (int y = y0; y <= y1; y++)
+                    for (int x = x0; x <= x1; x++)
+                        for (int q = 0; q < 4; q++)
+                        {
+                            float px = x + 0.25f + 0.5f * (q & 1), pz = y + 0.25f + 0.5f * (q >> 1);
+                            float l1 = ((bx - px) * (cz - pz) - (bz - pz) * (cx - px)) / d, l2 = ((cx - px) * (az - pz) - (cz - pz) * (ax - px)) / d;
+                            if (l1 >= 0 && l2 >= 0 && l1 + l2 <= 1) al[y * W + x] = Math.Min(1f, al[y * W + x] + 0.25f);
+                        }
+            }
+            return al;
         }
 
         /// <summary>Yumusatilmis acik zemin alani (0..1) dunya (x, z) noktasinda, cift dogrusal.</summary>
