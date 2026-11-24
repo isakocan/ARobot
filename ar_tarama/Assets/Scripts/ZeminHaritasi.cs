@@ -182,7 +182,7 @@ namespace ArTarama
         /// en az OyunPay hucre uzak; 10 cm'den ince seritler ve 0,25 m2'den kucuk adaciklar atilir; ana yone hizali duz kontur.</summary>
         public HashSet<long> oyun = new HashSet<long>();
         public float[] oyunUcgen = new float[0];
-        public float oyunAlan;
+        public float oyunAlan, oyunAci;
         public const int OyunPay = 3, OyunEnKucuk = 100;
         void OyunHesapla()
         {
@@ -198,7 +198,8 @@ namespace ArTarama
             ZeminGeo.Ac(oyun, 2);
             ZeminGeo.KucukleriAt(oyun, OyunEnKucuk, null);
             var u = new List<float>();
-            ZeminGeo.DuzKontur(oyun, float.IsNaN(aci) ? 0f : aci, u, null);
+            oyunAci = ZeminGeo.EnIyiAci(oyun, 1, 1);
+            ZeminGeo.DuzKontur(oyun, oyunAci, u, null, 1, 1);
             oyunUcgen = u.ToArray(); oyunAlan = oyun.Count * V * V;
         }
 

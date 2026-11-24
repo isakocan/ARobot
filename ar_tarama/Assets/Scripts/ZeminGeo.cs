@@ -143,39 +143,16 @@ namespace ArTarama
         /// <summary>Acik zemin kumesinin ana yone (aci) hizali izgarada duz kenarli konturu: hucre merkezleri dondurulmus
         /// 5 cm izgaraya orneklenir, 3x3 cogunluk suzgeci (tek hucrelik basamak gurultusu), bulaniksiz marching squares;
         /// koseler dunyaya geri dondurulur. Kenarlar ana yone paralel duz cizgiler (koselerde 45 derece pah).</summary>
-        public static void DuzKontur(HashSet<long> acik, float aci, List<float> ucgen, List<float> kenar)
+        public static void DuzKontur(HashSet<long> acik, float aci, List<float> ucgen, List<float> kenar, int kapama = 2, int acma = 2)
         {
             if (acik.Count == 0) return;
-            float V = ZeminSonuc.V, ca = (float)Math.Cos(aci), sa = (float)Math.Sin(aci);
-            float u0 = float.MaxValue, u1 = float.MinValue, w0 = float.MaxValue, w1 = float.MinValue;
-            foreach (long k in acik)
-            {
-                ZeminSonuc.Coz(k, out int ix, out int iz); float x = (ix + 0.5f) * V, z = (iz + 0.5f) * V;
-                float u = x * ca + z * sa, w = -x * sa + z * ca;
-                if (u < u0) u0 = u; if (u > u1) u1 = u; if (w < w0) w0 = w; if (w > w1) w1 = w;
-            }
-            // 10 cm kaba izgara (ana yone hizali): hucre, 4 ornegin en az 3'u acik ise acik
+            float ca = (float)Math.Cos(aci), sa = (float)Math.Sin(aci);
             const float C = 0.10f;
-            int cu0 = (int)Math.Floor(u0 / C) - 3, cw0 = (int)Math.Floor(w0 / C) - 3;
-            int CW = (int)Math.Floor(u1 / C) - cu0 + 4, CH = (int)Math.Floor(w1 / C) - cw0 + 4;
-            if (CW * CH > 1000000) return;
-            var k0 = new bool[CW * CH];
-            for (int y = 0; y < CH; y++)
-                for (int x = 0; x < CW; x++)
-                {
-                    int n = 0;
-                    for (int q = 0; q < 4; q++)
-                    {
-                        float u = (cu0 + x + 0.25f + 0.5f * (q & 1)) * C, w = (cw0 + y + 0.25f + 0.5f * (q >> 1)) * C;
-                        float wx = u * ca - w * sa, wz = u * sa + w * ca;
-                        if (acik.Contains(OdaSonuc.Anah2((int)Math.Floor(wx / V), (int)Math.Floor(wz / V)))) n++;
-                    }
-                    k0[y * CW + x] = n >= 3;
-                }
-            // kare cekirdekle kapama (10 cm centikler dolar) sonra acma (10 cm cikintilar gider): kenarlar duz kalir
-            // 20 cm: detaydan cok duz kenar (kullanici, 22 Kasim)
-            k0 = Kare(k0, CW, CH, true); k0 = Kare(k0, CW, CH, true); k0 = Kare(k0, CW, CH, false); k0 = Kare(k0, CW, CH, false);
-            k0 = Kare(k0, CW, CH, false); k0 = Kare(k0, CW, CH, false); k0 = Kare(k0, CW, CH, true); k0 = Kare(k0, CW, CH, true);
+            var k0 = Izgara(acik, ca, sa, out int CW, out int CH, out int cu0, out int cw0, out _);
+            if (k0 == null) return;
+            // 24 Kasim: eski sabit 2+2 adim (3x3 cekirdek, 10 cm izgara) 50 cm'den dar her kolu siliyor, ana yon yanlis
+            // secilince (19:45: -45 derece) alani elmas / X bicimine ceviriyordu. Adim sayisi artik parametre.
+            k0 = Morf(k0, CW, CH, kapama, acma);
             // cizimde ayri kalan kucuk adaciklar (0,25 m2'den kucuk) atilir
             {
                 var gez = new bool[CW * CH]; var yig = new Stack<int>(); var parca = new List<int>();
@@ -202,6 +179,65 @@ namespace ArTarama
             Kontur(b, W, H, gu0, gw0, 1, 0.5f, uc, ke);
             for (int i = 0; i + 1 < uc.Count; i += 2) { float u = uc[i], w = uc[i + 1]; ucgen.Add(u * ca - w * sa); ucgen.Add(u * sa + w * ca); }
             if (ke != null) for (int i = 0; i + 1 < ke.Count; i += 2) { float u = ke[i], w = ke[i + 1]; kenar.Add(u * ca - w * sa); kenar.Add(u * sa + w * ca); }
+        }
+
+        /// <summary>Hucre kumesinin ana yone (ca, sa) hizali 10 cm izgarasi: kaba hucre, 4 ornegin en az 3'u aciksa acik.
+        /// kismi: 1-2 ornegi acik (kenar izgaraya oturmuyor) kaba hucre sayisi.</summary>
+        static bool[] Izgara(HashSet<long> acik, float ca, float sa, out int CW, out int CH, out int cu0, out int cw0, out int kismi)
+        {
+            float V = ZeminSonuc.V; const float C = 0.10f; kismi = 0;
+            float u0 = float.MaxValue, u1 = float.MinValue, w0 = float.MaxValue, w1 = float.MinValue;
+            foreach (long k in acik)
+            {
+                ZeminSonuc.Coz(k, out int ix, out int iz); float x = (ix + 0.5f) * V, z = (iz + 0.5f) * V;
+                float u = x * ca + z * sa, w = -x * sa + z * ca;
+                if (u < u0) u0 = u; if (u > u1) u1 = u; if (w < w0) w0 = w; if (w > w1) w1 = w;
+            }
+            cu0 = (int)Math.Floor(u0 / C) - 3; cw0 = (int)Math.Floor(w0 / C) - 3;
+            CW = (int)Math.Floor(u1 / C) - cu0 + 4; CH = (int)Math.Floor(w1 / C) - cw0 + 4;
+            if ((long)CW * CH > 1000000) return null;
+            var k0 = new bool[CW * CH];
+            for (int y = 0; y < CH; y++)
+                for (int x = 0; x < CW; x++)
+                {
+                    int n = 0;
+                    for (int q = 0; q < 4; q++)
+                    {
+                        float u = (cu0 + x + 0.25f + 0.5f * (q & 1)) * C, w = (cw0 + y + 0.25f + 0.5f * (q >> 1)) * C;
+                        float wx = u * ca - w * sa, wz = u * sa + w * ca;
+                        if (acik.Contains(OdaSonuc.Anah2((int)Math.Floor(wx / V), (int)Math.Floor(wz / V)))) n++;
+                    }
+                    k0[y * CW + x] = n >= 3; if (n == 1 || n == 2) kismi++;
+                }
+            return k0;
+        }
+
+        static bool[] Morf(bool[] k0, int CW, int CH, int kapama, int acma)
+        {
+            for (int i = 0; i < kapama; i++) k0 = Kare(k0, CW, CH, true);
+            for (int i = 0; i < kapama; i++) k0 = Kare(k0, CW, CH, false);
+            for (int i = 0; i < acma; i++) k0 = Kare(k0, CW, CH, false);
+            for (int i = 0; i < acma; i++) k0 = Kare(k0, CW, CH, true);
+            return k0;
+        }
+
+        /// <summary>Kumenin duz kenarli cizimi icin en iyi izgara acisi (0-90 derece): 5 derece adimla, sonra en iyinin
+        /// +-4 derecesinde 1 derece adimla; hata = izgaraya oturmayan kaba hucre + duzlestirmenin degistirdigi kaba hucre.
+        /// 19:45 taramasi: odanin ana yonu -45 secilmisti, oyun alani icin en iyi aci 0 (fark 2,2 -> 0,75 m2).</summary>
+        public static float EnIyiAci(HashSet<long> acik, int kapama, int acma)
+        {
+            if (acik.Count == 0) return 0f;
+            int enD = 0, enH = int.MaxValue;
+            Func<int, int> hata = d =>
+            {
+                double a = d * Math.PI / 180; var k0 = Izgara(acik, (float)Math.Cos(a), (float)Math.Sin(a), out int CW, out int CH, out _, out _, out int kismi);
+                if (k0 == null) return int.MaxValue;
+                var k1 = Morf(k0, CW, CH, kapama, acma); int f = 0; for (int i = 0; i < k0.Length; i++) if (k0[i] != k1[i]) f++;
+                return f + kismi;
+            };
+            for (int d = 0; d < 90; d += 5) { int h = hata(d); if (h < enH) { enH = h; enD = d; } }
+            int d0 = enD; for (int d = d0 - 4; d <= d0 + 4; d++) { if (d == d0) continue; int h = hata(d); if (h < enH) { enH = h; enD = d; } }
+            return (float)(enD * Math.PI / 180);
         }
 
         /// <summary>3x3 kare cekirdekle genisletme (genislet=true) ya da asindirma.</summary>
