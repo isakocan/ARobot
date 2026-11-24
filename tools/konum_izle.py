@@ -41,7 +41,7 @@ def main():
         if k is None:
             print("konum yok:", d.get("konum_hatasi", "bekleniyor"), end="\r")
         else:
-            g = " ".join("#%d %.2fm %+.0f°" % tuple(x) for x in k.get("gorulen", []))
+            g = " ".join("#%d %.2fm %+.0f°" % tuple(x[:3]) for x in k.get("gorulen", []))
             print("%s  x=%6.2f z=%6.2f yön=%6.1f°  son işaret %s (%s sn)  %3d ms  görülen: %s        " % (
                 "BİLİNİYOR" if k["var"] else "bilinmiyor", k["x"], k["z"], k["yaw"], k["isaret"], k["isaret_sn"], k["ms"], g), end="\r")
         time.sleep(0.2)

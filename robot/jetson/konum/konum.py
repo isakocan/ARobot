@@ -170,7 +170,19 @@ class KonumBulucu:
                     "olcek": round(self.olcek, 2), "pusula": round(self.pusula_guven, 2),
                     "kare": self.kare, "sp": round(math.sqrt(max(0.0, (self.P[0, 0] + self.P[1, 1]) / 2)), 3),
                     "sy": round(math.degrees(math.sqrt(max(0.0, self.P[2, 2]))), 1),
-                    "hata": self.hata or [], "kilit": self.kilit_sayisi}
+                    "hata": self.hata or [], "kilit": self.kilit_sayisi, "yaklas": self._yaklas()}
+
+    YAKLAS_YON = 8.0           # derece: yön belirsizliği bunun üstündeyse kullanıcıya "işarete yaklaş" denir
+
+    def _yaklas(self):
+        """Kullanıcıya işarete yakından / karşıdan bakmasını söyle: konum hiç kurulmadıysa (işaret uzak / eğik görüldü
+        ya da hiç görülmedi) ya da yön belirsizliği büyükse (uzak, eğik işaretle kurulan ilk kilit 20 dereceye kadar
+        yanılabiliyor; 25 Kasım kaydı)."""
+        if not self.ev:
+            return False
+        if not self.bilinen:
+            return True
+        return math.degrees(math.sqrt(max(0.0, self.P[2, 2]))) > self.YAKLAS_YON
 
     def hafiza_listesi(self):
         """Dev haritası için anahtar karelerin yerleri [[x, z, yaw_derece], ...] ve son iz."""

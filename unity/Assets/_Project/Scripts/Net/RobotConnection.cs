@@ -64,6 +64,8 @@ namespace ARaki.Net
             public int nokta;        // zemin izinde ortak harekete uyan nokta sayısı
             public float olcek;      // zemin izi ölçeği (işaretlerle ayarlanır)
             public float pusula;     // robottaki görsel pusulanın güveni
+            public float sy;         // yön belirsizliği (derece)
+            public bool yaklas;      // konum kurulmadı ya da yön belirsiz: işarete yakından / karşıdan bakılmalı
         }
 
         public string t;

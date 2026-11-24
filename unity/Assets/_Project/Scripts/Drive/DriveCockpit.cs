@@ -718,7 +718,6 @@ namespace ARaki.Drive
 
             Choice("Vites", new[] { "Otomatik", "Manuel", "Vitessiz" }, () => (int)s.Gearbox, v => s.Gearbox = (GearMode)v);
             Choice("Dönüş", new[] { "Yumuşak", "Keskin" }, () => s.SharpTurn ? 1 : 0, v => s.SharpTurn = v == 1);
-            Toggle("Dönüş öngörüsü", () => s.TurnPredict, v => s.TurnPredict = v);
             Toggle("Geri vites bipi", () => s.ReverseBeep, v => s.ReverseBeep = v);
             Toggle("Efekt sesleri", () => s.Effects, v => s.Effects = v);
             Choice("Kamera hareketi", new[] { "Kapalı", "Hafif", "Belirgin" }, () => s.CameraMotion, v => s.CameraMotion = v);
@@ -827,6 +826,7 @@ namespace ARaki.Drive
             // görüntü kalitesi (köprünün o anki bit hızı hedefi; ağ zayıflayınca düşer), fps, veri, sıcaklık.
             // Saat teypte, güç vitesin altındaki şaside.
             infoText.text = VideoQuality(st) + $"  ·  {Mathf.RoundToInt(video.Fps)} fps" +
+                            (video.DecodeMs > 0f ? $"  ·  çözme {video.DecodeMs:0.0} ms" : "") +
                             (st != null && st.veri_kbps > 0 ? $"  ·  {st.veri_kbps / 1000f:0.0} Mbit/s" : "") +
                             (st != null && st.sicaklik > 0f ? $"  ·  {st.sicaklik:0}°C" : "");
             statusText.color = !link.Demo && (link.IsWeak || !link.IsConnected) ? Red : Text;
@@ -839,7 +839,8 @@ namespace ARaki.Drive
                             m != null && m.sikisma != 0 ? "Teker sıkıştı: motorlar bir an durduruldu" :
                             m != null && m.ariza ? "Motor sürücüsü arıza bildiriyor" :
                             st?.kamera == "yok" ? "Kamera bulunamadı: kapandı ya da kablo çıktı (ısınmış olabilir)" :
-                            st != null && st.sicaklik >= 80f ? $"Jetson çok ısındı: {st.sicaklik:0}°C" : "";
+                            st != null && st.sicaklik >= 80f ? $"Jetson çok ısındı: {st.sicaklik:0}°C" :
+                            st?.konum != null && st.konum.yaklas ? (st.konum.var ? "Yön emin değil: işarete yakından ve karşıdan bak" : "Konum için işarete yaklaş") : "";
             centerText.text = video.HasFrame ? "" : link.Demo ? "Kayıtlı görüntü yükleniyor" :
                               !link.IsConnected ? (string.IsNullOrEmpty(link.SearchText) ? "Robota bağlanılıyor" : Capital(link.SearchText)) : "Görüntü bekleniyor";
 

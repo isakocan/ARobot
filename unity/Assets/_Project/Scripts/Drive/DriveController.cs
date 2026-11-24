@@ -91,9 +91,6 @@ namespace ARaki.Drive
         bool? lastConnected, lastWeak;
         string lastPath;
 
-        /// <summary>Dönüş öngörüsü (gecikme gizleme); öğrenilen gecikme / katsayı geliştirici panelinde gösterilebilir.</summary>
-        public readonly TurnPrediction Turn = new TurnPrediction();
-
         void Awake()
         {
             Settings = DriveSettings.Load();
@@ -272,7 +269,6 @@ namespace ARaki.Drive
                 accumulator -= Tick;
                 var (l, r) = Model.Step(Tick, forward, turn, Settings.Gearbox);
                 link.SendDrive(new DriveCommand(l, r));
-                Turn.Command(Time.unscaledTime, (l - r) * 0.5f * link.PwmLimit);
             }
 
 
@@ -295,11 +291,6 @@ namespace ARaki.Drive
             var (pitch, roll) = sway.Step(Mathf.Min(Time.unscaledDeltaTime, 0.05f), Model, CameraSway.Strength[Mathf.Clamp(Settings.CameraMotion, 0, 2)]);
             viewer.SwayPitch = pitch;
             viewer.SwayRoll = roll;
-
-            // dönüş gecikmesini gizle: görüntüye henüz yansımamış dönüş kadar bakış önden çevrilir (TurnPrediction)
-            float now = Time.unscaledTime;
-            if (Ar != null && Ar.Compass != null && Ar.Compass.Healthy) Turn.VideoYaw(now, Ar.Compass.Yaw);
-            viewer.PredictYaw = Settings.TurnPredict && (link.Demo || link.IsConnected) ? Turn.Update(now) : 0f;
 
             LogDrive();
         }

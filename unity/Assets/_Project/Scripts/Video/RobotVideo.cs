@@ -44,6 +44,8 @@ namespace ARaki.Video
         /// <summary>Şu an kullanılan yol: "H.264", "JPEG", "demo" ya da "".</summary>
         public string ActivePath { get; private set; } = "";
         public int FramesDecoded { get; private set; }
+        /// <summary>H.264 kare çözme süresi (ms, yumuşatılmış; OpenH264 yazılım çözücüsü). Gecikme teşhisi için.</summary>
+        public float DecodeMs { get; private set; }
         public float Fps { get; private set; }
         /// <summary>Son karenin çözünürlüğü (0: kare yok).</summary>
         public int Width => ActivePath == "H.264" ? main.W : ActivePath == ViewportPath ? win.W : jpegTexture != null && HasFrame ? jpegTexture.width : 0;
@@ -347,7 +349,11 @@ namespace ARaki.Video
                             if (r.MessageType == WebSocketMessageType.Close) break;
                             if (len < 2) continue;
                             // ilk bayt: 1 = tam kare (anahtar), 0 = ara kare; ardından H.264 erişim birimi
-                            if (!decoder.Decode(buffer, 1, len - 1, ref y, ref u, ref v)) continue;
+                            long c0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                            bool ok = decoder.Decode(buffer, 1, len - 1, ref y, ref u, ref v);
+                            float ms = (System.Diagnostics.Stopwatch.GetTimestamp() - c0) * 1000f / System.Diagnostics.Stopwatch.Frequency;
+                            DecodeMs = DecodeMs <= 0f ? ms : DecodeMs + 0.1f * (ms - DecodeMs);
+                            if (!ok) continue;
                             lock (latestLock)
                             {
                                 // ana iş parçacığı yetişemediyse eski kare üstüne yazılır (birikmez)
