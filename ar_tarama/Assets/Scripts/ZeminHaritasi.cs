@@ -298,7 +298,8 @@ namespace ArTarama
         public static string DokumYolu;            // PC teshis: her guncellemede hucre dokumu (null = kapali)
         public static int GuvenEsik = 128; public static bool SadeceGuvenli = true;   // gercek kayitlarda dusuk guvenli noktalar yurunen yolu bile engel yapiyordu
 
-        class Hucre { public int zemin, zN, engel, yol, uzun, ust; public int kz = -1, ke = -1, ku = -1, ks = -1; public bool plan; }
+        class Hucre { public int zemin, zN, engel, yol, uzun, ust; public int kz = -1, ke = -1, ku = -1, ks = -1; public bool plan;
+            public int dF, dO, dN, dU; public int kdF = -1, kdO = -1, kdN = -1, kdU = -1; }
 
         // "Kesin zemin" (kullanici istegi, 21 Kasim: pürüzlü olacağına hiç gösterme, az ama temiz ve doğru):
         // bir hucre acik zemin sayilir ancak (a) kullanici oradan yurumusse ya da (b) derinlik orayi en az KesinKare karede
@@ -493,19 +494,26 @@ namespace ArTarama
         public bool Isindi_ => isindi || !IsinmaKullan;
         public float IsinmaZamani = -1f;
 
-        bool Isindi(DerinlikKaresi f, int m)
+        float sonKareZemin = float.NaN;
+        /// <summary>Bu karenin kendi zemin tepesi (kameranin 0,3-2,1 m altinda en alcak guclu tepe); yoksa NaN.</summary>
+        float KareZemini(DerinlikKaresi f, int m)
         {
-            if (isindi || !IsinmaKullan) return true;
-            // bu karenin zemin tepesi: kameranin 0,3-2,1 m altinda, 1 cm, 5'li yumusatma, en gucluun %35'ini gecen en alcak tepe
             Array.Clear(kHist, 0, kHist.Length); float alt = f.py - 2.1f; int say = 0;
             for (int r = 0; r < m; r++) { int b = (int)Math.Floor((py_[r] - alt) / 0.01f); if (b >= 0 && b < kHist.Length && py_[r] < f.py - 0.3f) { kHist[b] += 1f; say++; } }
-            if (say < 300) return false;
+            if (say < 300) return float.NaN;
             float en = 0f; var sm = new float[kHist.Length];
             for (int b = 2; b < kHist.Length - 2; b++) { sm[b] = kHist[b - 2] + kHist[b - 1] + kHist[b] + kHist[b + 1] + kHist[b + 2]; en = Math.Max(en, sm[b]); }
-            int sec = -1;
-            for (int b = 3; b < kHist.Length - 3; b++) if (sm[b] >= 0.35f * en && sm[b] >= sm[b - 1] && sm[b] >= sm[b + 1]) { sec = b; break; }
-            if (sec < 0) return false;
-            kareZemin.Add(alt + (sec + 0.5f) * 0.01f); kareZaman.Add(f.zaman);
+            for (int b = 3; b < kHist.Length - 3; b++) if (sm[b] >= 0.35f * en && sm[b] >= sm[b - 1] && sm[b] >= sm[b + 1]) return alt + (b + 0.5f) * 0.01f;
+            return float.NaN;
+        }
+
+        bool Isindi(DerinlikKaresi f, int m)
+        {
+            sonKareZemin = KareZemini(f, m);
+            if (isindi || !IsinmaKullan) return true;
+            // bu karenin zemin tepesi: kameranin 0,3-2,1 m altinda, 1 cm, 5'li yumusatma, en gucluun %35'ini gecen en alcak tepe
+            if (float.IsNaN(sonKareZemin)) return false;
+            kareZemin.Add(sonKareZemin); kareZaman.Add(f.zaman);
             while (kareZaman.Count > 0 && f.zaman - kareZaman[0] > IsinmaPencere) { kareZaman.RemoveAt(0); kareZemin.RemoveAt(0); }
             if (kareZemin.Count < IsinmaKare) return false;
             float lo = float.MaxValue, hi = float.MinValue; foreach (float z in kareZemin) { lo = Math.Min(lo, z); hi = Math.Max(hi, z); }
@@ -544,6 +552,7 @@ namespace ArTarama
                 if (!zyVar) { zyPlan = zy; zyVar = true; }
             }
             if (!zyVar) return;
+            if (Dogrudan) DogrudanSay(f, m);
             // kullanici yolu: kamera ayakta tutuluyorsa (zeminden 0,7-2,1 m) altindaki 15 cm yaricap bos zemindir
             float hc = f.py - zy;
             if (hc > 0.7f && hc < 2.1f)
@@ -750,6 +759,7 @@ namespace ArTarama
             }
             if (float.IsNaN(aci)) aci = 0f;
             s.aci = aci;
+            if (Dogrudan) { DogrudanSonuc(s, kamY); return s; }
             if (SadeceDerinlik && Sade) { SadeSonuc(s, kamY); return s; }
             float ca = (float)Math.Cos(aci), sa = (float)Math.Sin(aci);
 
@@ -1038,6 +1048,62 @@ namespace ArTarama
         // Baglantililik, pay, duzlestirme, kalici boya, kalem yok. Yalniz 3 hucreden kucuk tekil lekeler atilir ve icinde
         // engel olmayan en cok 2 hucrelik delikler doldurulur. Sinir hucre hucre (puruzlu ama derinlikle ayni) cizilir.
         // Durum zaten kuplerin log-olasiligindan geliyor (tek karede degismez), ayrica histerezis gerekmiyor.
+        // ------------------------------------------------------------------------------------------------ dogrudan derinlik
+        // 24 Kasim (kullanici: "en soldaki, direkt depth'ten gelen en iyisiydi, kapiyi bile farketmis; onun uzerinden gidelim,
+        // adaciklari silelim"). Kayitlardaki referans haritanin kurali, canli: her kare kendi zeminini bulur (ARCore dusey
+        // kaymasina dayanikli); guvenli (128+) ve 3 m'den yakin noktalar hucreye sayilir:
+        //   dF: zemin (+-4 cm) gorulen kare, dO: zeminden 15 cm - 2 m nokta gorulen kare, dN: hucreye nokta dusen kare.
+        //   acik  = dF >= 2 ve engel degil;  engel = dO >= 3 ve dO >= %30 dN (esya kenarindaki tek tuk tasma engel yapmaz)
+        // Sonra yalniz 0,25 m2'den kucuk adaciklar atilir. Baglanti / pay / duzlestirme yok.
+        public static bool Dogrudan = true;
+        public const int DogrudanAdacik = 100, DogrudanKesin = 4;
+        public const float DogrudanOran = 0.3f, DogrudanUst = 0.15f, DogrudanMenzil = 3.0f;
+
+        void DogrudanSay(DerinlikKaresi f, int m)
+        {
+            float zf = float.IsNaN(sonKareZemin) ? zy : sonKareZemin;
+            for (int r = 0; r < m; r++)
+            {
+                int i = pi_[r];
+                if (f.d[i] > DogrudanMenzil || (f.g != null && f.g[i] < 128)) continue;
+                float hk = py_[r] - zf; if (hk <= -0.04f || hk >= 2.0f) continue;
+                var c = Al(OdaSonuc.Anah2(ZeminSonuc.Ind(px_[r]), ZeminSonuc.Ind(pz_[r])));
+                if (c.kdN != kare) { c.kdN = kare; c.dN++; }
+                if (hk < 0.04f) { if (c.kdF != kare) { c.kdF = kare; c.dF++; } }
+                else if (hk > DogrudanUst) { if (c.kdO != kare) { c.kdO = kare; c.dO++; } if (hk > 1.0f && c.kdU != kare) { c.kdU = kare; c.dU++; } }
+            }
+        }
+
+        static bool DogrudanEngel(Hucre c) => c.dO >= 3 && c.dO >= DogrudanOran * c.dN;
+
+        void DogrudanSonuc(ZeminSonuc s, float kamY)
+        {
+            var acik = new HashSet<long>(); var engel = new HashSet<long>(); var duvar = new HashSet<long>();
+            foreach (var kv in h)
+            {
+                var c = kv.Value;
+                if (c.yol > 0) { acik.Add(kv.Key); continue; }
+                if (DogrudanEngel(c)) { engel.Add(kv.Key); if (c.dU >= 3) duvar.Add(kv.Key); }
+                else if (c.dF >= 2) acik.Add(kv.Key);
+            }
+            ZeminGeo.KucukleriAt(acik, DogrudanAdacik, null);
+            foreach (var kv in h)
+            {
+                var c = kv.Value;
+                if (acik.Contains(kv.Key)) { if (c.dF >= DogrudanKesin || c.yol > 0) s.kesin.Add(kv.Key); }
+                else if (engel.Contains(kv.Key)) { if (c.dO >= 5) s.kesin.Add(kv.Key); }
+                else if (c.dN > 0) { s.bilinen.Add(kv.Key); if (c.dF == 1) s.kismi[kv.Key] = (byte)(KesinNokta / 2); }
+            }
+            if (LidarAcik) s.voksel = dol.Noktalar(kamX, kamYSon, kamZ, 4.0f, zy, 40000);
+            s.acik = acik; s.engel = engel; s.duvar = duvar;
+            TeshisSon = Teshis = "dogrudan | acik " + acik.Count + " engel " + engel.Count + " duvar " + duvar.Count + " aci " + (aci * 180 / Math.PI).ToString("F1") + " zy " + zy.ToString("F2") + " kamY " + kamY.ToString("F2");
+            s.alan = acik.Count * V * V;
+            var iz2 = new float[izX.Count * 2]; for (int i = 0; i < izX.Count; i++) { iz2[i * 2] = izX[i]; iz2[i * 2 + 1] = izZ[i]; }
+            s.iz = iz2;
+            s.Yumusat();
+            YonEksik(s);
+        }
+
         public static int DelikEnCok = 60; public static bool DelikEngelli, AcmaKullan = true;
         public static bool Sade = false;   // olculdu (24 Kasim, 5 kayit): zemini %95 boyuyor ama esya kenarina 2,4 kat fazla tasiyor; varsayilan eski kural
         public const int SadeLeke = 3, SadeDelik = 2;

@@ -695,6 +695,7 @@ namespace ArTarama
             if (int.TryParse(Environment.GetEnvironmentVariable("DELIK"), out int dl0)) ZeminHaritasi.DelikEnCok = dl0;
             if (Environment.GetEnvironmentVariable("DELIK_ENGEL") == "1") ZeminHaritasi.DelikEngelli = true;
             if (Environment.GetEnvironmentVariable("ACMA") == "0") ZeminHaritasi.AcmaKullan = false;
+            ZeminHaritasi.Dogrudan = Environment.GetEnvironmentVariable("DOGRUDAN") != "0";
             if (Environment.GetEnvironmentVariable("ISINMA") == "0") ZeminHaritasi.IsinmaKullan = false;
             var sicrama = Environment.GetEnvironmentVariable("SICRAMA") == "0" ? null : new PozSureklilik();
             if (Environment.GetEnvironmentVariable("ZEMIN_DUZ") == "0") ZeminHaritasi.Duzlestirme = false;   // 23 Kasim kurali (karsilastirma)
