@@ -694,6 +694,53 @@ namespace ArTarama
             r.Yaz(yol);
         }
 
+        /// <summary>Teshis: oyun alaninin asamalari hucre hucre (sol) ve uygulamadaki son cizim (sag).
+        /// kirmizi = engel, acik yesil = 15 cm pay yuzunden cikan, sari = inceltme (acma) ile cikan, mor = kucuk parca diye atilan,
+        /// mavi = oyun hucresi; koyu = bilinmiyor.</summary>
+        public static void OyunAsamaPng(string evKlasor, string yol, Action<string> yaz)
+        {
+            var asama = new Dictionary<string, HashSet<long>>();
+            ZeminSonuc.OyunAsama = (ad, h) => asama[ad] = h;
+            if (int.TryParse(Environment.GetEnvironmentVariable("OYUN_PAY"), out int op)) ZeminSonuc.OyunPay = op;
+            if (float.TryParse(Environment.GetEnvironmentVariable("OYUN_PARCA"), NumberStyles.Float, CultureInfo.InvariantCulture, out float opr0)) ZeminSonuc.OyunParcaOran = opr0;
+            if (int.TryParse(Environment.GetEnvironmentVariable("OYUN_INCE"), out int oin0)) ZeminSonuc.OyunInceAlan = oin0;
+            var ev = Ev.Yukle(evKlasor); var zs = ev.Sonuc();
+            var rgba = zs.Resim(out int W, out int H, out float ox, out float oz, 10);
+            ZeminSonuc.OyunAsama = null;
+            const float P = ZeminSonuc.ResimPiksel; const int K = 3;
+            var r = new OdaResim(W * K * 2 + 20, H * K, 24, 27, 32);
+            int[] say = new int[5];
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    zs.ResimdenDunyaya(ox + (x + 0.5f) * P, oz + (y + 0.5f) * P, out float wx, out float wz);
+                    long k = OdaSonuc.Anah2(ZeminSonuc.Ind(wx), ZeminSonuc.Ind(wz));
+                    byte cr = 24, cg = 27, cb = 32;
+                    if (zs.engel.Contains(k)) { cr = 200; cg = 60; cb = 60; }
+                    else if (zs.acik.Contains(k))
+                    {
+                        if (!asama["pay"].Contains(k)) { cr = 120; cg = 200; cb = 170; }
+                        else if (!asama["acma"].Contains(k)) { cr = 235; cg = 205; cb = 60; }
+                        else if (!asama["kucuk"].Contains(k)) { cr = 170; cg = 90; cb = 220; }
+                        else { cr = 40; cg = 90; cb = 225; }
+                    }
+                    for (int q = 0; q < K; q++) for (int t = 0; t < K; t++) r.Nokta(x * K + t, (H - 1 - y) * K + q, cr, cg, cb);
+                    int o = (y * W + x) * 4;
+                    if (rgba[o + 3] > 0) for (int q = 0; q < K; q++) for (int t = 0; t < K; t++) r.Nokta(W * K + 20 + x * K + t, (H - 1 - y) * K + q, rgba[o], rgba[o + 1], rgba[o + 2], rgba[o + 3] / 255f);
+                }
+            // istege bagli: OYUN_ISARETLE dosyasi [[x, z, no], ...] (ev koordinati) -> beyaz noktalar, her iki panelde
+            string isy = Environment.GetEnvironmentVariable("OYUN_ISARETLE");
+            if (!string.IsNullOrEmpty(isy) && File.Exists(isy))
+                foreach (var o in (List<object>)MiniJson.Parse(File.ReadAllText(isy)))
+                {
+                    var l = (List<object>)o; zs.DunyadanResme((float)MiniJson.D(l[0]), (float)MiniJson.D(l[1]), out float u, out float w);
+                    double px = (u - ox) / P * K, py = (H - (w - oz) / P) * K;
+                    r.Disk(px, py, 3, 255, 255, 255); r.Disk(px + W * K + 20, py, 3, 255, 255, 255);
+                }
+            yaz("acik " + zs.acik.Count + " engel " + zs.engel.Count + " pay sonrasi " + asama["pay"].Count + " acma sonrasi " + asama["acma"].Count + " kucuk sonrasi " + asama["kucuk"].Count + " (hucre)");
+            r.Yaz(yol);
+        }
+
         public static int Calistir(string klasor, Action<string> yaz, string ciktiDir = null)
         {
             if (!Directory.Exists(klasor)) { yaz("klasor yok: " + klasor); return 2; }
@@ -730,6 +777,9 @@ namespace ArTarama
             if (Environment.GetEnvironmentVariable("ACMA") == "0") ZeminHaritasi.AcmaKullan = false;
             ZeminHaritasi.Dogrudan = Environment.GetEnvironmentVariable("DOGRUDAN") != "0";
             if (Environment.GetEnvironmentVariable("ISINMA") == "0") ZeminHaritasi.IsinmaKullan = false;
+            if (int.TryParse(Environment.GetEnvironmentVariable("OYUN_PAY"), out int opy)) ZeminSonuc.OyunPay = opy;
+            if (float.TryParse(Environment.GetEnvironmentVariable("OYUN_PARCA"), NumberStyles.Float, CultureInfo.InvariantCulture, out float opr)) ZeminSonuc.OyunParcaOran = opr;
+            if (int.TryParse(Environment.GetEnvironmentVariable("OYUN_INCE"), out int oin)) ZeminSonuc.OyunInceAlan = oin;
             var sicrama = Environment.GetEnvironmentVariable("SICRAMA") == "0" ? null : new PozSureklilik();
             if (Environment.GetEnvironmentVariable("ZEMIN_DUZ") == "0") ZeminHaritasi.Duzlestirme = false;   // 23 Kasim kurali (karsilastirma)
             if (int.TryParse(Environment.GetEnvironmentVariable("ZEMIN_UST_GUVEN"), out int ug)) ZeminHaritasi.UstGuven = ug;

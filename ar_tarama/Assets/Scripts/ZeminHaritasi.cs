@@ -203,20 +203,79 @@ namespace ArTarama
         public HashSet<long> oyun = new HashSet<long>();
         public float[] oyunUcgen = new float[0];
         public float oyunAlan, oyunAci;
-        public const int OyunPay = 3, OyunEnKucuk = 100;
+        public static int OyunPay = 3; public const int OyunEnKucuk = 100;
+        public static int OyunInceAlan = 0, OyunInceRay = 2;
+
+        static HashSet<long> KucukParcalar(HashSet<long> h, int enCok)
+        {
+            var sonuc = new HashSet<long>(); var gor = new HashSet<long>(); var st = new Stack<long>();
+            foreach (long k in h)
+            {
+                if (gor.Contains(k)) continue;
+                var p = new List<long>(); st.Push(k); gor.Add(k);
+                while (st.Count > 0)
+                {
+                    long q = st.Pop(); p.Add(q); Coz(q, out int ix, out int iz);
+                    for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++)
+                        {
+                            long n = OdaSonuc.Anah2(ix + dx, iz + dz);
+                            if (h.Contains(n) && gor.Add(n)) st.Push(n);
+                        }
+                }
+                if (p.Count <= enCok) foreach (long q in p) sonuc.Add(q);
+            }
+            return sonuc;
+        }
+
+        /// <summary>Oyun alaninda en buyuk parcanin bu oranindan kucuk ayri parcalar atilir (0: kapali).</summary>
+        public static float OyunParcaOran = 0f;
+
+        static void BuyuktenKucukleriAt(HashSet<long> h, float oran)
+        {
+            var parca = new List<List<long>>(); var gor = new HashSet<long>(); var st = new Stack<long>();
+            foreach (long k in h)
+            {
+                if (gor.Contains(k)) continue;
+                var p = new List<long>(); st.Push(k); gor.Add(k);
+                while (st.Count > 0)
+                {
+                    long q = st.Pop(); p.Add(q); Coz(q, out int ix, out int iz);
+                    for (int d = 0; d < 4; d++)
+                    {
+                        long n = OdaSonuc.Anah2(ix + (d == 0 ? 1 : d == 1 ? -1 : 0), iz + (d == 2 ? 1 : d == 3 ? -1 : 0));
+                        if (h.Contains(n) && gor.Add(n)) st.Push(n);
+                    }
+                }
+                parca.Add(p);
+            }
+            int en = 0; foreach (var p in parca) en = Math.Max(en, p.Count);
+            foreach (var p in parca) if (p.Count < oran * en) foreach (long q in p) h.Remove(q);
+        }
+
+        /// <summary>Teshis (PC): oyun alaninin ara asamalari (pay, acma, kucuk).</summary>
+        public static Action<string, HashSet<long>> OyunAsama;
+
         void OyunHesapla()
         {
             oyun = new HashSet<long>();
-            var yasak = new HashSet<long>(); int r2 = OyunPay * OyunPay;
+            var yasak = new HashSet<long>();
+            // ince / kucuk engel (kapi kanadi, sandalye ayagi: OyunInceAlan hucreden kucuk ayri engel parcasi) icin pay
+            // OyunInceRay; buyuk esyada OyunPay (kapali: OyunInceAlan = 0)
+            var ince = OyunInceAlan > 0 ? KucukParcalar(engel, OyunInceAlan) : null;
             foreach (long q in engel)
             {
                 Coz(q, out int ix, out int iz);
-                for (int dz = -OyunPay; dz <= OyunPay; dz++) for (int dx = -OyunPay; dx <= OyunPay; dx++) if (dx * dx + dz * dz <= r2) yasak.Add(OdaSonuc.Anah2(ix + dx, iz + dz));
+                int R = ince != null && ince.Contains(q) ? OyunInceRay : OyunPay, r2 = R * R;
+                for (int dz = -R; dz <= R; dz++) for (int dx = -R; dx <= R; dx++) if (dx * dx + dz * dz <= r2) yasak.Add(OdaSonuc.Anah2(ix + dx, iz + dz));
             }
             bool kesinVar = kesin != null && kesin.Count > 0;
             foreach (long q in acik) if (!yasak.Contains(q) && (!kesinVar || kesin.Contains(q))) oyun.Add(q);
+            OyunAsama?.Invoke("pay", new HashSet<long>(oyun));
             ZeminGeo.Ac(oyun, 2);
+            OyunAsama?.Invoke("acma", new HashSet<long>(oyun));
             ZeminGeo.KucukleriAt(oyun, OyunEnKucuk, null);
+            if (OyunParcaOran > 0f) BuyuktenKucukleriAt(oyun, OyunParcaOran);
+            OyunAsama?.Invoke("kucuk", new HashSet<long>(oyun));
             var u = new List<float>();
             oyunAci = ZeminGeo.EnIyiAci(oyun, 1, 1);
             ZeminGeo.DuzKontur(oyun, oyunAci, u, null, 1, 1);
