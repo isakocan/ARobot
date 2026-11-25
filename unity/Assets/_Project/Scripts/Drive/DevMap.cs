@@ -9,7 +9,8 @@ namespace ARaki.Drive
     /// Dev modunda sol üstte küçük harita: tarama uygulamasının robota gönderdiği ev haritası (köprü GET /api/ev/zemin,
     /// 5 cm açık zemin hücreleri, ev koordinatı: ArUco işaretinin önündeki zemin, +z işaretin baktığı yön) + robotun
     /// canlı konumu (ok) + AR yaratıkları (noktalar) + işaretler (kare). Harita robotun bakış yönüne göre döner, robot ortada.
-    /// Konum bulmanın içi de görünür: robotun anahtar kareleri (mavi), son izi (sarı), sağda zemin izinin kuşbakışı
+    /// Gidilen yol beyaz çizgi (robotun gönderdiği konumlardan, uygulama açıkken). Konum bulmanın içi de görünür:
+    /// robotun anahtar kareleri (mavi), sağda zemin izinin kuşbakışı
     /// görüntüsü ve izlenen noktaları (köprü /api/konum/zemin.jpg; yeşil = ortak harekete uyan), altta kaynaklar.
     /// </summary>
     public class DevMap : MonoBehaviour
@@ -30,6 +31,7 @@ namespace ARaki.Drive
         RawImage floorCam; Texture2D floorCamTex;
         float[][] memKeys = new float[0][], memTrail = new float[0][];
         string lastHost, mapText = "harita yok";
+        int routeDrawn = -1; float nextRoute;
 
         [System.Serializable] class ZeminJson { public int[] acik; }
         [System.Serializable] class Isaret { public int id; public float x, z, aci; }
@@ -109,6 +111,7 @@ namespace ARaki.Drive
             }
             if (host != null && Time.unscaledTime > nextMem) { nextMem = Time.unscaledTime + 3f; StartCoroutine(FetchMem(host)); }
             if (host != null && Time.unscaledTime > nextFloorCam) { nextFloorCam = Time.unscaledTime + 0.5f; StartCoroutine(FetchFloorCam(host)); }
+            if (drive.Ar != null && drive.Ar.RouteVersion != routeDrawn && Time.unscaledTime > nextRoute) { nextRoute = Time.unscaledTime + 0.3f; Compose(); }
             Layout();
         }
 
@@ -180,7 +183,7 @@ namespace ARaki.Drive
             }
         }
 
-        /// <summary>Zemin + anahtar kareler (mavi) + robotun izi (sarı) aynı dokuda.</summary>
+        /// <summary>Zemin + anahtar kareler (mavi) + gidilen yol (beyaz) aynı dokuda.</summary>
         void Compose()
         {
             if (basePx == null || tex == null) return;
@@ -190,8 +193,21 @@ namespace ARaki.Drive
                 int ix = Mathf.FloorToInt((x - ox) / Cell), iz = Mathf.FloorToInt((z - oz) / Cell);
                 if (ix >= 0 && iz >= 0 && ix < W && iz < H) px[iz * W + ix] = c;
             }
-            foreach (var t in memTrail) if (t.Length >= 2) Put(t[0], t[1], new Color32(255, 214, 90, 255));
             foreach (var k in memKeys) if (k.Length >= 2) Put(k[0], k[1], new Color32(110, 170, 255, 255));
+            // gidilen yol: ardışık konumlar arası 2,5 cm'de bir nokta (iki konum 1 m'den uzaksa sıçramadır, çizgi çekilmez)
+            var ar = drive.Ar;
+            if (ar != null)
+            {
+                var route = ar.Route; var white = new Color32(245, 245, 245, 255);
+                for (int i = 0; i < route.Count; i++)
+                {
+                    var b = route[i];
+                    if (i == 0 || Vector2.Distance(route[i - 1], b) > 1f) { Put(b.x, b.y, white); continue; }
+                    var a = route[i - 1]; int n = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(a, b) / 0.025f));
+                    for (int q = 1; q <= n; q++) { var p = Vector2.Lerp(a, b, q / (float)n); Put(p.x, p.y, white); }
+                }
+                routeDrawn = ar.RouteVersion;
+            }
             tex.SetPixels32(px); tex.Apply(false);
         }
 

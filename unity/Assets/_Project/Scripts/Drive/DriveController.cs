@@ -47,7 +47,7 @@ namespace ARaki.Drive
         DevMap devMap;
         bool devMode; TouchMode devOncekiDokunma;
         /// <summary>Dev modu: direksiyon + gaz/fren (dokunmatik direksiyon), sol üstte ev haritası ve canlı konum,
-        /// ekrana çift dokununca zemine AR yaratığı. Kapatınca önceki dokunmatik ayar geri gelir (kaydedilmez).</summary>
+        /// ekrana çift dokununca zemine AR nesnesi (nesneler yalnız Dev modunda görünür). Kapatınca önceki dokunmatik ayar geri gelir (kaydedilmez).</summary>
         public bool DevMode
         {
             get => devMode;
@@ -58,8 +58,8 @@ namespace ARaki.Drive
                 if (value) { devOncekiDokunma = Settings.Touch; Settings.Touch = TouchMode.Wheel; }
                 else Settings.Touch = devOncekiDokunma;
                 devMap.Show(value);
-                if (Ar != null) Ar.Still = value;     // dev modunda yaratıklar yerinde durur: kayma kolay görülsün
-                ShowToast(value ? "Dev modu: çift dokun = AR nesnesi koy" : "Dev modu kapalı");
+                if (Ar != null) Ar.Visible = value;   // AR nesneleri yalnız Dev modunda görünür
+                ShowToast(value ? "Dev modu: çift dokun = AR nesnesi koy (yalnız Dev modunda görünür)" : "Dev modu kapalı");
             }
         }
         public void DoubleTap(Vector2 screen)

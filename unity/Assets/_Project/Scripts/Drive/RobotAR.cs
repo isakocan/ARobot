@@ -8,56 +8,67 @@ using UnityEngine.UI;
 namespace ARaki.Drive
 {
     /// <summary>
-    /// Gerçek robotun 360° görüntüsüne evde duran AR yaratıkları bindirir. Robotun evdeki konumu köprüden gelir
-    /// (durum paketindeki "konum": Jetson'da ArUco işareti + görsel pusula + anahtar kareler). Yaratıklar ev koordinatında
-    /// durur; her karede robota göre yerleri hesaplanıp kürenin merkezine (kamera) göre çizilir. Küre robota göre sabit
-    /// olduğundan robot dönünce görüntüyle birlikte dönerler.
+    /// Gerçek robotun 360° görüntüsüne evde duran AR nesneleri bindirir. Robotun evdeki konumu köprüden gelir
+    /// (durum paketindeki "konum": Jetson'da ArUco işareti + görsel pusula + zemin izi). Nesneler ev koordinatında sabit
+    /// durur; her karede robota göre yerleri hesaplanıp kürenin merkezine (kamera) göre çizilir.
     ///
-    /// Konum 5 Hz ve ~0,3 sn gecikmeli gelir. Dönüş bu yüzden telefonda ekrandaki görüntüden ölçülür (VideoCompass):
-    /// yaratıklar görüntüyle birebir döner, robotun yönü yalnız aradaki farkı robot dönmüyorken yavaşça düzeltir. Görüntü
-    /// pusulası tutmazsa eski yol: dönüş motor komutundan tahmin, gelen konuma yumuşak geçiş. Yaratıklar ayrı kamerayla yarım
-    /// çözünürlükte çizilip hafif bulanık bindirilir (360 görüntü kadar yumuşak görünsünler).
-    /// Yaratıklar konum ilk bulunduğunda robotun çevresine (0,7-1,3 m) konur, yuvalarının çevresinde yavaşça dolaşır.
+    /// Yön ve yer robotun gönderdiği konumdan gelir. Konum 5 Hz ve ~0,3 sn geç geldiği için aradaki boşluk telefonda
+    /// doldurulur: o andan beri ekrandaki görüntü pusulasının (VideoCompass) ölçtüğü dönüş (pusula sıfıra yapışmış ya da
+    /// tutmuyorsa motor komutundan dönüş), ileri hareket motor komutundan. Boşluk en çok ~0,5 sn, hata birikmez.
+    /// (Eski yol, 25 Kas: görüntü pusulası asıl kaynaktı, robotun yönü yalnız yavaşça düzeltiyordu; jiroskoplu sürüşte
+    /// AR yönü %90 26 / en çok 82 derece şaşıyordu. Yeni yol aynı kayıtta %90 12 / en çok 28; tools/konum/ar_yon_olc.py.)
+    /// Nesneler yalnız Dev modunda çift dokunulan yere konur ve yalnız Dev modunda görünür; yerlerinde kıpırdamadan durur
+    /// (konumun doğru olup olmadığı gözle görülsün). Ayrı kamerayla yarım çözünürlükte çizilip hafif bulanık bindirilir.
     /// </summary>
     public class RobotAR : MonoBehaviour
     {
         const float CameraHeight = 0.17f;       // mercek yerden ~17 cm
         const float TurnRate = 127f;            // derece/sn, (sol-sag) = 510'da (Jetson'un öğrendiği değer, 21 Kasım)
-        const int Count = 3;
+        const float Speed = 0.45f;              // m/sn, (sol+sag) = 510'da (konum.py HIZ_TAM)
+        const float PoseLag = 0.3f;             // robotun konumu ekrandaki görüntüden bu kadar eski (sn)
 
         RealRobotLink link;
         Transform root;
         Material baseMat;
         readonly List<Creature> creatures = new List<Creature>();
         bool havePose;
-        float poseX, poseZ, poseYaw;              // gösterilen (yumuşatılmış) robot konumu, ev koordinatı
+        float poseX, poseZ, poseYaw;              // gösterilen robot konumu, ev koordinatı
         float lastYaw = float.NaN, lastX, lastZ;  // son gelen konum
-        float predicted;                          // son konumdan beri komuttan tahmin edilen dönüş (derece)
+
+        // telefondaki kısa süreli hareket (keyfi çerçeve): dönüş görüntü pusulasından ya da komuttan, ileri komuttan
+        struct Odo { public float t, x, z, yaw; }
+        readonly List<Odo> hist = new List<Odo>();
+        float odoX, odoZ, odoYaw, lastCompassYaw = float.NaN;
+        Odo baseOdo;                              // son konumun ait olduğu andaki (PoseLag önce) kısa süreli hareket
+        Vector2 corrP; float corrY;               // yeni konum gelince sıçramasın: fark yumuşakça söner
+        readonly List<Vector2> route = new List<Vector2>();
 
         EnvironmentLight env;
         VideoCompass compass;
         Material shadowMat;
-        float yawOffset; bool haveOffset;         // ev yönü = görüntü pusulası + fark (robotun konumundan yavaşça)
-        float lastPoseTime;
 
         // yumuşak bindirme: yaratıklar ayrı kamerayla düşük çözünürlükte çizilip hafif bulanık konur
         const int SoftLayer = 30;
         const float SoftScale = 0.5f;
         Camera softCam; RenderTexture softRt; RawImage softImage;
 
-        /// <summary>Dev modunda yaratıklar yerinde durur (sabit kalıp kalmadığı kolay görülsün).</summary>
-        public bool Still { get; set; }
-        /// <summary>Dönüş kaynağı: görüntü (telefondaki görsel pusula) ya da konum.</summary>
-        public bool VisualYaw => compass != null && compass.Healthy && haveOffset;
+        /// <summary>Nesneler görünsün mü (yalnız Dev modunda).</summary>
+        public bool Visible { get; set; }
+        /// <summary>Konumlar arasındaki dönüşün kaynağı: görüntü (telefondaki görsel pusula) ya da motor komutu.</summary>
+        public bool VisualYaw { get; private set; }
         public VideoCompass Compass => compass;
+        /// <summary>Robotun gönderdiği konumlardan gidilen yol (ev koordinatı, 3 cm'de bir).</summary>
+        public IReadOnlyList<Vector2> Route => route;
+        /// <summary>Gidilen yol her uzadığında artar (küçük harita yeniden çizsin diye).</summary>
+        public int RouteVersion { get; private set; }
 
         class Creature
         {
             public Transform t, body, shadow;
             public MaterialPropertyBlock shadowBlock;
             public Transform[] eyes;
-            public Vector2 home, pos, target;
-            public float heading, phase, nextTarget, size, wander = 0.45f;
+            public Vector2 pos;
+            public float heading, phase, size;
         }
 
         PanoramaViewer view;
@@ -85,8 +96,8 @@ namespace ARaki.Drive
             var ev = new Vector2(poseX + p.x * c + p.z * sn, poseZ - p.x * sn + p.z * c);
             var colors = new[] { new Color(1f, 0.62f, 0.25f), new Color(0.35f, 0.85f, 0.75f), new Color(0.75f, 0.5f, 1f), new Color(1f, 0.45f, 0.55f) };
             var cr = Build(colors[creatures.Count % colors.Length], Random.Range(0.11f, 0.16f));
-            cr.home = cr.pos = cr.target = ev;
-            cr.heading = poseYaw + 180f; cr.phase = Random.value * 10f; cr.wander = 0.2f;
+            cr.pos = ev;
+            cr.heading = poseYaw + 180f; cr.phase = Random.value * 10f;
             creatures.Add(cr);
             return null;
         }
@@ -115,57 +126,68 @@ namespace ARaki.Drive
             if (link == null) return;
             var st = link.IsConnected && !link.Demo ? link.Status : null;
             var k = st?.konum;
-            float dt = Time.deltaTime;
-            // Editörde robotsuz demo: konum yok, yaratıklar robotun önünde sabit (ışık / gölge denemesi için)
-            if (Application.isEditor && link.Demo)
-            {
-                if (!havePose) { havePose = true; poseX = poseZ = poseYaw = 0f; Spawn(); }
-                k = new RobotStatus.Konum { var = true, x = 0f, z = 0f, yaw = 0f };
-                lastYaw = 0f; lastX = 0f; lastZ = 0f; predicted = 0f;
-            }
+            float dt = Time.deltaTime, now = Time.time;
+            // Editörde robotsuz demo: konum yok, robot ev başlangıcında (ışık / gölge denemesi için)
+            if (Application.isEditor && link.Demo) k = new RobotStatus.Konum { var = true, x = 0f, z = 0f, yaw = 0f };
 
-            // komuttan dönüş tahmini: konum 5 Hz geldiği için arada görüntüyle birlikte dönsün
+            // 1) kısa süreli hareket. Dönüş: ekrandaki görüntü pusulası; pusula tutmuyorsa ya da robot komutla dönerken
+            //    pusula duruyorsa (hızlı dönüşte sıfıra yapışıyor, 25 Kas jiroskop kaydı) motor komutu. İleri: motor komutu.
+            float cmdTurn = 0f, cmdFwd = 0f;
             if (st?.motor != null)
-                predicted += TurnRate * (st.motor.sol - st.motor.sag) / 510f * dt;
-
-            if (k != null && k.var)
             {
-                if (float.IsNaN(lastYaw) || k.yaw != lastYaw || k.x != lastX || k.z != lastZ)
+                cmdTurn = TurnRate * (st.motor.sol - st.motor.sag) / 510f;
+                cmdFwd = Speed * (st.motor.sol + st.motor.sag) / 510f;
+            }
+            float step = cmdTurn * dt;
+            VisualYaw = false;
+            if (compass != null && compass.Healthy && !float.IsNaN(lastCompassYaw))
+            {
+                bool stuck = compass.Rate < 5f && Mathf.Abs(cmdTurn) > 40f;
+                if (!stuck) { step = Mathf.DeltaAngle(lastCompassYaw, compass.Yaw); VisualYaw = true; }
+            }
+            if (compass != null) lastCompassYaw = compass.Yaw;
+            odoYaw += step;
+            float oy = odoYaw * Mathf.Deg2Rad;
+            odoX += Mathf.Sin(oy) * cmdFwd * dt; odoZ += Mathf.Cos(oy) * cmdFwd * dt;
+            hist.Add(new Odo { t = now, x = odoX, z = odoZ, yaw = odoYaw });
+            while (hist.Count > 2 && hist[1].t < now - 2f) hist.RemoveAt(0);
+
+            // 2) yeni konum geldi: o konumun ait olduğu andaki (PoseLag önce) kısa süreli hareket başlangıç olur
+            if (k != null && k.var && (float.IsNaN(lastYaw) || k.yaw != lastYaw || k.x != lastX || k.z != lastZ))
+            {
+                lastYaw = k.yaw; lastX = k.x; lastZ = k.z;
+                var before = new Vector2(poseX, poseZ); float beforeYaw = poseYaw;
+                baseOdo = At(now - PoseLag);
+                Target(out var tp, out var ty);
+                corrP = Vector2.zero; corrY = 0f;
+                if (havePose)
                 {
-                    lastYaw = k.yaw; lastX = k.x; lastZ = k.z;
-                    predicted = 0f;                     // yeni konum: tahmin sıfırdan
-                    lastPoseTime = Time.time;
-                    // görüntü pusulası ile robotun yönü arasındaki fark: ilk seferde doğrudan, sonra yavaşça ve yalnız
-                    // dönmüyorken (robotun konumu ~0,3 sn geç; dönerken fark gecikmeden ötürü yanlış olur)
-                    if (compass != null && compass.Healthy)
-                    {
-                        float target = Mathf.DeltaAngle(0f, k.yaw - compass.Yaw);
-                        if (!haveOffset || Mathf.Abs(Mathf.DeltaAngle(yawOffset, target)) > 45f) { yawOffset = target; haveOffset = true; }
-                        else if (compass.Rate < 12f) yawOffset += Mathf.DeltaAngle(yawOffset, target) * 0.12f;
-                    }
-                    if (!havePose)
-                    {
-                        havePose = true;
-                        poseX = k.x; poseZ = k.z; poseYaw = k.yaw;
-                        Spawn();
-                    }
+                    // küçük fark yumuşakça söner; büyük düzeltme (işaret yeniden görüldü) hemen uygulanır
+                    corrP = before - tp; corrY = Mathf.DeltaAngle(ty, beforeYaw);
+                    if (corrP.magnitude > 0.5f || Mathf.Abs(corrY) > 30f) { corrP = Vector2.zero; corrY = 0f; }
                 }
-                // gelen konuma (+ tahmin) yumuşak geçiş; yön daha hızlı (görüntü anında döner)
-                float a = 1f - Mathf.Exp(-dt / 0.2f), ay = 1f - Mathf.Exp(-dt / 0.08f);
-                poseX = Mathf.Lerp(poseX, k.x, a);
-                poseZ = Mathf.Lerp(poseZ, k.z, a);
-                if (VisualYaw) poseYaw = compass.Yaw + yawOffset;          // görüntüyle birebir, yumuşatma yok
-                else poseYaw += Mathf.DeltaAngle(poseYaw, k.yaw + predicted) * ay;
+                havePose = true;
+                var p = new Vector2(k.x, k.z);
+                if (route.Count == 0 || Vector2.Distance(route[route.Count - 1], p) >= 0.03f)
+                {
+                    route.Add(p); RouteVersion++;
+                    if (route.Count > 20000) route.RemoveRange(0, 1000);
+                }
+            }
+            if (havePose)
+            {
+                Target(out var tp, out var ty);
+                corrP *= Mathf.Exp(-dt / 0.25f); corrY *= Mathf.Exp(-dt / 0.15f);
+                poseX = tp.x + corrP.x; poseZ = tp.y + corrP.y; poseYaw = ty + corrY;
             }
 
-            bool show = havePose && k != null && k.var;
+            bool show = havePose && k != null && k.var && Visible && creatures.Count > 0;
             root.gameObject.SetActive(show);
             if (!show) return;
 
             float c = Mathf.Cos(poseYaw * Mathf.Deg2Rad), s = Mathf.Sin(poseYaw * Mathf.Deg2Rad);
             foreach (var cr in creatures)
             {
-                if (!Still) Wander(cr, dt);
                 // ev -> robot: ileri = (sin yaw, cos yaw), sağ = (cos yaw, -sin yaw)
                 float dx = cr.pos.x - poseX, dz = cr.pos.y - poseZ;
                 float right = dx * c - dz * s, fwd = dx * s + dz * c;
@@ -174,6 +196,29 @@ namespace ARaki.Drive
                 Animate(cr);
                 Shadow(cr);
             }
+        }
+
+        /// <summary>t anındaki kısa süreli hareket (geçmişten, doğrusal ara değer).</summary>
+        Odo At(float t)
+        {
+            if (hist.Count == 0) return new Odo { t = t, x = odoX, z = odoZ, yaw = odoYaw };
+            for (int i = hist.Count - 1; i > 0; i--)
+                if (hist[i - 1].t <= t)
+                {
+                    var a = hist[i - 1]; var b = hist[i];
+                    float u = b.t > a.t ? Mathf.Clamp01((t - a.t) / (b.t - a.t)) : 1f;
+                    return new Odo { t = t, x = Mathf.Lerp(a.x, b.x, u), z = Mathf.Lerp(a.z, b.z, u), yaw = Mathf.Lerp(a.yaw, b.yaw, u) };
+                }
+            return hist[0];
+        }
+
+        /// <summary>Son gelen konum + o andan beri telefonda ölçülen kısa süreli hareket (ev koordinatına döndürülmüş).</summary>
+        void Target(out Vector2 p, out float yaw)
+        {
+            float th = (lastYaw - baseOdo.yaw) * Mathf.Deg2Rad, ct = Mathf.Cos(th), sn = Mathf.Sin(th);
+            float vx = odoX - baseOdo.x, vz = odoZ - baseOdo.z;
+            p = new Vector2(lastX + vx * ct + vz * sn, lastZ - vx * sn + vz * ct);
+            yaw = lastYaw + (odoYaw - baseOdo.yaw);
         }
 
         // ---------------------------------------------------------------- gölge
@@ -200,48 +245,12 @@ namespace ARaki.Drive
 
         // ---------------------------------------------------------------- yaratıklar
 
-        void Spawn()
-        {
-            var colors = new[] { new Color(1f, 0.62f, 0.25f), new Color(0.35f, 0.85f, 0.75f), new Color(0.75f, 0.5f, 1f) };
-            for (int i = 0; i < Count; i++)
-            {
-                // robotun önünde, 100 derecelik yayda, 0,7-1,3 m
-                float ang = poseYaw + (i - 1) * 50f + Random.Range(-10f, 10f);
-                float r = Random.Range(0.7f, 1.3f);
-                var home = new Vector2(poseX + Mathf.Sin(ang * Mathf.Deg2Rad) * r, poseZ + Mathf.Cos(ang * Mathf.Deg2Rad) * r);
-                var cr = Build(colors[i % colors.Length], Random.Range(0.11f, 0.16f));
-                cr.home = cr.pos = cr.target = home;
-                cr.heading = ang + 180f;
-                cr.phase = Random.value * 10f;
-                creatures.Add(cr);
-            }
-        }
-
-        void Wander(Creature cr, float dt)
-        {
-            if (Time.time > cr.nextTarget || Vector2.Distance(cr.pos, cr.target) < 0.03f)
-            {
-                cr.target = cr.home + Random.insideUnitCircle * cr.wander;
-                cr.nextTarget = Time.time + Random.Range(4f, 9f);
-            }
-            var d = cr.target - cr.pos;
-            float want = Mathf.Atan2(d.x, d.y) * Mathf.Rad2Deg;
-            cr.heading = Mathf.MoveTowardsAngle(cr.heading, want, 70f * dt);
-            // yalnız yönü hedefe yakınken ilerle, yavaşça (6 cm/sn)
-            if (Mathf.Abs(Mathf.DeltaAngle(cr.heading, want)) < 40f && d.magnitude > 0.03f)
-            {
-                float h = cr.heading * Mathf.Deg2Rad;
-                cr.pos += new Vector2(Mathf.Sin(h), Mathf.Cos(h)) * Mathf.Min(0.06f * dt, d.magnitude);
-            }
-        }
-
         void Animate(Creature cr)
         {
+            // kıpırdamaz (konumun doğruluğu gözle görülsün); yalnız göz kırpar
             float t = Time.time + cr.phase;
-            float hop = Mathf.Abs(Mathf.Sin(t * 3.2f));
-            cr.body.localPosition = new Vector3(0f, cr.size * (0.55f + 0.18f * hop), 0f);
-            float sq = 1f + 0.08f * (1f - hop);
-            cr.body.localScale = new Vector3(cr.size * sq, cr.size / sq, cr.size * sq);
+            cr.body.localPosition = new Vector3(0f, cr.size * 0.55f, 0f);
+            cr.body.localScale = new Vector3(cr.size, cr.size, cr.size);
             float blink = Mathf.Repeat(t, 3.7f) < 0.12f ? 0.15f : 1f;
             foreach (var e in cr.eyes) e.localScale = new Vector3(0.22f, 0.22f * blink, 0.12f);
         }
