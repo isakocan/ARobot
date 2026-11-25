@@ -17,6 +17,8 @@ sys.path.insert(0, os.path.join(KOK, "robot", "jetson", "konum"))
 import konum, orb_hafiza, isaret
 
 H = 0.17
+if os.environ.get("ORB_UST"):                     # deney: panoramanın üst sınırı (tavan)
+    orb_hafiza.UST = float(os.environ["ORB_UST"]); orb_hafiza.YUK = int((orb_hafiza.UST - orb_hafiza.ALT) * orb_hafiza.PX)
 ARALIK = 0.10
 
 
@@ -165,6 +167,7 @@ for q in S[::2]:
     p, n = r
     e2.append(math.hypot(p[0] - q["x"], p[1] - q["z"])); y2.append(abs(da(math.degrees(p[2] - q["yaw"])))); n2.append(n)
 e1, e2, y1, y2 = map(np.array, (e1, e2, y1, y2))
+print("tanima: %d / %d soru karesinde en iyi anahtar kare >= 20 uyan nokta" % (len(e1), len(S[::2])))
 print("soru %d kare | anahtar kare: yer ortanca %.2f %%90 %.2f m, yon ortanca %.1f %%90 %.1f der" % (len(e1), np.median(e1), np.percentile(e1, 90), np.median(y1), np.percentile(y1, 90)))
 print("           | 3B harita   : yer ortanca %.2f %%90 %.2f m, yon ortanca %.1f %%90 %.1f der | cozulen %%%d, uyan nokta ortanca %d, sure %.0f ms" % (
     np.median(e2), np.percentile(e2, 90), np.median(y2), np.percentile(y2, 90), 100 * np.mean(np.array(n2) > 0), np.median([n for n in n2 if n] or [0]), 1000 * np.median(sure)))
