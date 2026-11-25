@@ -257,9 +257,9 @@ class KonumBulucu:
             gecerli = any(g["id"] in self.ev and g["mesafe"] < ISARET_MENZIL for g in gorulen)
             F = None
             if yakin and self.bilinen and self.P[2, 2] < ORB_KAYIT_SY ** 2 and self.hafiza.bos_yer(self.x, self.z):
-                F = self.hafiza.ozellik(ham_gri)
+                F = self.hafiza.ozellik(ham_gri, gorulen)
             elif not gecerli and len(self.hafiza) and simdi - self._son_hafiza > ORB_ARALIK:
-                F = self.hafiza.ozellik(ham_gri)
+                F = self.hafiza.ozellik(ham_gri, gorulen)
         else:
             F = hafiza.Hafiza.ozellik(self.pusula.onceki)
         with self.kilit:

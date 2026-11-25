@@ -102,8 +102,10 @@ class OrbHafiza:
         k = cv2.remap(ham_gri, self.kmx, self.kmy, cv2.INTER_AREA).astype(np.float32)
         self.govde.guncelle(k, hareketli)
 
-    def ozellik(self, ham_gri):
-        """-> (tanımlayıcılar, boylam derece, enlem derece) ya da None. Pahalı: yalnız gerekince."""
+    def ozellik(self, ham_gri, gizle=None):
+        """-> (tanımlayıcılar, boylam derece, enlem derece) ya da None. Pahalı: yalnız gerekince.
+        gizle: isaret.bul çıktısı; işaretlerin üstündeki noktalar atılır. Anahtar kare işaretin kendisine değil odaya
+        dayanmalı (25 Kasım görseli: doğru eşleşmelerin çoğu işaretin üstündeydi; işaret taşınınca kare işe yaramazdı)."""
         p = cv2.remap(ham_gri, self.mx, self.my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
         if self.gorus is None:
             beyaz = cv2.remap(np.full(ham_gri.shape, 255, np.uint8), self.mx, self.my, cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
@@ -116,6 +118,15 @@ class OrbHafiza:
             return None
         lon = np.array([(k.pt[0] / GEN - 0.5) * 360.0 for k in kp], np.float32)
         lat = np.array([UST - k.pt[1] / PX for k in kp], np.float32)
+        if gizle:
+            tut = np.ones(len(lon), bool)
+            for g in gizle:
+                r = math.degrees(math.atan2(0.18, max(0.1, g["mesafe"]))) + 3.0
+                ey = math.degrees(math.atan2(abs(g.get("y", 0.0)), max(0.1, g["mesafe"])))
+                tut &= ~((np.abs(_da(lon - g["yon"])) < r) & (np.abs(lat) < ey + r))
+            d, lon, lat = d[tut], lon[tut], lat[tut]
+            if len(d) < 20:
+                return None
         return d, lon, lat
 
     # ------------------------------------------------------------ ekleme
