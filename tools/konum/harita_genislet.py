@@ -81,7 +81,11 @@ for i, f in enumerate(R):
         say[kaynak] += 1; yol.append((hp[0], hp[1], kaynak))
         if kaynak in ("isaret", "harita") and harita.bos_yer(hp[0], hp[1]):
             if oz is None: oz = Y.cikar(nh.panorama(g), kb.gorulen, oh.govde.kullan())
-            harita.ekle(oz, hp[0], hp[1], hp[2], kaynak)
+            onsel = None
+            if kaynak == "isaret":
+                r_ = min(q[1] for q in kb.gorulen)
+                onsel = (0.02 + 0.03 * r_, math.radians(2.0 + 8.0 * max(0.0, r_ - 0.8)))
+            harita.ekle(oz, hp[0], hp[1], hp[2], kaynak, onsel)
 kk = harita.kareler
 uz = [math.hypot(k["x"], k["z"]) for k in kk]
 print("harita (%s): %d anahtar kare (isaretten %d, haritadan %d), %d 3B nokta; isarete uzaklik en cok %.1f m; kare kaynagi isaret %d / harita %d / tahmin %d (%.0f sn)" % (
@@ -101,36 +105,42 @@ for i, f in enumerate(R):
     if ref.bilinen and [q for q in ref.gorulen if q[1] <= 1.3] and math.degrees(math.sqrt(ref.P[2, 2])) < 4 and i in GY and abs(da(math.degrees(ref.yaw) - GY[i])) < 4:
         GER[i] = (ref.x, ref.z)
 
-kb = konum.KonumBulucu(); kb.ev_ayarla(EV); kb.ev = {}       # işaret hiç yok
-oh = orb_hafiza.OrbHafiza(); ey, ep, kabul, olc = {}, [], 0, 0; yerT = []
-for i, f in enumerate(R):
-    g = cv2.imread(os.path.join(T, f["jpg"]), cv2.IMREAD_GRAYSCALE)
-    if g is None: continue
-    kb.isle(g, f["t"], (f["sol"], f["sag"]))
-    oh.gozle(g, f["sol"] != 0 or f["sag"] != 0)
-    if i % 2 == 0:
-        oz = Y.cikar(nh.panorama(g), kb.gorulen, oh.govde.kullan())
-        r = harita.yerles(oz, *((kb.x, kb.z, kb.yaw) if kb.bilinen else (None, None, None)), yaricap=0.8)
-        if r is not None and r[3] >= 25:
-            k_ = max(1.0, math.sqrt(40.0 / r[3]))
-            o = kb.harita_olcumu(r[0], r[1], r[2], 0.05 * k_, math.radians(2.0) * k_, r[3], f["t"]); olc += 1; kabul += o[4]
-    if kb.bilinen:
-        yerT.append((kb.x, kb.z))
-        if i in GY: ey[i] = abs(da(math.degrees(kb.yaw) - GY[i]))
-        if i in GER: ep.append(math.hypot(kb.x - GER[i][0], kb.z - GER[i][1]))
-
-
 def ozet(d, ad):
     a = np.array(list(d.values()))
     if not len(a): return "%s: -" % ad
     return "%s %3d kare: ortanca %4.1f, %%90 %5.1f, en cok %5.1f der" % (ad, len(a), np.median(a), np.percentile(a, 90), a.max())
 
 
-en = {i: abs(da(NORMAL[i] - GY[i])) for i in NORMAL if i in GY}
-print("test (%s), isaret HIC kullanilmadan, yalniz harita: %d olcum, %d kabul; ilk konum karesi %s" % (os.path.basename(T), olc, kabul, min(ey) if ey else "-"))
-for ad, d in (("harita", ey), ("bugunku sistem (isaretli)", en)):
-    print("  %-26s yon | %s | %s" % (ad, ozet({i: v for i, v in d.items() if i in YAKIN}, "isaret yakinda"), ozet({i: v for i, v in d.items() if i not in YAKIN}, "isaret uzakta/yok")))
-if ep: print("  harita: yer hatasi (isaretin yakindan gorundugu karelerde, isaret kullanilmadan) ortanca %.2f %%90 %.2f m" % (np.median(ep), np.percentile(ep, 90)))
+def test(ad_h):
+    kb = konum.KonumBulucu(); kb.ev_ayarla(EV); kb.ev = {}       # işaret hiç yok
+    oh = orb_hafiza.OrbHafiza(); ey, ep, kabul, olc = {}, [], 0, 0; yerT = []
+    for i, f in enumerate(R):
+        g = cv2.imread(os.path.join(T, f["jpg"]), cv2.IMREAD_GRAYSCALE)
+        if g is None: continue
+        kb.isle(g, f["t"], (f["sol"], f["sag"]))
+        oh.gozle(g, f["sol"] != 0 or f["sag"] != 0)
+        if i % 2 == 0:
+            oz = Y.cikar(nh.panorama(g), kb.gorulen, oh.govde.kullan())
+            r = harita.yerles(oz, *((kb.x, kb.z, kb.yaw) if kb.bilinen else (None, None, None)), yaricap=0.8)
+            if r is not None and r[3] >= 25:
+                k_ = max(1.0, math.sqrt(40.0 / r[3]))
+                o = kb.harita_olcumu(r[0], r[1], r[2], 0.05 * k_, math.radians(2.0) * k_, r[3], f["t"]); olc += 1; kabul += o[4]
+        if kb.bilinen:
+            yerT.append((kb.x, kb.z))
+            if i in GY: ey[i] = abs(da(math.degrees(kb.yaw) - GY[i]))
+            if i in GER: ep.append(math.hypot(kb.x - GER[i][0], kb.z - GER[i][1]))
+
+    en = {i: abs(da(NORMAL[i] - GY[i])) for i in NORMAL if i in GY}
+    print("test (%s), isaret HIC kullanilmadan, yalniz harita: %d olcum, %d kabul; ilk konum karesi %s" % (os.path.basename(T), olc, kabul, min(ey) if ey else "-"))
+    for ad, d in ((ad_h, ey), ("bugunku sistem (isaretli)", en)):
+        print("  %-28s yon | %s | %s" % (ad, ozet({i: v for i, v in d.items() if i in YAKIN}, "isaret yakinda"), ozet({i: v for i, v in d.items() if i not in YAKIN}, "isaret uzakta/yok")))
+    if ep: print("  harita: yer hatasi (isaretin yakindan gorundugu karelerde, isaret kullanilmadan) ortanca %.2f %%90 %.2f m" % (np.median(ep), np.percentile(ep, 90)))
+
+
+test("harita (duzeltmeden)")
+if os.environ.get("DUZELT", "1") == "1":
+    harita.duzelt(s_enlem=float(os.environ["BA_ENLEM"]) if os.environ.get("BA_ENLEM") else None, onsel_k=float(os.environ.get("BA_ONSEL_K", "1")))
+    test("harita (demet ayarli)")
 
 if CIKTI:
     S = 120; ox, oz0 = 3.2, 1.2; W, Hh = int(6.4 * S), int(4.2 * S)
@@ -141,7 +151,7 @@ if CIKTI:
     for z in range(-1, 4):
         cv2.line(im, px(-3.2, z), px(3.2, z), (235, 235, 235), 1)
     for k in kk:
-        for P in k["P"].values():
+        for P in [harita.Pn[no] for no in k["P"].values()]:
             cv2.circle(im, px(P[0], P[2]), 1, (170, 170, 170), -1)
     for x, z, s in yol:
         cv2.circle(im, px(x, z), 2, {"isaret": (60, 160, 60), "harita": (200, 120, 30), "tahmin": (60, 60, 220)}[s], -1)
