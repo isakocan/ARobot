@@ -24,6 +24,7 @@ import numpy as np
 
 import hafiza
 import isaret
+import orb_hafiza
 import teta
 import zemin_izi
 
@@ -37,7 +38,20 @@ HAFIZA_KAYIT_MENZIL = 1.5  # m: yalniz bu kadar yakin, belirsiz olmayan isaretle
 HAFIZA_YEREL = 0.6         # m: isaret yokken tahmini konumun bu cevresindeki anahtar karelerle eslesir
 HAFIZA_YEREL_ESIK = 0.25   # benzerlik
 HAFIZA_GENEL_ESIK = 0.45   # hic bilinmiyorken yalniz cok guclu ve tek anlamli eslesmeyle yer bulunur
-SIFIR_KURALI = True        # pusula sıfıra yapışınca zemin izi / komut (dinamik maskeyle gerekirse kapatılır; ölçüm: tools/konum/konum_gercek.py)
+# Anahtar kare (25 Kasım): ORB noktaları (orb_hafiza.py). Eski 360 silüet (hafiza.py) farklı günde yeri ayırt edemiyordu.
+HAFIZA_ORB = True
+ORB_ARALIK = 0.6           # sn: işaret yokken anahtar kare eşleştirme sıklığı
+ORB_YEREL = 1.2            # m: konum biliniyorken tahminin bu çevresindeki kareler
+ORB_ESIK = int(os.environ.get("ORB_ESIK", "35"))   # uyan nokta: bundan azı yok sayılır (25 Kasım: 27 noktalık yanlış eşleşme yönü 15 derece bozdu)
+ORB_GENEL_ESIK = 45        # konum hiç bilinmiyorken (yalnız çok güçlü ve tek anlamlı eşleşme)
+ORB_S_YER = 0.15           # m: anahtar kare ölçümünün yer belirsizliği (kare aralığı + farklı gün)
+ORB_S_YON = math.radians(4.0)
+ORB_KILIT_GOZLEM = 3        # birbirini tutan bu kadar güçlü aykırı ORB ölçümü ORB_KILIT_SURE içinde: yeniden kilit
+ORB_KILIT_SURE = 4.0
+ORB_KILIT_NOKTA = 30
+ORB_KAYIT_SY = math.radians(float(os.environ.get("ORB_KAYIT_SY", "4.0")))   # anahtar kare yalnız yön bu kadar kesinken
+ORB_KAYIT_SN = math.radians(float(os.environ.get("ORB_KAYIT_SN", "99")))   # ve işaret yüzey yönü ölçümü bu kadar güvenilirken
+SIFIR_KURALI = True       # pusula sıfıra yapışınca zemin izi / komut (dinamik maskeyle gerekirse kapatılır; ölçüm: tools/konum/konum_gercek.py)
 HIZ_TAM = 0.45             # m/s: PWM 255'te ileri hız ilk tahmini (CLAUDE.md: ~1-2 km/s)
 DONUS_TAM = 140.0          # derece/s: (sol-sag)=510'da donus ilk tahmini (21 Kasim kaydi: fark 408'de ~110 derece/s); surerken ogrenir
 
@@ -122,7 +136,9 @@ class KonumBulucu:
         self._yol_tahmin = 0.0     # son işaret düzeltmesinden beri tahmin edilen yol
         self._son_fix = None       # (x, z) son düzeltmedeki konum (tahmin edilmeden önceki)
         self._aday = []            # uzaktan ilk konum icin (zaman, isaret yonu - pusula yonu)
-        self.hafiza = hafiza.Hafiza(hafiza_klasoru)
+        self.hafiza = orb_hafiza.OrbHafiza(hafiza_klasoru) if HAFIZA_ORB else hafiza.Hafiza(hafiza_klasoru)
+        self._orb_kilit = []       # (zaman, x, z, yaw): aykırı ORB ölçümleri
+        self.hafiza_son = None     # son ORB anahtar kare ölçümü: [uyan nokta, dx m, dz m, dyaw derece, kabul 0/1]
         self.kaynak = ""           # son duzeltmenin kaynagi: isaret | hafiza
         self._son_hafiza = 0.0
         self.aktif = False
@@ -234,7 +250,18 @@ class KonumBulucu:
             ileri, yan = self.hiz_k * (ksol + ksag) / 510.0 * dt, 0.0
             self.hareket = "motor"
         gorulen = isaret.bul(ham_gri)
-        F = hafiza.Hafiza.ozellik(self.pusula.onceki)
+        # anahtar kare özelliği: ORB pahalı (PC'de ~20 ms), yalnız gerekince ve kilit dışında çıkarılır
+        if HAFIZA_ORB:
+            self.hafiza.gozle(ham_gri, abs(d_derece) > 2.0 or math.hypot(ileri, yan) > 0.01)
+            yakin = any(g["id"] in self.ev and g["mesafe"] < HAFIZA_KAYIT_MENZIL for g in gorulen)
+            gecerli = any(g["id"] in self.ev and g["mesafe"] < ISARET_MENZIL for g in gorulen)
+            F = None
+            if yakin and self.bilinen and self.P[2, 2] < ORB_KAYIT_SY ** 2 and self.hafiza.bos_yer(self.x, self.z):
+                F = self.hafiza.ozellik(ham_gri)
+            elif not gecerli and len(self.hafiza) and simdi - self._son_hafiza > ORB_ARALIK:
+                F = self.hafiza.ozellik(ham_gri)
+        else:
+            F = hafiza.Hafiza.ozellik(self.pusula.onceki)
         with self.kilit:
             if kare is not None:
                 self.kare, self.kare_t = int(kare), simdi
@@ -248,6 +275,7 @@ class KonumBulucu:
                 if g["id"] in self.ev and g["mesafe"] < ISARET_MENZIL and (en is None or g["mesafe"] < en["mesafe"]):
                     en = g
             self.hata = None
+            self.hafiza_son = None
             duzeldi = False
             if en is not None:
                 duzeldi = self._isaret(en, simdi)
@@ -264,9 +292,12 @@ class KonumBulucu:
                 self.son_isaret = simdi; self.son_isaret_id = en["id"]
                 self._son_fix = (self.x, self.z); self._yol_tahmin = 0.0; self._yol_goruntu = 0.0
                 self.kaynak = "isaret"
-                if en["mesafe"] < HAFIZA_KAYIT_MENZIL and not en.get("belirsiz") and self.P[2, 2] < math.radians(4) ** 2:
+                if en["mesafe"] < HAFIZA_KAYIT_MENZIL and not en.get("belirsiz") and F is not None and                         self.P[2, 2] < ORB_KAYIT_SY ** 2 and s_normal(en["mesafe"], egiklik(en)) <= ORB_KAYIT_SN:
                     self.hafiza.ekle(F, self.x, self.z, self.yaw)
-            elif en is None and simdi - self._son_hafiza > 1.0 and len(self.hafiza):
+            elif HAFIZA_ORB and en is None and F is not None and simdi - self._son_hafiza > ORB_ARALIK:
+                self._son_hafiza = simdi
+                self._orbdan(F, simdi)
+            elif not HAFIZA_ORB and en is None and simdi - self._son_hafiza > 1.0 and len(self.hafiza):
                 self._son_hafiza = simdi
                 self._hafizadan(F, simdi)
             # [id, uzaklık, görülme açısı, işaret merkezinin kameradan yüksekliği (m)]: telefon AR'da işaretin yerini çizer
@@ -277,7 +308,7 @@ class KonumBulucu:
             if self.olcum_ac:
                 self.olcumler.append({"t": simdi, "x": self.x, "z": self.z, "yaw": math.degrees(self.yaw), "var": self.bilinen,
                                       "sol": sol, "sag": sag, "hata": self.hata, "sp": math.sqrt((self.P[0, 0] + self.P[1, 1]) / 2),
-                                      "sy": math.degrees(math.sqrt(self.P[2, 2])), "hareket": self.hareket, "guven": guven,
+                                      "sy": math.degrees(math.sqrt(self.P[2, 2])), "hareket": self.hareket, "guven": guven, "orb": self.hafiza_son,
                                       "isaret": [[g["id"], g["mesafe"], g["yon"], math.degrees(g["aci"]), g.get("belirsiz", False)] for g in gorulen]})
         self.ms = (time.time() - t0) * 1000.0
         return gorulen
@@ -393,7 +424,9 @@ class KonumBulucu:
         else:
             p = Poz2(self.x + sum(q[1] for q in a) / n, self.z + sum(q[2] for q in a) / n, yaw)
         sy = max(math.radians(4.0), s_normal(en["mesafe"], egiklik(en)) / math.sqrt(n)) if en is not None else math.radians(4.0)
-        self._kur(p, sy, 0.06, neden)
+        # yer, yönle birlikte belirsiz: işaret r metrede görülüyor, yön sy kadar yanlışsa yer ~r*sy kayar (25 Kasım: uzaktan kurulan
+        # ilk kilitte yön 21 derece, yer 0,6 m yanlıştı; yer "kesin" sanıldığı için anahtar kare ölçümleri reddediliyordu)
+        self._kur(p, sy, max(0.06, en["mesafe"] * sy) if en is not None else 0.06, neden)
 
     def _kur(self, p, s_yaw, s_poz, neden):
         self.x, self.z, self.yaw = p.x, p.z, p.aci
@@ -401,6 +434,65 @@ class KonumBulucu:
         self.bilinen = True
         self._kilit = []
         print("[konum] %s: (%.2f, %.2f) yon %.0f" % (neden, self.x, self.z, math.degrees(self.yaw)))
+
+    def _orbdan(self, F, simdi):
+        """İşaret görünmüyorken ORB anahtar karelerle düzeltme (kilit içinde). Konum biliniyorken: tahminin ORB_YEREL
+        çevresindeki kareler; en iyilerin (puanla ağırlıklı) yeri ve yönü süzgece doğrudan ölçüm olarak girer, aykırıysa
+        (işaretteki gibi Mahalanobis kapısı) yok sayılır. Hiç bilinmiyorken yalnız çok güçlü ve tek anlamlı eşleşmeyle kurulur."""
+        if self.bilinen:
+            if simdi - self.son_isaret < 1.0:
+                return
+            m = self.hafiza.eslestir(F, (self.x, self.z), ORB_YEREL)
+            if not m or m[0][0] < ORB_ESIK:
+                return
+            b = m[0]
+            grup = [a for a in m[:4] if math.hypot(a[1] - b[1], a[2] - b[2]) < 0.5 and a[0] >= 0.5 * b[0]]
+            w = np.array([a[0] ** 2 for a in grup], float)
+            mx = float(np.dot(w, [a[1] for a in grup]) / w.sum()); mz = float(np.dot(w, [a[2] for a in grup]) / w.sum())
+            myaw = math.atan2(float(np.dot(w, [math.sin(a[3]) for a in grup])), float(np.dot(w, [math.cos(a[3]) for a in grup])))
+            y = np.array([mx - self.x, mz - self.z, _aci_fark(myaw, self.yaw)])
+            k = max(1.0, math.sqrt(60.0 / b[0]))      # az uyan noktalı ölçüme daha az güven
+            Rm = np.diag([(k * ORB_S_YER) ** 2, (k * ORB_S_YER) ** 2, (k * ORB_S_YON) ** 2])
+            S = self.P + Rm
+            Si = np.linalg.inv(S)
+            d2 = float(y @ Si @ y)
+            self.hafiza_son = [b[0], round(float(y[0]), 3), round(float(y[1]), 3), round(math.degrees(y[2]), 1), 0]
+            if d2 > KAPI:
+                # aykırı: süzgeç yanılmış olabilir (ör. uzak / eğik işaretle 20 derece yanlış kurulan ilk kilit, 25 Kasım).
+                # Birbirini tutan güçlü ORB_KILIT_GOZLEM aykırı ölçüm KILIT_SURE içinde: konum anahtar karelerden yeniden kurulur.
+                if b[0] >= ORB_KILIT_NOKTA:
+                    self._orb_kilit = [a for a in self._orb_kilit if simdi - a[0] < ORB_KILIT_SURE] + [(simdi, mx, mz, myaw)]
+                    a3 = self._orb_kilit[-ORB_KILIT_GOZLEM:]
+                    if len(a3) >= ORB_KILIT_GOZLEM:
+                        ox = sum(q[1] for q in a3) / len(a3); oz = sum(q[2] for q in a3) / len(a3)
+                        oy = math.atan2(sum(math.sin(q[3]) for q in a3), sum(math.cos(q[3]) for q in a3))
+                        if max(math.hypot(q[1] - ox, q[2] - oz) for q in a3) < 0.25 and max(abs(_aci_fark(q[3], oy)) for q in a3) < math.radians(8):
+                            self.kilit_sayisi += 1
+                            self._kur(Poz2(ox, oz, oy), ORB_S_YON, ORB_S_YER, "ORB yeniden kilit (%d tutarli aykiri olcum, yon farki %.0f derece)" % (
+                                len(a3), math.degrees(_aci_fark(oy, self.yaw))))
+                            self._orb_kilit = []
+                            self.kaynak = "hafiza"
+                return
+            self._orb_kilit = []
+            K = self.P @ Si
+            dx = K @ y
+            self.x += dx[0]; self.z += dx[1]; self.yaw += dx[2]
+            self.P = (np.eye(3) - K) @ self.P
+            self.P = (self.P + self.P.T) / 2
+            self.P[0, 0] = max(self.P[0, 0], P_TABAN[0] ** 2); self.P[1, 1] = max(self.P[1, 1], P_TABAN[0] ** 2)
+            self.P[2, 2] = max(self.P[2, 2], P_TABAN[1] ** 2)
+            self.hafiza_son[4] = 1
+            self.kaynak = "hafiza"
+            return
+        m = self.hafiza.eslestir(F)
+        if not m or m[0][0] < ORB_GENEL_ESIK:
+            return
+        b = m[0]
+        ikinci = next((a[0] for a in m[1:] if math.hypot(a[1] - b[1], a[2] - b[2]) > 0.8), 0)
+        if ikinci > 0.7 * b[0]:
+            return
+        self._kur(Poz2(b[1], b[2], b[3]), math.radians(6.0), 0.2, "ORB hafizadan yer bulundu (%d uyan nokta)" % b[0])
+        self.kaynak = "hafiza"
 
     def _hafizadan(self, F, simdi):
         """İşaret görünmüyorken anahtar karelerle düzeltme (kilit içinde çağrılır).
