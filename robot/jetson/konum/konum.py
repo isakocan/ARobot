@@ -435,6 +435,55 @@ class KonumBulucu:
         self._kilit = []
         print("[konum] %s: (%.2f, %.2f) yon %.0f" % (neden, self.x, self.z, math.degrees(self.yaw)))
 
+    def harita_olcumu(self, x, z, yaw, s_yer, s_yon, n, simdi=None):
+        """Dışarıdan gelen tam konum ölçümü (ör. 3B nokta haritasından: x, z m, yaw radyan, belirsizlikler, uyan nokta).
+        Konum bilinmiyorsa doğrudan kurulur; biliniyorsa süzgece girer (aykırıysa kapı + tutarlı aykırılarla yeniden kilit).
+        -> [n, dx, dz, dyaw derece, kabul 0/1]"""
+        simdi = time.time() if simdi is None else simdi
+        with self.kilit:
+            if not self.bilinen:
+                self._kur(Poz2(x, z, yaw), s_yon, s_yer, "haritadan yer bulundu (%d uyan nokta)" % n)
+                self.kaynak = "harita"
+                return [n, 0.0, 0.0, 0.0, 1]
+            r = self._konum_olcumu(x, z, yaw, s_yer, s_yon, n, simdi)
+            if r[4]:
+                self.kaynak = "harita"
+            return r
+
+    def _konum_olcumu(self, mx, mz, myaw, s_yer, s_yon, n, simdi):
+        """Tam konum ölçümünü süzgece işler (kilit içinde). -> [n, dx, dz, dyaw derece, kabul]"""
+        y = np.array([mx - self.x, mz - self.z, _aci_fark(myaw, self.yaw)])
+        Rm = np.diag([s_yer ** 2, s_yer ** 2, s_yon ** 2])
+        Si = np.linalg.inv(self.P + Rm)
+        d2 = float(y @ Si @ y)
+        son = [n, round(float(y[0]), 3), round(float(y[1]), 3), round(math.degrees(y[2]), 1), 0]
+        if d2 > KAPI:
+            # aykırı: süzgeç yanılmış olabilir (ör. uzak / eğik işaretle 20 derece yanlış kurulan ilk kilit, 25 Kasım).
+            # Birbirini tutan güçlü ORB_KILIT_GOZLEM aykırı ölçüm ORB_KILIT_SURE içinde: konum yeniden kurulur.
+            if n >= ORB_KILIT_NOKTA:
+                self._orb_kilit = [a for a in self._orb_kilit if simdi - a[0] < ORB_KILIT_SURE] + [(simdi, mx, mz, myaw)]
+                a3 = self._orb_kilit[-ORB_KILIT_GOZLEM:]
+                if len(a3) >= ORB_KILIT_GOZLEM:
+                    ox = sum(q[1] for q in a3) / len(a3); oz = sum(q[2] for q in a3) / len(a3)
+                    oy = math.atan2(sum(math.sin(q[3]) for q in a3), sum(math.cos(q[3]) for q in a3))
+                    if max(math.hypot(q[1] - ox, q[2] - oz) for q in a3) < 0.25 and max(abs(_aci_fark(q[3], oy)) for q in a3) < math.radians(8):
+                        self.kilit_sayisi += 1
+                        self._kur(Poz2(ox, oz, oy), s_yon, s_yer, "yeniden kilit (%d tutarli aykiri harita olcumu, yon farki %.0f derece)" % (
+                            len(a3), math.degrees(_aci_fark(oy, self.yaw))))
+                        self._orb_kilit = []
+                        son[4] = 1
+            return son
+        self._orb_kilit = []
+        K = self.P @ Si
+        dx = K @ y
+        self.x += dx[0]; self.z += dx[1]; self.yaw += dx[2]
+        self.P = (np.eye(3) - K) @ self.P
+        self.P = (self.P + self.P.T) / 2
+        self.P[0, 0] = max(self.P[0, 0], P_TABAN[0] ** 2); self.P[1, 1] = max(self.P[1, 1], P_TABAN[0] ** 2)
+        self.P[2, 2] = max(self.P[2, 2], P_TABAN[1] ** 2)
+        son[4] = 1
+        return son
+
     def _orbdan(self, F, simdi):
         """İşaret görünmüyorken ORB anahtar karelerle düzeltme (kilit içinde). Konum biliniyorken: tahminin ORB_YEREL
         çevresindeki kareler; en iyilerin (puanla ağırlıklı) yeri ve yönü süzgece doğrudan ölçüm olarak girer, aykırıysa
@@ -450,39 +499,10 @@ class KonumBulucu:
             w = np.array([a[0] ** 2 for a in grup], float)
             mx = float(np.dot(w, [a[1] for a in grup]) / w.sum()); mz = float(np.dot(w, [a[2] for a in grup]) / w.sum())
             myaw = math.atan2(float(np.dot(w, [math.sin(a[3]) for a in grup])), float(np.dot(w, [math.cos(a[3]) for a in grup])))
-            y = np.array([mx - self.x, mz - self.z, _aci_fark(myaw, self.yaw)])
             k = max(1.0, math.sqrt(60.0 / b[0]))      # az uyan noktalı ölçüme daha az güven
-            Rm = np.diag([(k * ORB_S_YER) ** 2, (k * ORB_S_YER) ** 2, (k * ORB_S_YON) ** 2])
-            S = self.P + Rm
-            Si = np.linalg.inv(S)
-            d2 = float(y @ Si @ y)
-            self.hafiza_son = [b[0], round(float(y[0]), 3), round(float(y[1]), 3), round(math.degrees(y[2]), 1), 0]
-            if d2 > KAPI:
-                # aykırı: süzgeç yanılmış olabilir (ör. uzak / eğik işaretle 20 derece yanlış kurulan ilk kilit, 25 Kasım).
-                # Birbirini tutan güçlü ORB_KILIT_GOZLEM aykırı ölçüm KILIT_SURE içinde: konum anahtar karelerden yeniden kurulur.
-                if b[0] >= ORB_KILIT_NOKTA:
-                    self._orb_kilit = [a for a in self._orb_kilit if simdi - a[0] < ORB_KILIT_SURE] + [(simdi, mx, mz, myaw)]
-                    a3 = self._orb_kilit[-ORB_KILIT_GOZLEM:]
-                    if len(a3) >= ORB_KILIT_GOZLEM:
-                        ox = sum(q[1] for q in a3) / len(a3); oz = sum(q[2] for q in a3) / len(a3)
-                        oy = math.atan2(sum(math.sin(q[3]) for q in a3), sum(math.cos(q[3]) for q in a3))
-                        if max(math.hypot(q[1] - ox, q[2] - oz) for q in a3) < 0.25 and max(abs(_aci_fark(q[3], oy)) for q in a3) < math.radians(8):
-                            self.kilit_sayisi += 1
-                            self._kur(Poz2(ox, oz, oy), ORB_S_YON, ORB_S_YER, "ORB yeniden kilit (%d tutarli aykiri olcum, yon farki %.0f derece)" % (
-                                len(a3), math.degrees(_aci_fark(oy, self.yaw))))
-                            self._orb_kilit = []
-                            self.kaynak = "hafiza"
-                return
-            self._orb_kilit = []
-            K = self.P @ Si
-            dx = K @ y
-            self.x += dx[0]; self.z += dx[1]; self.yaw += dx[2]
-            self.P = (np.eye(3) - K) @ self.P
-            self.P = (self.P + self.P.T) / 2
-            self.P[0, 0] = max(self.P[0, 0], P_TABAN[0] ** 2); self.P[1, 1] = max(self.P[1, 1], P_TABAN[0] ** 2)
-            self.P[2, 2] = max(self.P[2, 2], P_TABAN[1] ** 2)
-            self.hafiza_son[4] = 1
-            self.kaynak = "hafiza"
+            self.hafiza_son = self._konum_olcumu(mx, mz, myaw, k * ORB_S_YER, k * ORB_S_YON, b[0], simdi)
+            if self.hafiza_son[4]:
+                self.kaynak = "hafiza"
             return
         m = self.hafiza.eslestir(F)
         if not m or m[0][0] < ORB_GENEL_ESIK:
