@@ -98,7 +98,9 @@ isaretler = sorted(EV.get("isaretler", []), key=lambda e: e["id"])
 on = [(e["id"], e["x"] + ON * math.sin(e["aci"]), e["z"] + ON * math.cos(e["aci"])) for e in isaretler]
 bas = en_yakin_serbest(on[0][1], on[0][2])
 d = jeodezik(bas); ulasilir = np.isfinite(d)
-hedef = [("isaret %d onu" % i, en_yakin_serbest(x, z)) for i, x, z in on[1:]]
+hedef = [(i, en_yakin_serbest(x, z)) for i, x, z in on[1:]]
+for i, h in hedef:
+    if not ulasilir[h[1], h[0]]: print("isaret %d onune %.2f m payla ulasilamiyor, atlandi" % (i, PAY))
 hedef = [h for h in hedef if ulasilir[h[1][1], h[1][0]]]
 MOD = os.environ.get("MOD", "test")
 
@@ -120,7 +122,8 @@ if MOD == "test":
     uzak_puan = np.where(ulasilir, d, -1); r, c = np.unravel_index(np.argmax(uzak_puan), uzak_puan.shape); F = (int(c), int(r))
     noktalar = [dict(ad="başlangıç", x=dunya(*bas)[0], z=dunya(*bas)[1], test="", tur=True)]; toplam = 0.0; onceki = bas
     if hedef:
-        toplam += ayak(onceki, hedef[0][1], "kısa düz (işaret 2'ye)", noktalar); noktalar[-1].update(ad="işaret 2 önü", tur=True); onceki = hedef[0][1]
+        yi, yh = min(hedef, key=lambda h: d[h[1][1], h[1][0]])     # kısa düz: başlangıca (jeodezik) en yakın işaret
+        toplam += ayak(onceki, yh, "kısa düz (işaret %d'ye)" % yi, noktalar); noktalar[-1].update(ad="işaret %d önü" % yi, tur=True); onceki = yh
     toplam += ayak(onceki, F, "uzun düz", noktalar); noktalar[-1].update(ad="uzak köşe", tur=True)
     # zikzak: uzak köşeden başlangıca giden yolun ilk ~4 m'si boyunca, yola dik +-0,45 m, 0,7 m arayla
     geri = astar(F, bas); cizgi = [dunya(*q) for q in sadelestir(geri)] if geri else []
@@ -144,6 +147,7 @@ if MOD == "test":
     toplam += ayak(son, bas, "başlangıca dönüş", noktalar); noktalar[-1].update(ad="bitiş (başlangıç)")
 else:
     # uzak noktalar: başlangıçtan ve seçilenlerden en uzak ulaşılabilir hücre (jeodezik)
+    hedef = [("isaret %d onu" % i, h) for i, h in hedef]
     secilen = [bas] + [h[1] for h in hedef]
     for k in range(UZAK):
         en = np.full((H, W), np.inf)
