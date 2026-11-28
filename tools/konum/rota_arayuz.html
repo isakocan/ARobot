@@ -36,17 +36,18 @@
   <button id="dur" title="Boşluk tuşu da durdurur">DUR</button>
   <button id="baslat">Başlat</button>
   <label><input type="checkbox" id="tur" checked> yerinde turlar</label>
+  <button id="gorunum">Bütün harita</button>
   <label>hız <input type="number" id="hiz" value="130" min="90" max="200" step="10"></label>
   <span class="durum" id="durum">bağlanıyor…</span>
 </header>
 <main>
   <section class="kutu">
-    <h2>Telefonla taranan zemin, rota ve robotun anlık yeri</h2>
+    <h2>Telefonla taranan zemin, rota ve robotun anlık yeri (1 m ızgara)</h2>
     <canvas id="harita" width="900" height="760"></canvas>
     <div class="lejant">
-      <span><i style="background:#2b4a63"></i>açık zemin</span><span><i style="background:#555"></i>engel</span>
+      <span><i style="background:#2c3a33"></i>açık zemin</span><span><i style="background:#555"></i>engel</span>
       <span><i style="background:#f5a524"></i>planlanan rota</span><span><i style="background:#3e8ed0"></i>robotun izi</span>
-      <span><i style="background:#fff"></i>robot (ok = yön)</span>
+      <span><i style="background:#1a73e8"></i>robot (yelpaze = baktığı yön, gri = konum eski)</span>
     </div>
   </section>
   <section style="display:grid; gap:12px; min-width:0">
@@ -65,23 +66,35 @@ function kur(h) {
   tf = { k, x0, z1, px: (x, z) => [(x - x0) * k, (z1 - z) * k] };
   cv.height = Math.ceil((z1 - z0) * k);
 }
+let takip = true;
 function ciz(d) {
-  if (!H) return; const s = H.hucre, k = tf.k, P = tf.px;
+  if (!H) return; const s = H.hucre;
+  let k = tf.k, P = tf.px;
+  if (takip && d.poz) { k = 110; const cx = d.poz.x, cz = d.poz.z, W2 = cv.width / 2, H2 = cv.height / 2;
+    P = (x, z) => [W2 + (x - cx) * k, H2 - (z - cz) * k]; }
+  const g0 = P(0, 0); tf.gx = (x) => P(x, 0)[0]; tf.gz = (z) => P(0, z)[1];
   c.clearRect(0, 0, cv.width, cv.height);
   c.strokeStyle = '#1a2027'; c.lineWidth = 1;
-  for (let x = Math.ceil(tf.x0); x < tf.x0 + cv.width / k; x++) { const [a] = P(x, 0); c.beginPath(); c.moveTo(a, 0); c.lineTo(a, cv.height); c.stroke(); }
-  for (let z = Math.floor(tf.z1); z > tf.z1 - cv.height / k; z--) { const [, b] = P(0, z); c.beginPath(); c.moveTo(0, b); c.lineTo(cv.width, b); c.stroke(); }
-  c.fillStyle = '#2b4a63'; for (let i = 0; i < H.acik.length; i += 2) { const [a, b] = P(H.acik[i] * s - s / 2, H.acik[i + 1] * s + s / 2); c.fillRect(a, b, s * k + .5, s * k + .5); }
-  c.fillStyle = '#555'; for (let i = 0; i < H.engel.length; i += 2) { const [a, b] = P(H.engel[i] * s - s / 2, H.engel[i + 1] * s + s / 2); c.fillRect(a, b, s * k + .5, s * k + .5); }
+  for (let x = -20; x <= 20; x++) { const a = tf.gx(x); if (a < 0 || a > cv.width) continue; c.beginPath(); c.moveTo(a, 0); c.lineTo(a, cv.height); c.stroke(); }
+  for (let z = -20; z <= 20; z++) { const b = tf.gz(z); if (b < 0 || b > cv.height) continue; c.beginPath(); c.moveTo(0, b); c.lineTo(cv.width, b); c.stroke(); }
+  c.fillStyle = '#2c3a33'; for (let i = 0; i < H.acik.length; i += 2) { const [a, b] = P(H.acik[i] * s - s / 2, H.acik[i + 1] * s + s / 2); c.fillRect(a, b, s * k + .5, s * k + .5); }
+  c.fillStyle = '#4a4f57'; for (let i = 0; i < H.engel.length; i += 2) { const [a, b] = P(H.engel[i] * s - s / 2, H.engel[i + 1] * s + s / 2); c.fillRect(a, b, s * k + .5, s * k + .5); }
   c.strokeStyle = '#f5a524'; c.lineWidth = 3; c.setLineDash([8, 6]); c.beginPath();
   H.rota.forEach((p, j) => { const [a, b] = P(p.x, p.z); j ? c.lineTo(a, b) : c.moveTo(a, b); }); c.stroke(); c.setLineDash([]);
   H.rota.forEach((p, j) => { const [a, b] = P(p.x, p.z); c.fillStyle = '#f5a524'; c.beginPath(); c.arc(a, b, p.tur ? 7 : 4, 0, 7); c.fill();
     if (p.ad && j < H.rota.length - 1) { c.fillStyle = '#f5d18a'; c.font = '12px Segoe UI'; c.fillText(j + ' ' + p.ad, a + 9, b - 6); } });
   H.isaretler.forEach(e => { const [a, b] = P(e.x, e.z); c.fillStyle = '#fff'; c.fillRect(a - 6, b - 6, 12, 12); c.fillStyle = '#e7eaee'; c.font = '12px Segoe UI'; c.fillText('ArUco ' + e.id, a + 9, b + 14); });
-  if (d.iz && d.iz.length > 1) { c.strokeStyle = '#3e8ed0'; c.lineWidth = 2.5; c.beginPath(); d.iz.forEach((p, j) => { const [a, b] = P(p[0], p[1]); j ? c.lineTo(a, b) : c.moveTo(a, b); }); c.stroke(); }
-  if (d.poz) { const p = d.poz, [a, b] = P(p.x, p.z), r = p.yaw * Math.PI / 180, L = 0.45 * k;
-    c.strokeStyle = '#fff'; c.fillStyle = '#fff'; c.lineWidth = 3; c.beginPath(); c.arc(a, b, 8, 0, 7); c.fill();
-    c.beginPath(); c.moveTo(a, b); c.lineTo(a + Math.sin(r) * L, b - Math.cos(r) * L); c.stroke(); }
+  if (d.iz && d.iz.length > 1) { c.strokeStyle = 'rgba(26,115,232,.75)'; c.lineWidth = 4; c.lineJoin = 'round'; c.beginPath(); d.iz.forEach((p, j) => { const [a, b] = P(p[0], p[1]); j ? c.lineTo(a, b) : c.moveTo(a, b); }); c.stroke(); }
+  if (d.poz) {   // harita uygulaması gibi: yönü gösteren yelpaze + beyaz kenarlı mavi nokta
+    const p = d.poz, [a, b] = P(p.x, p.z), r = p.yaw * Math.PI / 180, R = Math.max(70, 0.9 * k), ac = 30 * Math.PI / 180;
+    const yon = r - Math.PI / 2;                       // kanvas açısı: yaw 0 = yukarı (+z)
+    const g = c.createRadialGradient(a, b, 4, a, b, R); g.addColorStop(0, 'rgba(26,115,232,.75)'); g.addColorStop(1, 'rgba(26,115,232,0)');
+    c.fillStyle = g; c.beginPath(); c.moveTo(a, b); c.arc(a, b, R, yon - ac, yon + ac); c.closePath(); c.fill();
+    const eski = d.poz && (Date.now() / 1000 - d.poz.t) > 2;
+    c.fillStyle = 'rgba(26,115,232,.22)'; c.beginPath(); c.arc(a, b, 24, 0, 7); c.fill();
+    c.shadowColor = 'rgba(0,0,0,.6)'; c.shadowBlur = 6; c.fillStyle = '#fff'; c.beginPath(); c.arc(a, b, 12, 0, 7); c.fill(); c.shadowBlur = 0;
+    c.fillStyle = eski ? '#8a94a3' : '#1a73e8'; c.beginPath(); c.arc(a, b, 9, 0, 7); c.fill();
+  }
 }
 async function yenile() {
   try {
@@ -96,6 +109,7 @@ async function yenile() {
     document.getElementById('kamerabaslik').textContent = 'Robotun 360° kamerası' + (d.kamera_yas == null ? ' (bekleniyor)' : d.kamera_yas > 3 ? ` (${d.kamera_yas} sn eski)` : '');
   } catch (e) { document.getElementById('durum').textContent = 'arayüz sunucusuna ulaşılamıyor'; }
 }
+document.getElementById('gorunum').onclick = (e) => { takip = !takip; e.target.textContent = takip ? 'Bütün harita' : 'Robotu takip et'; };
 const dur = () => fetch('/dur', { method: 'POST', body: '{}' });
 document.getElementById('dur').onclick = dur;
 addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); dur(); } });

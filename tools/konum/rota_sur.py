@@ -46,6 +46,10 @@ def gonder(sol, sag):
             m = json.loads(s.recv(65535).decode())
         except (BlockingIOError, OSError, ValueError):
             break
+        km = m.get("kamera")                       # köprü: kapali | yok | baslatiliyor | aktif
+        if km == "aktif": son["kamera_ok"] = time.time()
+        elif km == "yok" or (km is not None and son.get("kamera_ok") and time.time() - son["kamera_ok"] > 2.0):
+            son["kamera_yok"] = True
         k = m.get("konum")
         if isinstance(k, dict):
             son["k"] = k; son["t"] = time.time()
@@ -63,6 +67,7 @@ def gonder(sol, sag):
     if msvcrt and msvcrt.kbhit():
         msvcrt.getch(); raise Dur("tuşa basıldı")
     kayit.flush()
+    if son.get("kamera_yok"): raise Dur("robotun kamerası kayboldu (konum donar)")
     if os.path.exists(DUR_DOSYASI): raise Dur("arayüzden durduruldu")
 
 

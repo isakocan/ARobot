@@ -111,7 +111,7 @@ class Isleyici(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/":
-            self._gonder(200, "text/html; charset=utf-8", SAYFA.encode())
+            self._gonder(200, "text/html; charset=utf-8", open(os.path.join(BURASI, "rota_arayuz.html"), encoding="utf-8").read().encode())
         elif self.path == "/harita":
             isaretler = [e if isinstance(e, dict) else dict(id=e[0], x=e[1], z=e[2], aci=e[3]) for e in EVJ["isaretler"]]
             self._gonder(200, "application/json", json.dumps(dict(hucre=Z.get("hucre", 0.05), acik=Z["acik"], engel=Z.get("engel", []),
