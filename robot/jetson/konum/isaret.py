@@ -12,7 +12,9 @@ import numpy as np
 import teta
 
 KENAR = 0.18
-YUZLER = [teta.SanalKamera(yaw, 80.0, 400, 300, 5.0) for yaw in range(0, 360, 60)]
+# 28 Kas: yukarı eğim 5 -> 15 derece (pencere -17..+47 derece). Yüksek asılı işaret (merkez 0,47 m) 0,5 m'den pencerenin
+# üstünden taşıyıp bulunamıyordu; kayıtlarda eski alçak işaretler de aynı ya da daha çok bulunuyor (114 -> 120 / 283 kare).
+YUZLER = [teta.SanalKamera(yaw, 80.0, 400, 300, 15.0) for yaw in range(0, 360, 60)]
 
 
 def _sozluk_ve_bulucu():
