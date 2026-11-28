@@ -5,12 +5,12 @@ dosyalar. Açık zemin hücreleri (5 cm, "acik" = zemin kanıtı var, engel yok)
 uzak olacak şekilde daraltılır. Rota: 1 numaralı işaretin 1 m önü (başlangıç) -> en uzak noktalar ve diğer işaretlerin
 önü (açık zeminde birbirinden uzak) -> başlangıç. Ayaklar duvardan uzak tutan A* ile çizilir, görüş hattıyla düz
 parçalara indirilir. Çıktı: rota.json (noktalar, ev koordinatı) ve rota.png (onay için resim).
-Kullanım: python rota_planla.py <robot_adresi | ev.json zemin.json> <çıktı_klasörü>   (PAY=0.30, UZAK=4)"""
+Kullanım: python rota_planla.py <robot_adresi | ev.json zemin.json> <çıktı_klasörü>   (PAY=0.45, UZAK=4, MOD=test|uzak)"""
 import heapq, json, math, os, sys, urllib.request
 import cv2
 import numpy as np
 
-PAY = float(os.environ.get("PAY", "0.30"))       # robot merkezinden engele / bilinmeyene en az (m)
+PAY = float(os.environ.get("PAY", "0.45"))       # robot merkezinden engele / bilinmeyene en az (m)
 UZAK = int(os.environ.get("UZAK", "4"))           # uzak nokta sayısı
 ON = 1.0                                          # işaretin önünde başlangıç uzaklığı (m)
 
