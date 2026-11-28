@@ -832,6 +832,19 @@ class Istek(BaseHTTPRequestHandler):
         elif adres.path == "/goruntu.mjpg":
             fps = float(parse_qs(adres.query).get("fps", [VARSAYILAN_FPS])[0])
             self._goruntu_akisi(max(1.0, min(fps, 30.0)))
+        elif adres.path == "/kucuk.jpg":     # yarım boy, düşük kalite tek kare (PC arayüzü: ağ dar olunca tam kare ~1 sn sürüyor)
+            KAM.izle(+1)
+            try:
+                _, kare = KAM.sonraki_kare(-1, sure=8)
+            finally:
+                KAM.izle(-1)
+            if kare:
+                import cv2, numpy as np
+                g = cv2.imdecode(np.frombuffer(kare, np.uint8), cv2.IMREAD_REDUCED_COLOR_2)
+                ok, j = cv2.imencode('.jpg', g, [cv2.IMWRITE_JPEG_QUALITY, 65])
+                self._yanit(j.tobytes() if ok else kare, "image/jpeg")
+            else:
+                self._json({"hata": "Kamera görüntü vermiyor."}, 503)
         elif adres.path == "/kare.jpg":
             KAM.izle(+1)
             try:

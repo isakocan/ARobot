@@ -51,7 +51,7 @@
     </div>
   </section>
   <section style="display:grid; gap:12px; min-width:0">
-    <div class="kutu"><h2 id="kamerabaslik">Robotun 360° kamerası</h2><img id="kamera" alt="kamera"></div>
+    <div class="kutu"><h2 id="kamerabaslik">Robotun 360° kamerası</h2><canvas id="video" width="960" height="320" style="display:none"></canvas><img id="kamera" alt="kamera"></div>
     <div class="kutu"><h2>Sürücü mesajları</h2><pre id="satirlar"></pre></div>
   </section>
 </main>
@@ -106,7 +106,9 @@ async function yenile() {
     document.getElementById('baslat').disabled = d.suruyor;
     const pre = document.getElementById('satirlar'), alt = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
     pre.textContent = d.satirlar.join('\n'); if (alt) pre.scrollTop = pre.scrollHeight;
-    document.getElementById('kamerabaslik').textContent = 'Robotun 360° kamerası' + (d.kamera_yas == null ? ' (bekleniyor)' : d.kamera_yas > 3 ? ` (${d.kamera_yas} sn eski)` : '');
+    const yasV = sonKare ? (Date.now() - sonKare) / 1000 : null;
+    document.getElementById('kamerabaslik').textContent = 'Robotun 360° kamerası' + (jpegYedek ? ' · JPEG yedeği' + (d.kamera_yas > 3 ? ` (${d.kamera_yas} sn eski)` : '') :
+      yasV == null ? ' · H.264 bekleniyor' : ` · H.264 ${fpsGoster} kare/sn` + (yasV > 2 ? ` (${yasV.toFixed(0)} sn donuk)` : ''));
   } catch (e) { document.getElementById('durum').textContent = 'arayüz sunucusuna ulaşılamıyor'; }
 }
 document.getElementById('gorunum').onclick = (e) => { takip = !takip; e.target.textContent = takip ? 'Bütün harita' : 'Robotu takip et'; };
@@ -114,7 +116,67 @@ const dur = () => fetch('/dur', { method: 'POST', body: '{}' });
 document.getElementById('dur').onclick = dur;
 addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); dur(); } });
 document.getElementById('baslat').onclick = () => fetch('/baslat', { method: 'POST', body: JSON.stringify({ tur: document.getElementById('tur').checked, hiz: +document.getElementById('hiz').value }) });
-const kam = document.getElementById('kamera'); kam.onload = kam.onerror = () => setTimeout(() => kam.src = '/kamera.jpg?' + Date.now(), 120); kam.src = '/kamera.jpg?0';
+// --- Görüntü: robotun H.264 akışı (sürüş uygulamasının aldığının aynısı), tarayıcıda WebCodecs ile çözülür,
+// WebGL ile çift balık gözünden eşdikdörtgene açılır. Olmazsa yedek: tek tek JPEG kareler.
+const kam = document.getElementById('kamera'), vid = document.getElementById('video');
+let jpegYedek = false, sonKare = 0, kareSay = 0, fpsGoster = 0;
+function jpegBaslat() { if (jpegYedek) return; jpegYedek = true; vid.style.display = 'none'; kam.style.display = 'block';
+  kam.onload = kam.onerror = () => setTimeout(() => kam.src = '/kamera.jpg?' + Date.now(), 60); kam.src = '/kamera.jpg?0'; }
+async function h264Baslat() {
+  if (!('VideoDecoder' in window)) return jpegBaslat();
+  const ayar = await (await fetch('/ayar')).json();
+  const lutHam = await (await fetch('/lut')).arrayBuffer(), N = ayar.gen * ayar.yuk;
+  const lut4 = new Float32Array(lutHam, 0, N * 4), lutw = new Float32Array(lutHam, N * 16, N);
+  const gl = vid.getContext('webgl2'); if (!gl) return jpegBaslat();
+  vid.width = ayar.gen; vid.height = ayar.yuk;
+  const sh = (t, k) => { const s = gl.createShader(t); gl.shaderSource(s, k); gl.compileShader(s); return s; };
+  const pr = gl.createProgram();
+  gl.attachShader(pr, sh(gl.VERTEX_SHADER, `#version 300 es
+    in vec2 p; out vec2 uv; void main(){ uv = vec2((p.x+1.)/2., (1.-p.y)/2.); gl_Position = vec4(p,0,1); }`));
+  gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, `#version 300 es
+    precision highp float; in vec2 uv; uniform sampler2D kare; uniform highp sampler2D lut; uniform highp sampler2D agirlik; out vec4 o;
+    vec4 al(vec2 q){ return (q.x < 0. || q.x > 1. || q.y < 0. || q.y > 1.) ? vec4(0,0,0,1) : texture(kare, q); }
+    void main(){ vec4 q = texture(lut, uv); float w = texture(agirlik, uv).r;
+      o = w > .999 ? al(q.xy) : w < .001 ? al(q.zw) : mix(al(q.zw), al(q.xy), w); }`));
+  gl.linkProgram(pr); gl.useProgram(pr);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  const lp = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(lp); gl.vertexAttribPointer(lp, 2, gl.FLOAT, false, 0, 0);
+  const tk = gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tk);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const tl = gl.createTexture(); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tl);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, ayar.gen, ayar.yuk, 0, gl.RGBA, gl.FLOAT, lut4);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  const tw = gl.createTexture(); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tw);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, ayar.gen, ayar.yuk, 0, gl.RED, gl.FLOAT, lutw);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.uniform1i(gl.getUniformLocation(pr, 'kare'), 0); gl.uniform1i(gl.getUniformLocation(pr, 'lut'), 1); gl.uniform1i(gl.getUniformLocation(pr, 'agirlik'), 2);
+  gl.viewport(0, 0, ayar.gen, ayar.yuk);
+  let dec = null, kuruldu = false, ts = 0;
+  const yeniDec = () => { dec = new VideoDecoder({ output: f => {
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tk);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, f); f.close();
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); sonKare = Date.now(); kareSay++;
+      if (vid.style.display === 'none') { vid.style.display = 'block'; kam.style.display = 'none'; } },
+    error: e => { console.warn('çözücü', e); kuruldu = false; } }); };
+  function sps(au) {   // Annex-B içinde SPS (NAL 7) -> 'avc1.PPCCLL'
+    for (let i = 0; i + 4 < au.length; i++) if (au[i] === 0 && au[i+1] === 0 && au[i+2] === 1 && (au[i+3] & 31) === 7)
+      return 'avc1.' + [au[i+4], au[i+5], au[i+6]].map(v => v.toString(16).padStart(2, '0')).join('');
+    return null; }
+  function bagla() {
+    const ws = new WebSocket(`ws://${ayar.robot}:8080/goruntu-h264?akis=orta`); ws.binaryType = 'arraybuffer';
+    ws.onmessage = ev => { const v = new Uint8Array(ev.data), anahtar = (v[0] & 1) === 1, au = v.subarray(1);
+      if (!kuruldu) { if (!anahtar) return; const kod = sps(au); if (!kod) return;
+        try { if (!dec || dec.state === 'closed') yeniDec(); dec.configure({ codec: kod, optimizeForLatency: true }); kuruldu = true; } catch (e) { return jpegBaslat(); } }
+      if (dec.decodeQueueSize > 3 && !anahtar) return;      // geride kaldıysa ara kareleri at, gecikme birikmesin
+      try { dec.decode(new EncodedVideoChunk({ type: anahtar ? 'key' : 'delta', timestamp: (ts += 66666), data: au })); } catch (e) { kuruldu = false; } };
+    ws.onclose = () => { kuruldu = false; setTimeout(bagla, 1000); };
+  }
+  bagla();
+  setTimeout(() => { if (!sonKare) jpegBaslat(); }, 6000);   // 6 sn'de kare gelmediyse JPEG yedeğine geç
+}
+setInterval(() => { fpsGoster = kareSay; kareSay = 0; }, 1000);
+h264Baslat();
 fetch('/harita').then(r => r.json()).then(h => { kur(h); yenile(); });
 setInterval(yenile, 150);
 </script>

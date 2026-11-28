@@ -20,6 +20,30 @@ ROTA = json.load(open(os.path.join(KL, "rota.json"), encoding="utf-8"))
 Z = json.load(open(os.path.join(KL, "zemin.json"), encoding="utf-8"))
 EVJ = json.load(open(os.path.join(KL, "ev.json"), encoding="utf-8"))
 MX, MY = teta.es_dikdortgen_haritasi(960, 320, -30.0, 75.0)
+
+
+def harmanli_lut(gen=960, yuk=320, alt=-30.0, ust=75.0, bindirme=6.0):
+    """Her eşdikdörtgen piksel için iki merceğin ham karedeki yeri (u1, v1, u2, v2; 0..1) ve 1. merceğin ağırlığı.
+    Mercekler ~190 derece görür: 90 +- bindirme derecelik kuşakta iki görüntü yumuşakça karıştırılır (dikiş çizgisi
+    kaybolur). Model teta.yon_pikseller'in aynısı, yalnız mercek seçmek yerine ikisi de hesaplanır."""
+    v, u = np.mgrid[0:yuk, 0:gen]
+    lon = ((u + 0.5) / gen - 0.5) * 2 * math.pi
+    lat = math.radians(ust) - (v + 0.5) / yuk * math.radians(ust - alt)
+    d = np.stack([np.cos(lat) * np.sin(lon), np.sin(lat), np.cos(lat) * np.cos(lon)], -1).reshape(-1, 3) @ teta.EGIM.T
+    c = np.stack([-d[:, 1], d[:, 0], d[:, 2]], -1)
+    c2 = np.stack([-c[:, 0], c[:, 1], -c[:, 2]], -1) @ teta.LENS2_DON.T
+    def piksel(k, L):
+        th = np.arccos(np.clip(k[:, 2], -1, 1)); n = np.maximum(np.hypot(k[:, 0], k[:, 1]), 1e-12)
+        return L[0] + k[:, 0] / n * th * L[2], L[1] - k[:, 1] / n * th * L[2]
+    u1, v1 = piksel(c, teta.LENS1); u2, v2 = piksel(c2, teta.LENS2)
+    th1 = np.degrees(np.arccos(np.clip(c[:, 2], -1, 1)))               # 1. merceğin eksenine açı
+    w = np.clip((90.0 + bindirme - th1) / (2 * bindirme), 0, 1)
+    w = w * w * (3 - 2 * w)                                            # yumuşak geçiş
+    lut = np.stack([u1 / 1280.0, v1 / 720.0, u2 / 1280.0, v2 / 720.0], -1).reshape(yuk, gen, 4).astype(np.float32)
+    return lut, w.reshape(yuk, gen).astype(np.float32)
+
+
+LUT4, LUTW = harmanli_lut()
 D = {"surec": None, "satirlar": [], "poz": None, "iz": [], "kamera": None, "kamera_t": 0.0}
 kilit = threading.Lock()
 
@@ -60,10 +84,12 @@ def guncelle(x, z, yaw, evre, t=None):
 
 def kamera():
     while True:
+        if time.time() - D.get("jpeg_istek", 0) > 3.0:     # tarayıcı H.264 kullanıyorsa JPEG çekme (ağı yorma)
+            time.sleep(0.2); continue
         try:
-            ham = urllib.request.urlopen("http://%s:8080/kare.jpg" % ADR, timeout=3).read()
+            ham = urllib.request.urlopen("http://%s:8080/kucuk.jpg" % ADR, timeout=3).read()   # yarım boy (640x360)
             g = cv2.imdecode(np.frombuffer(ham, np.uint8), cv2.IMREAD_COLOR)
-            pan = cv2.remap(g, MX, MY, cv2.INTER_LINEAR)
+            pan = cv2.remap(g, MX * (g.shape[1] / 1280.0), MY * (g.shape[0] / 720.0), cv2.INTER_LINEAR)
             ok, j = cv2.imencode(".jpg", pan, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:
                 with kilit: D["kamera"] = j.tobytes(); D["kamera_t"] = time.time()
@@ -122,7 +148,13 @@ class Isleyici(BaseHTTPRequestHandler):
                 v = dict(poz=D["poz"], iz=D["iz"][-1500:], satirlar=D["satirlar"][-40:], suruyor=c is not None and c.poll() is None,
                          kamera_yas=round(time.time() - D["kamera_t"], 1) if D["kamera_t"] else None)
             self._gonder(200, "application/json", json.dumps(v).encode())
+        elif self.path == "/lut":
+            # eşdikdörtgen piksel -> çift balık gözü kare (0..1) koordinatı, float32 [y][x][2]: tarayıcı WebGL ile açar
+            self._gonder(200, "application/octet-stream", LUT4.tobytes() + LUTW.tobytes())
+        elif self.path == "/ayar":
+            self._gonder(200, "application/json", json.dumps({"robot": ADR, "gen": int(MX.shape[1]), "yuk": int(MX.shape[0])}).encode())
         elif self.path.startswith("/kamera.jpg"):
+            D["jpeg_istek"] = time.time()
             with kilit: j = D["kamera"]
             if j: self._gonder(200, "image/jpeg", j)
             else: self._gonder(503, "text/plain", b"kamera yok")
