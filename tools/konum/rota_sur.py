@@ -16,14 +16,14 @@ except ImportError:
     msvcrt = None
 
 ADR, KL = sys.argv[1:3]
-HIZ = int(os.environ.get("HIZ", "120")); DONUS = int(os.environ.get("DONUS", "150"))
+HIZ = int(os.environ.get("HIZ", "130")); DONUS = int(os.environ.get("DONUS", "150"))
 TUR = os.environ.get("TUR", "1") == "1"; KURU = os.environ.get("KURU", "0") == "1"
 ROTA = json.load(open(os.path.join(KL, "rota.json"), encoding="utf-8"))
 P = ROTA["noktalar"]
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.setblocking(False)
-n = 0; son = {"t": 0.0, "k": None}
-kayit = open(os.path.join(KL, "surus_%s.csv" % time.strftime("%H%M%S")), "w", newline="")
+n = 0; son = {"t": 0.0, "k": None, "kare": None, "taze": 0.0}
+kayit = open(os.path.join(KL, "surus_%s.csv" % time.strftime("%H%M%S")), "w", newline="", encoding="utf-8")
 yaz = csv.writer(kayit); yaz.writerow(["t", "utc", "evre", "hedef", "sol", "sag", "var", "x", "z", "yaw", "sy", "kaynak"])
 t0 = time.time(); evre = ["bekle"]; hedef_no = [0]
 
@@ -47,6 +47,7 @@ def gonder(sol, sag):
         k = m.get("konum")
         if isinstance(k, dict):
             son["k"] = k; son["t"] = time.time()
+            if k.get("kare") != son["kare"]: son["kare"] = k.get("kare"); son["taze"] = time.time()   # yeni kare işlendi
     k = son["k"] or {}
     yaz.writerow(["%.2f" % (time.time() - t0), "%.3f" % time.time(), evre[0], hedef_no[0], sol, sag, k.get("var"), k.get("x"), k.get("z"), k.get("yaw"), k.get("sy"), k.get("kaynak")])
     if msvcrt and msvcrt.kbhit():
@@ -61,7 +62,7 @@ def bekle(sn, sol=0, sag=0):
 
 def poz():
     k = son["k"]
-    if not k or not k.get("var") or time.time() - son["t"] > 1.5: return None
+    if not k or not k.get("var") or time.time() - son["t"] > 1.5 or time.time() - son["taze"] > 1.2: return None
     return k["x"], k["z"], k["yaw"]
 
 
@@ -74,22 +75,25 @@ def poz_bekle(sure=1.5):
         bekle(0.1)
 
 
+HIZ_DONUS = 80.0      # der/sn: DONUS gücünde yerinde dönüş (28 Kas kaydı: 0,15 sn vuruş ~10-15 der)
+
+
 def don(hedef_yaw, tolerans=8.0):
+    """Kısa vuruşlarla dön: vuruş süresi hatayla orantılı (en çok 0,35 sn), sonra konum otursun diye 0,7 sn bekle.
+    (28 Kas: sürekli dönüp 0,15 sn'de bir bakınca ~0,4 sn gecikmeli konum yüzünden ileri geri salındı.)"""
     b = time.time()
     while True:
         p = poz_bekle(); e = da(hedef_yaw - p[2])
         if abs(e) < tolerans: return
-        if time.time() - b > 30: raise Dur("dönüş 30 sn'de bitmedi")
+        if time.time() - b > 40: raise Dur("dönüş 40 sn'de bitmedi")
         yon = 1 if e > 0 else -1                      # sol > sag: sağa (+) döner
-        if abs(e) > 45:
-            bekle(0.15, DONUS * yon, -DONUS * yon)
-        else:
-            bekle(0.12, DONUS * yon, -DONUS * yon); bekle(0.35)   # kısa vuruş + konum otursun (~0,3 sn gecikme)
+        sure = max(0.06, min(0.35, 0.8 * abs(e) / HIZ_DONUS))
+        bekle(sure, DONUS * yon, -DONUS * yon); bekle(0.7)
 
 
 def git(a, b):
     L = math.hypot(b[0] - a[0], b[1] - a[1]); ux, uz = (b[0] - a[0]) / max(L, 1e-6), (b[1] - a[1]) / max(L, 1e-6)
-    bas = time.time(); sinir = 15 + L / 0.04
+    bas = time.time(); sinir = 15 + L / 0.04; izle = None
     while True:
         p = poz_bekle()
         ilerleme = (p[0] - a[0]) * ux + (p[1] - a[1]) * uz
@@ -99,10 +103,14 @@ def git(a, b):
         if sapma > 0.45: raise Dur("çizgiden %.2f m saptı" % sapma)
         if time.time() - bas > sinir: raise Dur("parça %.0f sn'de bitmedi" % sinir)
         hedef = math.degrees(math.atan2(b[0] - p[0], b[1] - p[1])); e = da(hedef - p[2])
-        if abs(e) > 30:
-            bekle(0.2); don(hedef); continue
-        d = max(-60, min(60, 2.5 * e))
+        if abs(e) > 20:
+            bekle(0.3); don(hedef); izle = None; continue
+        d = max(-25, min(25, 1.5 * e))                # iki taraf yakın kalsın (kızaklı: yavaş taraf takılıyor)
         bekle(0.1, HIZ + d, HIZ - d)
+        # takılma: 2 sn ileri komutuna rağmen 4 cm'den az yer değiştirdiyse dur
+        if izle is None or time.time() - izle[0] > 2.0:
+            if izle is not None and math.hypot(p[0] - izle[1], p[1] - izle[2]) < 0.04: raise Dur("takıldı: 2 sn ileri komutuna rağmen yer değişmedi")
+            izle = (time.time(), p[0], p[1])
 
 
 def tam_tur(ad):
