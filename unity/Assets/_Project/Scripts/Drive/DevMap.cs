@@ -273,7 +273,8 @@ namespace ARaki.Drive
                 konum = "düzeltme: " + (kk.kaynak == "hafiza" ? "anahtar kare" : "işaret " + kk.isaret) + " (" + kk.isaret_sn.ToString("F0") + " sn önce)"
                     + "\nilerleme: " + (kk.hareket == "goruntu" ? "zemin izi, " + kk.nokta + " nokta, ölçek " + kk.olcek.ToString("F2") : "motor komutu")
                     + "\ndönüş (ekranda): " + (ar.VisualYaw ? "görüntü, güven " + ar.Compass.Confidence.ToString("F2") : "robotun konumu")
-                    + "  ·  anahtar kare " + kk.hafiza;
+                    + "  ·  anahtar kare " + kk.hafiza
+                    + "\nkonum-kare eşleme: " + (ar.FrameSync ? "kare numarasıyla" : "0,3 sn tahmini");
             }
             else if (drive.Link != null && drive.Link.Demo) konum = "demo: konum yok";
             info.text = konum + "\n" + mapText;

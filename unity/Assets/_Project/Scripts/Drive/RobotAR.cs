@@ -36,7 +36,7 @@ namespace ARaki.Drive
         float lastYaw = float.NaN, lastX, lastZ;  // son gelen konum
 
         // telefondaki kısa süreli hareket (keyfi çerçeve): dönüş görüntü pusulasından ya da komuttan, ileri komuttan
-        struct Odo { public float t, x, z, yaw; }
+        struct Odo { public float t, x, z, yaw; public int kare; }   // kare: o an ekrandaki video karesinin numarası (-1 bilinmiyor)
         readonly List<Odo> hist = new List<Odo>();
         float odoX, odoZ, odoYaw, lastCompassYaw = float.NaN;
         Odo baseOdo;                              // son konumun ait olduğu andaki (PoseLag önce) kısa süreli hareket
@@ -57,6 +57,9 @@ namespace ARaki.Drive
         /// <summary>Konumlar arasındaki dönüşün kaynağı: görüntü (telefondaki görsel pusula) ya da motor komutu.</summary>
         public bool VisualYaw { get; private set; }
         public VideoCompass Compass => compass;
+        /// <summary>Son konum ekrandaki video karesiyle numarasından eşlendi mi (true); yoksa PoseLag tahmini kullanıldı.</summary>
+        public bool FrameSync { get; private set; }
+        RobotVideo video;
         /// <summary>Robotun gönderdiği konumlardan gidilen yol (ev koordinatı, 3 cm'de bir).</summary>
         public IReadOnlyList<Vector2> Route => route;
         /// <summary>Gidilen yol her uzadığında artar (küçük harita yeniden çizsin diye).</summary>
@@ -149,7 +152,8 @@ namespace ARaki.Drive
             odoYaw += step;
             float oy = odoYaw * Mathf.Deg2Rad;
             odoX += Mathf.Sin(oy) * cmdFwd * dt; odoZ += Mathf.Cos(oy) * cmdFwd * dt;
-            hist.Add(new Odo { t = now, x = odoX, z = odoZ, yaw = odoYaw });
+            if (video == null) video = FindFirstObjectByType<RobotVideo>();
+            hist.Add(new Odo { t = now, x = odoX, z = odoZ, yaw = odoYaw, kare = video != null ? video.DisplayedKare : -1 });
             while (hist.Count > 2 && hist[1].t < now - 2f) hist.RemoveAt(0);
 
             // 2) yeni konum geldi: o konumun ait olduğu andaki (PoseLag önce) kısa süreli hareket başlangıç olur
@@ -157,7 +161,11 @@ namespace ARaki.Drive
             {
                 lastYaw = k.yaw; lastX = k.x; lastZ = k.z;
                 var before = new Vector2(poseX, poseZ); float beforeYaw = poseYaw;
-                baseOdo = At(now - PoseLag);
+                // konum hangi kamera karesinde hesaplandıysa, o kare ekrandayken telefondaki kısa süreli hareket başlangıç
+                // olur (gecikme tahmini yok; dönüşteki AR sıçramalarının sebebi 0,3-0,4 sn'lik bu tahmindi, 28 Kas).
+                // Eşleşme yoksa (eski köprü, JPEG yolu, görüntü konumdan geride) eski tahmin.
+                FrameSync = k.kare >= 0 && FrameMatch(k.kare, out baseOdo);
+                if (!FrameSync) baseOdo = At(now - PoseLag);
                 Target(out var tp, out var ty);
                 corrP = Vector2.zero; corrY = 0f;
                 if (havePose)
@@ -196,6 +204,24 @@ namespace ARaki.Drive
                 Animate(cr);
                 Shadow(cr);
             }
+        }
+
+        /// <summary>kare numaralı video karesinin ekrana geldiği andaki kısa süreli hareket. Kare atlanmışsa ondan sonra
+        /// gelen ilk kare. Geçmiş o kareyi kapsamıyorsa (çok eski ya da henüz gösterilmedi) false.</summary>
+        bool FrameMatch(int kare, out Odo o)
+        {
+            o = default;
+            bool eskiVar = false;
+            for (int i = 0; i < hist.Count; i++)
+            {
+                int h = hist[i].kare;
+                if (h < 0) continue;
+                if (h < kare) { eskiVar = true; continue; }
+                if (h > kare + 30) return false;          // köprü yeniden başladı (sayaç sıfırlandı) ya da kopukluk
+                if (!eskiVar && h != kare) return false;  // istenen kare geçmişten eski
+                o = hist[i]; return true;
+            }
+            return false;                                 // görüntü konumdan geride: o kare henüz ekranda değil
         }
 
         /// <summary>t anındaki kısa süreli hareket (geçmişten, doğrusal ara değer).</summary>

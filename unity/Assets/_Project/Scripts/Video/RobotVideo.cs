@@ -54,6 +54,9 @@ namespace ARaki.Video
         public string LastError { get; private set; } = "";
         /// <summary>Son 3 sn içinde kare geldi mi (kamera kapanınca ya da akış durunca false olur).</summary>
         public bool HasFrame => lastFrame >= 0f && Time.unscaledTime - lastFrame < 3f;
+        /// <summary>Ekrandaki tam karenin köprüdeki kamera kare numarası (H.264, ?sayac=1); bilinmiyorsa -1. Robotun
+        /// konumu da hangi karede hesaplandığını söyler: AR, konumu ekrandaki kareyle eşleyerek çizer (gecikme tahmini yok).</summary>
+        public int DisplayedKare => ActivePath == "H.264" && HasFrame ? main.RgbKare : -1;
 
         Texture2D jpegTexture;
         Material yuvMaterial, compositeMaterial;
@@ -64,6 +67,7 @@ namespace ARaki.Video
         {
             public byte[] Y, U, V;
             public int W, H, StrideY, StrideUV, Id;     // Id: köprünün akış sırası (ilk baytın üst bitleri)
+            public int Kare = -1, RgbKare = -1;         // köprünün kamera kare numarası (?sayac=1); RgbKare: dokudaki karenin
             public bool Ready;
             public Texture2D TexY, TexU, TexV;
             public RenderTexture Rgb;
@@ -139,7 +143,7 @@ namespace ARaki.Video
                         new Thread(() => H264Loop(host, gen, "/goruntu-h264?akis=" + Lens, win)) { IsBackground = true, Name = "H.264 lens" }.Start();
                     }
                     // tam kare, sabit yüksek kalite (4 Mbit/s): uyarlanabilir kalite düşük başlayıp ilk saniyeleri bulanık yapıyordu
-                    else if (useH264) new Thread(() => H264Loop(host, gen, "/goruntu-h264?akis=yuksek", main)) { IsBackground = true, Name = "H.264" }.Start();
+                    else if (useH264) new Thread(() => H264Loop(host, gen, "/goruntu-h264?akis=yuksek&sayac=1", main)) { IsBackground = true, Name = "H.264" }.Start();
                     else new Thread(() => JpegLoop(host, gen)) { IsBackground = true, Name = "MJPEG" }.Start();
                     ActivePath = viewport ? ViewportPath : useH264 ? "H.264" : "JPEG";
                 }
@@ -236,12 +240,12 @@ namespace ARaki.Video
         /// <summary>Slotun son karesini (varsa) RGB dokusuna çevirir.</summary>
         bool Convert(Slot sl)
         {
-            int w, h, sy, suv, id;
+            int w, h, sy, suv, id, kare;
             lock (latestLock)
             {
                 if (!sl.Ready) return false;
                 sl.Ready = false;
-                w = sl.W; h = sl.H; sy = sl.StrideY; suv = sl.StrideUV; id = sl.Id;
+                w = sl.W; h = sl.H; sy = sl.StrideY; suv = sl.StrideUV; id = sl.Id; kare = sl.Kare;
                 Upload(ref sl.TexY, sy, h, sl.Y);
                 Upload(ref sl.TexU, suv, h / 2, sl.U);
                 Upload(ref sl.TexV, suv, h / 2, sl.V);
@@ -258,7 +262,7 @@ namespace ARaki.Video
             // dokuların genişliği satır adımı (stride); görüntünün kendi genişliği kadarı kullanılır
             yuvMaterial.SetVector("_Scale", new Vector4(w / (float)sy, 1f, w / 2f / suv, 1f));
             Graphics.Blit(null, sl.Rgb, yuvMaterial);
-            sl.RgbId = id;
+            sl.RgbId = id; sl.RgbKare = kare;
             sl.LastFrame = Time.unscaledTime;
             return true;
         }
@@ -348,9 +352,12 @@ namespace ARaki.Video
                             } while (!r.EndOfMessage);
                             if (r.MessageType == WebSocketMessageType.Close) break;
                             if (len < 2) continue;
-                            // ilk bayt: 1 = tam kare (anahtar), 0 = ara kare; ardından H.264 erişim birimi
+                            // ilk bayt: bit 0 tam kare, bit 1-6 akış sırası; bit 7 açıksa ardından 4 bayt kare numarası
+                            // (uint32, küçük uçlu; ?sayac=1). Sonra H.264 erişim birimi.
+                            int bas = 1, kareNo = -1;
+                            if ((buffer[0] & 0x80) != 0 && len > 5) { kareNo = (int)BitConverter.ToUInt32(buffer, 1); bas = 5; }
                             long c0 = System.Diagnostics.Stopwatch.GetTimestamp();
-                            bool ok = decoder.Decode(buffer, 1, len - 1, ref y, ref u, ref v);
+                            bool ok = decoder.Decode(buffer, bas, len - bas, ref y, ref u, ref v);
                             float ms = (System.Diagnostics.Stopwatch.GetTimestamp() - c0) * 1000f / System.Diagnostics.Stopwatch.Frequency;
                             DecodeMs = DecodeMs <= 0f ? ms : DecodeMs + 0.1f * (ms - DecodeMs);
                             if (!ok) continue;
@@ -360,7 +367,8 @@ namespace ARaki.Video
                                 Swap(ref y, ref slot.Y); Swap(ref u, ref slot.U); Swap(ref v, ref slot.V);
                                 slot.W = decoder.Width; slot.H = decoder.Height;
                                 slot.StrideY = decoder.StrideY; slot.StrideUV = decoder.StrideUV;
-                                slot.Id = buffer[0] >> 1;
+                                slot.Id = (buffer[0] & 0x7F) >> 1;
+                                slot.Kare = kareNo;
                                 slot.Ready = true;
                             }
                             LastError = "";

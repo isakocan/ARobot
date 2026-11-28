@@ -66,6 +66,7 @@ namespace ARaki.Net
             public float pusula;     // robottaki görsel pusulanın güveni
             public float sy;         // yön belirsizliği (derece)
             public bool yaklas;      // konum kurulmadı ya da yön belirsiz: işarete yakından / karşıdan bakılmalı
+            public int kare = -1;    // konumun hesaplandığı kamera karesinin numarası (H.264 karesindeki numarayla eşlenir)
         }
 
         public string t;

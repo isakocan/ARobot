@@ -31,6 +31,7 @@ import glob
 import json
 import os
 import socket
+import struct
 import subprocess
 import threading
 import time
@@ -87,6 +88,7 @@ JPEG_BEKCI = 8              # sn: kamera hattı bu kadar JPEG kare vermezse (ayg
 YENIDEN_ARA = 3             # sn: iki kamera hattı başlatması arası en az bu kadar (sıkı döngü olmasın)
 H264_BEKCI = 5              # sn: JPEG gelirken H.264 bu kadar kare vermezse kamera hattı yeniden başlatılır
 ISI_ALARMI = 80             # °C: Jetson bunu geçince bir kez alarm sesi (75'in altına inince yeniden kurulur)
+KODLAMA_GECIKMESI = 0.04    # sn: JPEG karenin gelişinden H.264 karesinin çıkışına (donanım çözme + kodlama), yaklaşık
 ANAHTAR_ARALIGI = 15        # kare; 15 fps'te saniyede bir tam kare (yeni izleyen en geç 1 sn bekler)
 VBV_KARE = 3                # H.264 kodlayıcı arabelleği, kare cinsinden (düşük gecikmeli yayında 1-3)
 ESKI_KOMUT_MS = 250         # bundan geç gelen hareket komutu uygulanmaz
@@ -330,7 +332,7 @@ class H264Abone:
         elif simdi - self.temiz_beri > 120:
             self.yukselt_bekle = YUKSELT_BEKLE   # uzun süre sorunsuz: yeniden çabuk dene
 
-    def ekle(self, au, anahtar, seviye=0):
+    def ekle(self, au, anahtar, seviye=0, kare_no=-1):
         with self.kosul:
             if seviye != self.seviye:
                 # başka kalitenin karesi: yalnızca istenen kalitenin tam karesinde geçiş yap
@@ -361,7 +363,7 @@ class H264Abone:
             if self.anahtar_bekle and not anahtar:
                 return
             self.anahtar_bekle = False
-            self.kuyruk.append((au, anahtar))
+            self.kuyruk.append((au, anahtar, kare_no))
             self.kosul.notify()
 
     def al(self, sure):
@@ -377,6 +379,7 @@ class Kamera:
         self.kosul = threading.Condition()
         self.kare = None
         self.sayac = 0
+        self.kare_gecmisi = collections.deque(maxlen=60)   # (sayac, zaman): H.264 karesine JPEG kare numarasını vermek için
         self.izleyen = 0
         self.son_izleyen = 0
         self.durum = "kapali"      # kapali | yok | baslatiliyor | aktif
@@ -520,6 +523,7 @@ class Kamera:
                     self.kare_zaman = time.time()
                     self.kare_motor = km
                     self.sayac += 1
+                    self.kare_gecmisi.append((self.sayac, self.kare_zaman))
                     self.durum = "aktif"
                     self.kosul.notify_all()
                 sayac_bas += 1
@@ -590,8 +594,19 @@ class Kamera:
                     self.h264_takilma = 0
                     self.h264_calisti = True
                     anahtar = anahtar_kare_mi(au)
+                    # bu H.264 karesinin kaynağı olan JPEG karenin numarası (konum.py'nin "kare" alanıyla aynı sayaç):
+                    # telefon AR'ı ekrandaki karenin konumuyla çizer. Çözme + kodlama gecikmesi ~1 kareden az.
+                    kare_no = self.kare_no(time.time() - KODLAMA_GECIKMESI)
                     for a in list(self.aboneler):
-                        a.ekle(au, anahtar, seviye)
+                        a.ekle(au, anahtar, seviye, kare_no)
+
+    def kare_no(self, t):
+        """t anında (ya da hemen önce) gelmiş son JPEG karenin numarası; yoksa -1."""
+        with self.kosul:
+            for no, z in reversed(self.kare_gecmisi):
+                if z <= t:
+                    return no
+        return -1
 
     def sonraki_kare(self, son_sayac, sure=2.0):
         with self.kosul:
@@ -966,6 +981,7 @@ class Istek(BaseHTTPRequestHandler):
         if sira is not None and sira >= KAM.seviye_sayisi:
             sira = None            # kodlayıcı açılamadıysa yalnızca tam kare var
         abone = H264Abone(KAM.seviye_sayisi, sira)
+        sayac_iste = sorgu.get("sayac", ["0"])[0] == "1"
         ip = self.client_address[0]
         KAM.aboneler.add(abone)
         KAM.izle(+1)
@@ -976,10 +992,15 @@ class Istek(BaseHTTPRequestHandler):
                 oge = abone.al(1.0)
                 if not oge:
                     continue
-                au, anahtar = oge
+                au, anahtar, kare_no = oge
                 KAM.izleyici_kbps[(ip, id(abone))] = H264_AKISLAR[abone.seviye][1] // 1000
-                # ilk bayt: bit 0 tam kare, üstü akışın sırası (uygulama karenin hangi lens olduğunu bilsin)
-                ws.ikili(bytes([(1 if anahtar else 0) | (abone.seviye << 1)]) + au)
+                # ilk bayt: bit 0 tam kare, bit 1-6 akışın sırası (uygulama karenin hangi lens olduğunu bilsin).
+                # ?sayac=1 ile bağlanan istemciye bit 7 açık ve ardından 4 bayt kare numarası (uint32, küçük uçlu)
+                bas = (1 if anahtar else 0) | (abone.seviye << 1)
+                if sayac_iste:
+                    ws.ikili(bytes([bas | 0x80]) + struct.pack("<I", max(0, kare_no) & 0xFFFFFFFF) + au)
+                else:
+                    ws.ikili(bytes([bas]) + au)
                 KAM.gonderilen += len(au)
         except websoket.Kapandi:
             pass
