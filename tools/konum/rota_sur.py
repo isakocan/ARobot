@@ -85,6 +85,7 @@ def bekle(sn, sol=0, sag=0):
 def jiro():
     try:
         j = json.load(open(JIRO_DOSYA, encoding="utf-8"))
+        if j.get("kalkik"): raise Dur("robot elle kaldırıldı (önünde engel vardı)")
         if j.get("canli") and time.time() - j["t"] < 1.0: return j["x"], j["z"], j["yaw"]
     except (OSError, ValueError, KeyError):
         pass

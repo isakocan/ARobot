@@ -82,7 +82,7 @@ def poz_sorgu():
 
 def guncelle(x, z, yaw, evre, t=None, gorulen=None):
     yaw = (yaw + 180.0) % 360.0 - 180.0
-    J.kamera(x, z, yaw)
+    J.kamera(x, z, yaw, yakin_isaret=any(isinstance(g_, list) and g_[1] < 1.5 for g_ in (gorulen or [])))
     with kilit:
         D["poz"] = dict(x=x, z=z, yaw=yaw, evre=evre, t=t or time.time(), gorulen=gorulen or [])
         if not D["iz"] or math.hypot(D["iz"][-1][0] - x, D["iz"][-1][1] - z) > 0.03: D["iz"] = (D["iz"] + [(x, z)])[-3000:]
@@ -143,6 +143,7 @@ def adim_yap(ayar):
         except (OSError, ValueError):
             pass
         if os.path.exists(dur_yolu): raise AdimDur("DUR basıldı")
+        if J.kalkik: raise AdimDur("robot ELLE KALDIRILDI (önünde engel vardı)")
         if son["kamera"] not in (None, "aktif", "baslatiliyor"): raise AdimDur("kamera: %s" % son["kamera"])
 
     def bekle(sn, sol=0, sag=0):
@@ -253,7 +254,7 @@ class Jiro:
         self.bias = 0.0; self.sakin = []          # duruşta dönüş hızı örnekleri (sapma)
         self.x = self.z = None; self.kam = None; self.surus = False; self.ayri_bas = None
         self.hakem = True; self.yazildi = 0.0
-        self.duz = None; self.kalkik = False; self.indi_t = None    # elle kaldırma: telefon eğimi (robot yerdeyken düz)
+        self.duz = None; self.kalkik = False; self.indi_t = None; self.yer_bekle = False    # elle kaldırma: telefon eğimi (robot yerdeyken düz)
 
     def ornek(self, t, w, g):
         n = math.sqrt(sum(v * v for v in g))
@@ -263,13 +264,16 @@ class Jiro:
         if self.duz is None: self.duz = gu
         egim = math.degrees(math.acos(max(-1.0, min(1.0, sum(gu[i] * self.duz[i] for i in range(3))))))
         if egim > 12 or abs(n - 1.0) > 0.35:                # yerdeki robot bu kadar eğilmez: elle kaldırıldı
-            if not self.kalkik: log("robot kaldırıldı (eğim %.0f°): turuncu simge yere konunca kameraya hizalanacak" % egim)
+            if not self.kalkik:
+                log("ROBOT ELLE KALDIRILDI (eğim %.0f°): önünde engel vardı" % egim)
+                if D["surec"] is not None and D["surec"].poll() is None: durdur()
             self.kalkik = True; self.indi_t = None
         elif self.kalkik:
             if self.indi_t is None: self.indi_t = time.time()
             elif time.time() - self.indi_t > 1.5:
-                self.kalkik = False; self.ofset = None; self.x = None     # sonraki kamera konumunda yeniden hizalanır
-                log("robot yere kondu: turuncu simge kameraya hizalanıyor")
+                # yön jiroskopta zaten doğru (taşırken de döndüğünü ölçtü): yalnız yer, yakın işaret görülünce alınır
+                self.kalkik = False; self.yer_bekle = True
+                log("robot yere kondu: yön jiroskoptan korunuyor, yer yakın işaret görülünce güncellenecek")
         elif abs(w[0]) + abs(w[1]) + abs(w[2]) < 0.03:
             self.duz = [0.98 * self.duz[i] + 0.02 * gu[i] for i in range(3)]   # düz duruş yavaşça güncellenir
         if not self.surus and abs(w[0]) + abs(w[1]) + abs(w[2]) < 0.03:
@@ -278,8 +282,14 @@ class Jiro:
             self.yaw += math.degrees((r - self.bias) * (t - self.son_t))
         self.son_t = t; self.son_gelis = time.time(); self.yaz()
 
-    def kamera(self, x, z, yaw):
+    def kamera(self, x, z, yaw, yakin_isaret=False):
         # sürüş yokken iki simge çakışık (hizalama); sürüşte jiroskop simgesi kameranın ileri gidişiyle ilerler
+        if self.kalkik:                                  # elde: tekerlek ilerlemesi sayılmaz
+            self.kam = (x, z, yaw); return
+        if self.yer_bekle:
+            if yakin_isaret:
+                self.x, self.z = x, z; self.yer_bekle = False; log("turuncu simge: yer işaretten alındı")
+            self.kam = (x, z, yaw); self.yaz(zorla=True); return
         if not self.surus or self.ofset is None or self.x is None:
             self.ofset = da(yaw - self.yaw); self.x, self.z = x, z
         elif self.kam is not None:
@@ -311,14 +321,14 @@ class Jiro:
         self.yazildi = time.time()
         try:
             with open(os.path.join(KL, "jiro.json.tmp"), "w", encoding="utf-8") as f:
-                json.dump(dict(x=self.x, z=self.z, yaw=self.yon(), canli=self.canli(), t=time.time()), f)
+                json.dump(dict(x=self.x, z=self.z, yaw=self.yon(), canli=self.canli(), t=time.time(), kalkik=self.kalkik), f)
             os.replace(os.path.join(KL, "jiro.json.tmp"), os.path.join(KL, "jiro.json"))
         except OSError:
             pass
 
     def durum(self):
         if self.x is None: return None
-        return dict(x=self.x, z=self.z, yaw=self.yon(), canli=self.canli(),
+        return dict(x=self.x, z=self.z, yaw=self.yon(), canli=self.canli(), belirsiz=self.kalkik or self.yer_bekle,
                     fark=round(da(self.kam[2] - self.yon()), 1) if self.kam else None)
 
 

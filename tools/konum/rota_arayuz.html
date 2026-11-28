@@ -176,6 +176,7 @@ async function yenile() {
     document.getElementById('durum').innerHTML = (d.suruyor ? '<b style="color:#30a46c">sürüyor</b>' : '<b>bekliyor</b>') +
       (p ? ` · x <b>${p.x.toFixed(2)}</b> z <b>${p.z.toFixed(2)}</b> yön <b>${p.yaw.toFixed(0)}°</b> · ${p.evre}` + (yas > 2 ? ` · <b style="color:#e5484d">konum ${yas.toFixed(0)} sn eski</b>` : '') : ' · konum yok');
     const q = d.jiro;
+    if (q && q.belirsiz) document.getElementById('durum').innerHTML = '<b style="color:#e5484d">ELLE KALDIRILDI / yer belirsiz</b> · ' + document.getElementById('durum').innerHTML;
     document.getElementById('durum').innerHTML += q && q.canli ? ` · jiroskop yön <b style="color:#ff8c28">${q.yaw.toFixed(0)}°</b> fark <b style="color:${Math.abs(q.fark) > 20 ? '#e5484d' : '#30a46c'}">${q.fark.toFixed(0)}°</b>`
       : ` · <b style="color:#e5484d">jiroskop: ${d.jiro_durum}${q ? ' (veri gelmiyor)' : ''}</b>`;
     document.getElementById('baslat').disabled = d.suruyor;
