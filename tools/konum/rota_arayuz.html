@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rota Sürüşü</title>
+<style>
+  :root { --zemin:#0f1216; --panel:#171b21; --cizgi:#2a3039; --yazi:#e7eaee; --soluk:#8a94a3; --kirmizi:#e5484d; --yesil:#30a46c; --mavi:#3e8ed0; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--zemin); color:var(--yazi); font:14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--cizgi); flex-wrap:wrap; }
+  h1 { font-size:16px; font-weight:600; margin:0 12px 0 0; }
+  .durum { color:var(--soluk); }
+  .durum b { color:var(--yazi); font-weight:600; }
+  button { font:inherit; border:1px solid var(--cizgi); background:var(--panel); color:var(--yazi); padding:8px 14px; border-radius:8px; cursor:pointer; }
+  button:hover { border-color:#3a424d; }
+  #dur { background:var(--kirmizi); border-color:var(--kirmizi); color:#fff; font-weight:700; font-size:18px; padding:10px 34px; letter-spacing:.04em; }
+  #baslat { background:var(--yesil); border-color:var(--yesil); color:#fff; font-weight:600; }
+  #baslat:disabled { opacity:.4; cursor:default; }
+  label { color:var(--soluk); display:flex; align-items:center; gap:6px; }
+  input[type=number] { width:64px; background:var(--panel); color:var(--yazi); border:1px solid var(--cizgi); border-radius:6px; padding:5px; }
+  main { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1.15fr); gap:12px; padding:12px 16px; }
+  .kutu { background:var(--panel); border:1px solid var(--cizgi); border-radius:10px; padding:10px; min-width:0; }
+  .kutu h2 { font-size:13px; font-weight:600; color:var(--soluk); margin:0 0 8px; }
+  canvas { width:100%; display:block; background:#0b0e11; border-radius:6px; }
+  #kamera { width:100%; display:block; border-radius:6px; background:#0b0e11; min-height:120px; }
+  #satirlar { font:12px/1.5 Consolas, monospace; color:#c9d1d9; height:220px; overflow:auto; white-space:pre-wrap; margin:0; }
+  .lejant { display:flex; gap:14px; flex-wrap:wrap; color:var(--soluk); font-size:12px; margin-top:6px; }
+  .lejant i { display:inline-block; width:12px; height:4px; border-radius:2px; vertical-align:middle; margin-right:5px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rota sürüşü</h1>
+  <button id="dur" title="Boşluk tuşu da durdurur">DUR</button>
+  <button id="baslat">Başlat</button>
+  <label><input type="checkbox" id="tur" checked> yerinde turlar</label>
+  <label>hız <input type="number" id="hiz" value="130" min="90" max="200" step="10"></label>
+  <span class="durum" id="durum">bağlanıyor…</span>
+</header>
+<main>
+  <section class="kutu">
+    <h2>Telefonla taranan zemin, rota ve robotun anlık yeri</h2>
+    <canvas id="harita" width="900" height="760"></canvas>
+    <div class="lejant">
+      <span><i style="background:#2b4a63"></i>açık zemin</span><span><i style="background:#555"></i>engel</span>
+      <span><i style="background:#f5a524"></i>planlanan rota</span><span><i style="background:#3e8ed0"></i>robotun izi</span>
+      <span><i style="background:#fff"></i>robot (ok = yön)</span>
+    </div>
+  </section>
+  <section style="display:grid; gap:12px; min-width:0">
+    <div class="kutu"><h2 id="kamerabaslik">Robotun 360° kamerası</h2><img id="kamera" alt="kamera"></div>
+    <div class="kutu"><h2>Sürücü mesajları</h2><pre id="satirlar"></pre></div>
+  </section>
+</main>
+<script>
+const cv = document.getElementById('harita'), c = cv.getContext('2d');
+let H = null, tf = null;
+function kur(h) {
+  H = h; const s = h.hucre, xs = [], zs = [];
+  for (let i = 0; i < h.acik.length; i += 2) { xs.push(h.acik[i] * s); zs.push(h.acik[i + 1] * s); }
+  const x0 = Math.min(...xs) - .4, x1 = Math.max(...xs) + .4, z0 = Math.min(...zs) - .4, z1 = Math.max(...zs) + .4;
+  const k = Math.min(cv.width / (x1 - x0), cv.height / (z1 - z0));
+  tf = { k, x0, z1, px: (x, z) => [(x - x0) * k, (z1 - z) * k] };
+  cv.height = Math.ceil((z1 - z0) * k);
+}
+function ciz(d) {
+  if (!H) return; const s = H.hucre, k = tf.k, P = tf.px;
+  c.clearRect(0, 0, cv.width, cv.height);
+  c.strokeStyle = '#1a2027'; c.lineWidth = 1;
+  for (let x = Math.ceil(tf.x0); x < tf.x0 + cv.width / k; x++) { const [a] = P(x, 0); c.beginPath(); c.moveTo(a, 0); c.lineTo(a, cv.height); c.stroke(); }
+  for (let z = Math.floor(tf.z1); z > tf.z1 - cv.height / k; z--) { const [, b] = P(0, z); c.beginPath(); c.moveTo(0, b); c.lineTo(cv.width, b); c.stroke(); }
+  c.fillStyle = '#2b4a63'; for (let i = 0; i < H.acik.length; i += 2) { const [a, b] = P(H.acik[i] * s - s / 2, H.acik[i + 1] * s + s / 2); c.fillRect(a, b, s * k + .5, s * k + .5); }
+  c.fillStyle = '#555'; for (let i = 0; i < H.engel.length; i += 2) { const [a, b] = P(H.engel[i] * s - s / 2, H.engel[i + 1] * s + s / 2); c.fillRect(a, b, s * k + .5, s * k + .5); }
+  c.strokeStyle = '#f5a524'; c.lineWidth = 3; c.setLineDash([8, 6]); c.beginPath();
+  H.rota.forEach((p, j) => { const [a, b] = P(p.x, p.z); j ? c.lineTo(a, b) : c.moveTo(a, b); }); c.stroke(); c.setLineDash([]);
+  H.rota.forEach((p, j) => { const [a, b] = P(p.x, p.z); c.fillStyle = '#f5a524'; c.beginPath(); c.arc(a, b, p.tur ? 7 : 4, 0, 7); c.fill();
+    if (p.ad && j < H.rota.length - 1) { c.fillStyle = '#f5d18a'; c.font = '12px Segoe UI'; c.fillText(j + ' ' + p.ad, a + 9, b - 6); } });
+  H.isaretler.forEach(e => { const [a, b] = P(e.x, e.z); c.fillStyle = '#fff'; c.fillRect(a - 6, b - 6, 12, 12); c.fillStyle = '#e7eaee'; c.font = '12px Segoe UI'; c.fillText('ArUco ' + e.id, a + 9, b + 14); });
+  if (d.iz && d.iz.length > 1) { c.strokeStyle = '#3e8ed0'; c.lineWidth = 2.5; c.beginPath(); d.iz.forEach((p, j) => { const [a, b] = P(p[0], p[1]); j ? c.lineTo(a, b) : c.moveTo(a, b); }); c.stroke(); }
+  if (d.poz) { const p = d.poz, [a, b] = P(p.x, p.z), r = p.yaw * Math.PI / 180, L = 0.45 * k;
+    c.strokeStyle = '#fff'; c.fillStyle = '#fff'; c.lineWidth = 3; c.beginPath(); c.arc(a, b, 8, 0, 7); c.fill();
+    c.beginPath(); c.moveTo(a, b); c.lineTo(a + Math.sin(r) * L, b - Math.cos(r) * L); c.stroke(); }
+}
+async function yenile() {
+  try {
+    const d = await (await fetch('/durum')).json();
+    ciz(d);
+    const p = d.poz, yas = p ? (Date.now() / 1000 - p.t) : null;
+    document.getElementById('durum').innerHTML = (d.suruyor ? '<b style="color:#30a46c">sürüyor</b>' : '<b>bekliyor</b>') +
+      (p ? ` · x <b>${p.x.toFixed(2)}</b> z <b>${p.z.toFixed(2)}</b> yön <b>${p.yaw.toFixed(0)}°</b> · ${p.evre}` + (yas > 2 ? ` · <b style="color:#e5484d">konum ${yas.toFixed(0)} sn eski</b>` : '') : ' · konum yok');
+    document.getElementById('baslat').disabled = d.suruyor;
+    const pre = document.getElementById('satirlar'), alt = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
+    pre.textContent = d.satirlar.join('\n'); if (alt) pre.scrollTop = pre.scrollHeight;
+    document.getElementById('kamerabaslik').textContent = 'Robotun 360° kamerası' + (d.kamera_yas == null ? ' (bekleniyor)' : d.kamera_yas > 3 ? ` (${d.kamera_yas} sn eski)` : '');
+  } catch (e) { document.getElementById('durum').textContent = 'arayüz sunucusuna ulaşılamıyor'; }
+}
+const dur = () => fetch('/dur', { method: 'POST', body: '{}' });
+document.getElementById('dur').onclick = dur;
+addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); dur(); } });
+document.getElementById('baslat').onclick = () => fetch('/baslat', { method: 'POST', body: JSON.stringify({ tur: document.getElementById('tur').checked, hiz: +document.getElementById('hiz').value }) });
+setInterval(() => { document.getElementById('kamera').src = '/kamera.jpg?' + Date.now(); }, 400);
+fetch('/harita').then(r => r.json()).then(h => { kur(h); yenile(); });
+setInterval(yenile, 250);
+</script>
+</body>
+</html>

@@ -19,6 +19,7 @@ ADR, KL = sys.argv[1:3]
 HIZ = int(os.environ.get("HIZ", "130")); DONUS = int(os.environ.get("DONUS", "150"))
 TUR = os.environ.get("TUR", "1") == "1"; KURU = os.environ.get("KURU", "0") == "1"
 ROTA = json.load(open(os.path.join(KL, "rota.json"), encoding="utf-8"))
+DUR_DOSYASI = os.path.join(KL, "DUR")            # rota_arayuz.py DUR düğmesi bu dosyayı yaratır
 P = ROTA["noktalar"]
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.setblocking(False)
@@ -52,6 +53,7 @@ def gonder(sol, sag):
     yaz.writerow(["%.2f" % (time.time() - t0), "%.3f" % time.time(), evre[0], hedef_no[0], sol, sag, k.get("var"), k.get("x"), k.get("z"), k.get("yaw"), k.get("sy"), k.get("kaynak")])
     if msvcrt and msvcrt.kbhit():
         msvcrt.getch(); raise Dur("tuşa basıldı")
+    if os.path.exists(DUR_DOSYASI): raise Dur("arayüzden durduruldu")
 
 
 def bekle(sn, sol=0, sag=0):
