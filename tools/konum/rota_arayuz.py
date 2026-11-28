@@ -47,7 +47,8 @@ def harmanli_lut(gen=960, yuk=320, alt=-30.0, ust=75.0, bindirme=6.0):
 
 
 LUT4, LUTW = harmanli_lut()
-D = {"surec": None, "satirlar": [], "poz": None, "iz": [], "kamera": None, "kamera_t": 0.0}
+D = {"surec": None, "satirlar": [], "poz": None, "iz": [], "kamera": None, "kamera_t": 0.0,
+     "jiro": None, "jiz": [], "jiro_durum": "bağlanıyor"}
 kilit = threading.Lock()
 
 
@@ -80,6 +81,7 @@ def poz_sorgu():
 
 def guncelle(x, z, yaw, evre, t=None, gorulen=None):
     yaw = (yaw + 180.0) % 360.0 - 180.0
+    J.kamera(x, z, yaw)
     with kilit:
         D["poz"] = dict(x=x, z=z, yaw=yaw, evre=evre, t=t or time.time(), gorulen=gorulen or [])
         if not D["iz"] or math.hypot(D["iz"][-1][0] - x, D["iz"][-1][1] - z) > 0.03: D["iz"] = (D["iz"] + [(x, z)])[-3000:]
@@ -107,13 +109,105 @@ def baslat(ayar):
     except OSError: pass
     env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1", TUR="1" if ayar.get("tur", True) else "0", HIZ=str(int(ayar.get("hiz", 130))))
     p = subprocess.Popen([sys.executable, os.path.join(BURASI, "rota_sur.py"), ADR, KL], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-    D["surec"] = p; D["iz"] = []
+    D["surec"] = p; D["iz"] = []; D["jiz"] = []; J.surus = True; J.ayri_bas = None
+    if not J.canli(): log("UYARI: jiroskop verisi gelmiyor (%s); hakem kapalı" % D["jiro_durum"])
     def oku():
         for satir in io.TextIOWrapper(p.stdout, encoding="utf-8", errors="replace"):
             log(satir.rstrip())
-        log("sürücü kapandı (çıkış %s)" % p.wait())
+        log("sürücü kapandı (çıkış %s)" % p.wait()); J.surus = False
     threading.Thread(target=oku, daemon=True).start()
     log("BAŞLAT (hız %s, turlar %s)" % (env["HIZ"], "açık" if env["TUR"] == "1" else "kapalı")); return "başladı"
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Telefonun jiroskobu (robotun üstünde, tarama uygulaması jiroskop kaydı açık), kablosuz adb ile canlı.
+# İkinci robot simgesi: yönü jiroskoptan (sürüş başında kameraya hizalanır, sonra serbest), yeri kameranın ileri
+# gidişiyle o yönde ilerletilir. Hakem: sürüşte kamera yönü jiroskoptan HAKEM_DER'den fazla, HAKEM_SN boyunca
+# ayrılırsa sürüş durdurulur.
+ADB = os.environ.get("ADB", r"C:\platform-toolsdb.exe")
+JIRO_CIHAZ = os.environ.get("JIRO_CIHAZ", "172.20.243.17:5555")
+JIRO_KLASOR = "/sdcard/Android/data/com.ekip.artarama/files/olcum"
+HAKEM_DER, HAKEM_SN = float(os.environ.get("HAKEM_DER", "35")), float(os.environ.get("HAKEM_SN", "2.0"))
+
+
+def da(a): return (a + 180.0) % 360.0 - 180.0
+
+
+class Jiro:
+    def __init__(self):
+        self.yaw = 0.0; self.ofset = None; self.son_t = None; self.son_gelis = 0.0
+        self.bias = 0.0; self.sakin = []          # duruşta dönüş hızı örnekleri (sapma)
+        self.x = self.z = None; self.kam = None; self.surus = False; self.ayri_bas = None
+
+    def ornek(self, t, w, g):
+        n = math.sqrt(sum(v * v for v in g))
+        if n < 0.5: return
+        r = sum(w[i] * g[i] for i in range(3)) / n        # robotun yaw hızı, sağa + (rad/sn; 28 Kas kaydıyla bulundu)
+        if not self.surus and abs(w[0]) + abs(w[1]) + abs(w[2]) < 0.03:
+            self.sakin = (self.sakin + [r])[-300:]; self.bias = sorted(self.sakin)[len(self.sakin) // 2]
+        if self.son_t is not None and 0 < t - self.son_t < 0.5:
+            self.yaw += math.degrees((r - self.bias) * (t - self.son_t))
+        self.son_t = t; self.son_gelis = time.time()
+
+    def kamera(self, x, z, yaw):
+        # sürüş yokken iki simge çakışık (hizalama); sürüşte jiroskop simgesi kameranın ileri gidişiyle ilerler
+        if not self.surus or self.ofset is None or self.x is None:
+            self.ofset = da(yaw - self.yaw); self.x, self.z = x, z
+        elif self.kam is not None:
+            kx, kz, ky = self.kam
+            d = (x - kx) * math.sin(math.radians(ky)) + (z - kz) * math.cos(math.radians(ky))
+            jy = math.radians(self.yon())
+            self.x += d * math.sin(jy); self.z += d * math.cos(jy)
+        self.kam = (x, z, yaw)
+        with kilit:
+            if not D["jiz"] or math.hypot(D["jiz"][-1][0] - self.x, D["jiz"][-1][1] - self.z) > 0.03:
+                D["jiz"] = (D["jiz"] + [(self.x, self.z)])[-3000:]
+        if self.surus and self.canli():
+            fark = abs(da(yaw - self.yon()))
+            if fark > HAKEM_DER:
+                if self.ayri_bas is None: self.ayri_bas = time.time()
+                elif time.time() - self.ayri_bas > HAKEM_SN and not os.path.exists(os.path.join(KL, "DUR")):
+                    log("HAKEM: kamera yönü jiroskoptan %.0f° ayrıldı (%.1f sn) -> DUR" % (fark, HAKEM_SN)); durdur()
+            else:
+                self.ayri_bas = None
+
+    def yon(self): return da(self.yaw + (self.ofset or 0.0))
+    def canli(self): return time.time() - self.son_gelis < 1.0
+
+    def durum(self):
+        if self.x is None: return None
+        return dict(x=self.x, z=self.z, yaw=self.yon(), canli=self.canli(),
+                    fark=round(da(self.kam[2] - self.yon()), 1) if self.kam else None)
+
+
+J = Jiro()
+
+
+def jiro_oku():
+    """Telefondaki en yeni jiroskop kaydını kablosuz adb ile canlı izler (kayıt yenilenirse yenisine geçer)."""
+    while True:
+        try:
+            ls = subprocess.run([ADB, "-s", JIRO_CIHAZ, "shell", "ls -t %s | head -1" % JIRO_KLASOR], capture_output=True, text=True, timeout=8)
+            ad = ls.stdout.strip()
+            if not ad.startswith("jiro_"):
+                D["jiro_durum"] = "telefonda kayıt yok (%s)" % (ls.stderr.strip() or "jiroskop kaydını başlat")[:80]; time.sleep(3); continue
+            D["jiro_durum"] = "okunuyor: " + ad
+            p = subprocess.Popen([ADB, "-s", JIRO_CIHAZ, "shell", "tail -n 0 -f %s/%s" % (JIRO_KLASOR, ad)],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+            bakis = time.time()
+            for satir in p.stdout:
+                v = satir.strip().split(",")
+                if len(v) >= 8:
+                    try: J.ornek(float(v[1]), [float(v[2]), float(v[3]), float(v[4])], [float(v[5]), float(v[6]), float(v[7])])
+                    except ValueError: pass
+                if time.time() - bakis > 5:                       # daha yeni kayıt açıldı mı
+                    bakis = time.time()
+                    y = subprocess.run([ADB, "-s", JIRO_CIHAZ, "shell", "ls -t %s | head -1" % JIRO_KLASOR], capture_output=True, text=True, timeout=8).stdout.strip()
+                    if y.startswith("jiro_") and y != ad: break
+            p.kill()
+        except Exception as e:
+            D["jiro_durum"] = "hata: %s" % str(e)[:80]
+        time.sleep(1)
 
 
 def durdur():
@@ -151,7 +245,8 @@ class Isleyici(BaseHTTPRequestHandler):
             with kilit:
                 c = D["surec"]
                 v = dict(poz=D["poz"], iz=D["iz"][-1500:], satirlar=D["satirlar"][-40:], suruyor=c is not None and c.poll() is None,
-                         kamera_yas=round(time.time() - D["kamera_t"], 1) if D["kamera_t"] else None)
+                         kamera_yas=round(time.time() - D["kamera_t"], 1) if D["kamera_t"] else None,
+                         jiro=J.durum(), jiz=D["jiz"][-1500:], jiro_durum=D["jiro_durum"])
             self._gonder(200, "application/json", json.dumps(v).encode())
         elif self.path == "/lut":
             # eşdikdörtgen piksel -> çift balık gözü kare (0..1) koordinatı, float32 [y][x][2]: tarayıcı WebGL ile açar
@@ -174,6 +269,7 @@ class Isleyici(BaseHTTPRequestHandler):
 
 
 threading.Thread(target=poz_sorgu, daemon=True).start()
+threading.Thread(target=jiro_oku, daemon=True).start()
 threading.Thread(target=kamera, daemon=True).start()
 log("arayüz hazır, robot %s" % ADR)
 ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("PORT", "8765"))), Isleyici).serve_forever()

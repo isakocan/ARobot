@@ -48,7 +48,8 @@
       <span><i style="background:#1e50e1"></i>koyu mavi: güvenilir açık zemin</span><span><i style="background:#43d9be"></i>turkuaz: açık zemin</span>
       <span><i style="background:#ffcc33"></i>işaret (çıkıntı = baktığı yön, yanıp sönen = robot şu an görüyor)</span>
       <span><i style="background:#f5a524"></i>planlanan rota</span><span><i style="background:#ffffff"></i>robotun izi</span>
-      <span><i style="background:#1a73e8"></i>robot (yelpaze = baktığı yön, gri = konum eski)</span>
+      <span><i style="background:#1a73e8"></i>robot, kameraya göre (yelpaze = baktığı yön, gri = konum eski)</span>
+      <span><i style="background:#ff8c28"></i>robot, yönü jiroskoptan (kesik çizgi: izi)</span>
     </div>
   </section>
   <section style="display:grid; gap:12px; min-width:0">
@@ -81,8 +82,17 @@ function ciz(d) {
   H.rota.forEach((p, j) => { const [a, b] = P(p.x, p.z); j ? c.lineTo(a, b) : c.moveTo(a, b); }); c.stroke(); c.setLineDash([]);
   H.rota.forEach((p, j) => { const [a, b] = P(p.x, p.z); c.fillStyle = '#f5a524'; c.beginPath(); c.arc(a, b, p.tur ? 7 : 4, 0, 7); c.fill();
     if (p.ad && j < H.rota.length - 1) { c.fillStyle = '#f5d18a'; c.font = '12px Segoe UI'; c.fillText(j + ' ' + p.ad, a + 9, b - 6); } });
+  if (d.jiz && d.jiz.length > 1) { c.strokeStyle = 'rgba(255,140,40,.85)'; c.lineWidth = 3; c.setLineDash([6, 5]); c.beginPath(); d.jiz.forEach((p, j) => { const [a, b] = P(p[0], p[1]); j ? c.lineTo(a, b) : c.moveTo(a, b); }); c.stroke(); c.setLineDash([]); }
   if (d.iz && d.iz.length > 1) { c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 4; c.lineJoin = 'round'; c.beginPath(); d.iz.forEach((p, j) => { const [a, b] = P(p[0], p[1]); j ? c.lineTo(a, b) : c.moveTo(a, b); }); c.stroke(); }
   isaretCiz(P, k, d.poz && (Date.now() / 1000 - d.poz.t) < 2 ? (d.poz.gorulen || []) : []);
+  if (d.jiro) {   // ikinci robot: yönü jiroskoptan (turuncu)
+    const q = d.jiro, [a, b] = P(q.x, q.z), yon = q.yaw * Math.PI / 180 - Math.PI / 2, R = Math.max(70, 0.9 * k), ac = 22 * Math.PI / 180;
+    const g = c.createRadialGradient(a, b, 4, a, b, R); g.addColorStop(0, q.canli ? 'rgba(255,150,50,.85)' : 'rgba(150,150,150,.6)'); g.addColorStop(1, 'rgba(255,150,50,0)');
+    c.fillStyle = g; c.beginPath(); c.moveTo(a, b); c.arc(a, b, R, yon - ac, yon + ac); c.closePath(); c.fill();
+    c.fillStyle = '#101216'; c.beginPath(); c.arc(a, b, 15, 0, 7); c.fill();
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(a, b, 12, 0, 7); c.fill();
+    c.fillStyle = q.canli ? '#ff8c28' : '#8a94a3'; c.beginPath(); c.arc(a, b, 8, 0, 7); c.fill();
+  }
   if (d.poz) {   // harita uygulaması gibi: yönü gösteren yelpaze + beyaz kenarlı mavi nokta
     const p = d.poz, [a, b] = P(p.x, p.z), r = p.yaw * Math.PI / 180, R = Math.max(70, 0.9 * k), ac = 30 * Math.PI / 180;
     const yon = r - Math.PI / 2;                       // kanvas açısı: yaw 0 = yukarı (+z)
@@ -125,6 +135,9 @@ async function yenile() {
     const p = d.poz, yas = p ? (Date.now() / 1000 - p.t) : null;
     document.getElementById('durum').innerHTML = (d.suruyor ? '<b style="color:#30a46c">sürüyor</b>' : '<b>bekliyor</b>') +
       (p ? ` · x <b>${p.x.toFixed(2)}</b> z <b>${p.z.toFixed(2)}</b> yön <b>${p.yaw.toFixed(0)}°</b> · ${p.evre}` + (yas > 2 ? ` · <b style="color:#e5484d">konum ${yas.toFixed(0)} sn eski</b>` : '') : ' · konum yok');
+    const q = d.jiro;
+    document.getElementById('durum').innerHTML += q && q.canli ? ` · jiroskop yön <b style="color:#ff8c28">${q.yaw.toFixed(0)}°</b> fark <b style="color:${Math.abs(q.fark) > 20 ? '#e5484d' : '#30a46c'}">${q.fark.toFixed(0)}°</b>`
+      : ` · <b style="color:#e5484d">jiroskop: ${d.jiro_durum}${q ? ' (veri gelmiyor)' : ''}</b>`;
     document.getElementById('baslat').disabled = d.suruyor;
     const pre = document.getElementById('satirlar'), alt = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
     pre.textContent = d.satirlar.join('\n'); if (alt) pre.scrollTop = pre.scrollHeight;

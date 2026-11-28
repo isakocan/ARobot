@@ -18,6 +18,7 @@ except ImportError:
 ADR, KL = sys.argv[1:3]
 HIZ = int(os.environ.get("HIZ", "130")); DONUS = int(os.environ.get("DONUS", "150"))
 TUR = os.environ.get("TUR", "1") == "1"; KURU = os.environ.get("KURU", "0") == "1"
+BASA_EN_COK = float(os.environ.get("BASA_EN_COK", "1.5"))   # m: robot başlangıca bundan yakınsa önce oraya kendisi gider
 ROTA = json.load(open(os.path.join(KL, "rota.json"), encoding="utf-8"))
 DUR_DOSYASI = os.path.join(KL, "DUR")
 CANLI = os.path.join(KL, "canli.json")            # rota_arayuz.py DUR düğmesi bu dosyayı yaratır
@@ -150,8 +151,15 @@ try:
         bekle(0.2)
         if time.time() - b > 40: raise Dur("40 sn'de konum kurulamadı")
     p = poz(); print("konum: x %.2f z %.2f yön %.0f" % p)
-    if math.hypot(p[0] - P[0]["x"], p[1] - P[0]["z"]) > 0.4:
-        raise Dur("robot başlangıç noktasından %.2f m uzakta (en çok 0,4)" % math.hypot(p[0] - P[0]["x"], p[1] - P[0]["z"]))
+    uz = math.hypot(p[0] - P[0]["x"], p[1] - P[0]["z"])
+    if uz > BASA_EN_COK:
+        raise Dur("robot başlangıç noktasından %.2f m uzakta (en çok %.1f)" % (uz, BASA_EN_COK))
+    if uz > 0.12:
+        # önce başlangıca git (düz çizgi, açık zeminde olduğu kullanıcıya gösterilmiş olmalı), sonra ilk işarete dön
+        evre[0] = "başlangıca"; print("başlangıca gidiliyor: %.2f m" % uz)
+        don(math.degrees(math.atan2(P[0]["x"] - p[0], P[0]["z"] - p[1])))
+        q = poz_bekle(); git((q[0], q[1]), (P[0]["x"], P[0]["z"]))
+    evre[0] = "başlangıca"; don(ROTA.get("bas_yon", 0.0)); p = poz_bekle(); print("başlangıçta: x %.2f z %.2f yön %.0f" % p)
     if TUR and P[0].get("tur"): tam_tur("tur: " + P[0]["ad"])
     for j in range(1, len(P)):
         a, b_ = (P[j - 1]["x"], P[j - 1]["z"]), (P[j]["x"], P[j]["z"])
