@@ -21,13 +21,16 @@ TUR = os.environ.get("TUR", "1") == "1"; KURU = os.environ.get("KURU", "0") == "
 BASA_EN_COK = float(os.environ.get("BASA_EN_COK", "1.5"))   # m: robot başlangıca bundan yakınsa önce oraya kendisi gider
 ROTA = json.load(open(os.path.join(KL, "rota.json"), encoding="utf-8"))
 DUR_DOSYASI = os.path.join(KL, "DUR")
+# KAYNAK=jiro: konum rota_arayuz.py'nin yazdığı jiro.json'dan (yön telefon jiroskobundan, ilerleme kameradan, işaret
+# sıçramaları yok sayılır; sürüş başında kameraya hizalı). kamera: robotun kendi konumu.
+KAYNAK = os.environ.get("KAYNAK", "kamera"); JIRO_DOSYA = os.path.join(KL, "jiro.json")
 CANLI = os.path.join(KL, "canli.json")            # rota_arayuz.py DUR düğmesi bu dosyayı yaratır
 P = ROTA["noktalar"]
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.setblocking(False)
 n = 0; son = {"t": 0.0, "k": None, "kare": None, "taze": 0.0}
 kayit = open(os.path.join(KL, "surus_%s.csv" % time.strftime("%H%M%S")), "w", newline="", encoding="utf-8")
-yaz = csv.writer(kayit); yaz.writerow(["t", "utc", "evre", "hedef", "sol", "sag", "var", "x", "z", "yaw", "sy", "kaynak"])
+yaz = csv.writer(kayit); yaz.writerow(["t", "utc", "evre", "hedef", "sol", "sag", "var", "x", "z", "yaw", "sy", "kaynak", "jx", "jz", "jyaw"])
 t0 = time.time(); evre = ["bekle"]; hedef_no = [0]
 
 
@@ -60,12 +63,12 @@ def gonder(sol, sag):
                     try:
                         with open(CANLI + ".tmp", "w", encoding="utf-8") as f_:
                             json.dump(dict(x=k["x"], z=k["z"], yaw=k["yaw"], evre=evre[0], t=time.time(),
-                                           gorulen=[g[0] for g in k.get("gorulen") or []]), f_)
+                                           gorulen=k.get("gorulen") or []), f_)
                         os.replace(CANLI + ".tmp", CANLI)
                     except OSError:
                         pass
     k = son["k"] or {}
-    yaz.writerow(["%.2f" % (time.time() - t0), "%.3f" % time.time(), evre[0], hedef_no[0], sol, sag, k.get("var"), k.get("x"), k.get("z"), k.get("yaw"), k.get("sy"), k.get("kaynak")])
+    yaz.writerow(["%.2f" % (time.time() - t0), "%.3f" % time.time(), evre[0], hedef_no[0], sol, sag, k.get("var"), k.get("x"), k.get("z"), k.get("yaw"), k.get("sy"), k.get("kaynak")] + list(jiro() or ("", "", "")))
     if msvcrt and msvcrt.kbhit():
         msvcrt.getch(); raise Dur("tuşa basıldı")
     kayit.flush()
@@ -79,9 +82,19 @@ def bekle(sn, sol=0, sag=0):
         gonder(sol, sag); time.sleep(0.05)
 
 
+def jiro():
+    try:
+        j = json.load(open(JIRO_DOSYA, encoding="utf-8"))
+        if j.get("canli") and time.time() - j["t"] < 1.0: return j["x"], j["z"], j["yaw"]
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
 def poz():
     k = son["k"]
     if not k or not k.get("var") or time.time() - son["t"] > 1.5 or time.time() - son["taze"] > 1.2: return None
+    if KAYNAK == "jiro": return jiro()          # kamera da canlı olmalı (ilerleme ondan), yön/yer jiroskop simgesinden
     return k["x"], k["z"], k["yaw"]
 
 
@@ -144,6 +157,7 @@ def tam_tur(ad):
 
 
 try:
+    print("konum kaynağı: %s" % ("JİROSKOP simgesi (yön telefondan)" if KAYNAK == "jiro" else "robotun kamerası"))
     print("Robot: %s  rota %d nokta, %.1f m  HIZ %d DONUS %d%s. Durdurmak için HERHANGİ BİR TUŞ." % (ADR, len(P), ROTA["toplam_m"], HIZ, DONUS, "  (KURU: motor yok)" if KURU else ""))
     evre[0] = "bekle"; print("konum bekleniyor (robot başlangıçta ilk işarete baksın)...")
     b = time.time()

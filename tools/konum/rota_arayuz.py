@@ -73,7 +73,7 @@ def poz_sorgu():
         try:
             s.sendto(json.dumps({"t": "d", "n": n, "sol": 0, "sag": 0, "konum": 1}).encode(), (ADR, 8081))
             k = json.loads(s.recv(65535).decode()).get("konum")
-            if k and k.get("var"): guncelle(k["x"], k["z"], k["yaw"], "bekliyor", gorulen=[g[0] for g in k.get("gorulen") or []])
+            if k and k.get("var"): guncelle(k["x"], k["z"], k["yaw"], "bekliyor", gorulen=k.get("gorulen") or [])
             time.sleep(0.1)
         except (OSError, ValueError):
             pass
@@ -107,10 +107,11 @@ def baslat(ayar):
     if D["surec"] is not None and D["surec"].poll() is None: return "zaten sürüyor"
     try: os.remove(os.path.join(KL, "DUR"))
     except OSError: pass
-    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1", TUR="1" if ayar.get("tur", True) else "0", HIZ=str(int(ayar.get("hiz", 130))))
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1", TUR="1" if ayar.get("tur", True) else "0", HIZ=str(int(ayar.get("hiz", 130))),
+               KAYNAK="jiro" if ayar.get("jiro", True) else "kamera")
     p = subprocess.Popen([sys.executable, os.path.join(BURASI, "rota_sur.py"), ADR, KL], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-    D["surec"] = p; D["iz"] = []; D["jiz"] = []; J.surus = True; J.ayri_bas = None
-    if not J.canli(): log("UYARI: jiroskop verisi gelmiyor (%s); hakem kapalı" % D["jiro_durum"])
+    D["surec"] = p; D["iz"] = []; D["jiz"] = []; J.surus = True; J.ayri_bas = None; J.hakem = env["KAYNAK"] != "jiro"
+    if not J.canli(): log("UYARI: jiroskop verisi gelmiyor (%s)" % D["jiro_durum"])
     def oku():
         for satir in io.TextIOWrapper(p.stdout, encoding="utf-8", errors="replace"):
             log(satir.rstrip())
@@ -138,6 +139,7 @@ class Jiro:
         self.yaw = 0.0; self.ofset = None; self.son_t = None; self.son_gelis = 0.0
         self.bias = 0.0; self.sakin = []          # duruşta dönüş hızı örnekleri (sapma)
         self.x = self.z = None; self.kam = None; self.surus = False; self.ayri_bas = None
+        self.hakem = True; self.yazildi = 0.0
 
     def ornek(self, t, w, g):
         n = math.sqrt(sum(v * v for v in g))
@@ -147,7 +149,7 @@ class Jiro:
             self.sakin = (self.sakin + [r])[-300:]; self.bias = sorted(self.sakin)[len(self.sakin) // 2]
         if self.son_t is not None and 0 < t - self.son_t < 0.5:
             self.yaw += math.degrees((r - self.bias) * (t - self.son_t))
-        self.son_t = t; self.son_gelis = time.time()
+        self.son_t = t; self.son_gelis = time.time(); self.yaz()
 
     def kamera(self, x, z, yaw):
         # sürüş yokken iki simge çakışık (hizalama); sürüşte jiroskop simgesi kameranın ileri gidişiyle ilerler
@@ -156,13 +158,15 @@ class Jiro:
         elif self.kam is not None:
             kx, kz, ky = self.kam
             d = (x - kx) * math.sin(math.radians(ky)) + (z - kz) * math.cos(math.radians(ky))
-            jy = math.radians(self.yon())
-            self.x += d * math.sin(jy); self.z += d * math.cos(jy)
+            if math.hypot(x - kx, z - kz) < 0.10:       # büyük adım = işaret düzeltmesi (sıçrama): ilerleme sayılmaz
+                jy = math.radians(self.yon())
+                self.x += d * math.sin(jy); self.z += d * math.cos(jy)
         self.kam = (x, z, yaw)
         with kilit:
             if not D["jiz"] or math.hypot(D["jiz"][-1][0] - self.x, D["jiz"][-1][1] - self.z) > 0.03:
                 D["jiz"] = (D["jiz"] + [(self.x, self.z)])[-3000:]
-        if self.surus and self.canli():
+        self.yaz(zorla=True)
+        if self.surus and self.hakem and self.canli():
             fark = abs(da(yaw - self.yon()))
             if fark > HAKEM_DER:
                 if self.ayri_bas is None: self.ayri_bas = time.time()
@@ -172,7 +176,18 @@ class Jiro:
                 self.ayri_bas = None
 
     def yon(self): return da(self.yaw + (self.ofset or 0.0))
-    def canli(self): return time.time() - self.son_gelis < 1.0
+    def canli(self): return time.time() - self.son_gelis < 1.5
+
+    def yaz(self, zorla=False):
+        """rota_sur.py (KAYNAK=jiro) için: jiro.json (x, z, yaw, canli, t)."""
+        if self.x is None or (not zorla and time.time() - self.yazildi < 0.05): return
+        self.yazildi = time.time()
+        try:
+            with open(os.path.join(KL, "jiro.json.tmp"), "w", encoding="utf-8") as f:
+                json.dump(dict(x=self.x, z=self.z, yaw=self.yon(), canli=self.canli(), t=time.time()), f)
+            os.replace(os.path.join(KL, "jiro.json.tmp"), os.path.join(KL, "jiro.json"))
+        except OSError:
+            pass
 
     def durum(self):
         if self.x is None: return None

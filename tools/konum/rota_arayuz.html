@@ -8,9 +8,11 @@
   :root { --zemin:#0f1216; --panel:#171b21; --cizgi:#2a3039; --yazi:#e7eaee; --soluk:#8a94a3; --kirmizi:#e5484d; --yesil:#30a46c; --mavi:#3e8ed0; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--zemin); color:var(--yazi); font:14px/1.45 "Segoe UI", system-ui, sans-serif; }
-  header { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--cizgi); flex-wrap:wrap; }
+  header { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--cizgi); flex-wrap:nowrap; height:58px; box-sizing:border-box; }
   h1 { font-size:16px; font-weight:600; margin:0 12px 0 0; }
-  .durum { color:var(--soluk); }
+  .durum { color:var(--soluk); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
+  .goruntu { position:relative; }
+  #isaretkat { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; background:transparent; }
   .durum b { color:var(--yazi); font-weight:600; }
   button { font:inherit; border:1px solid var(--cizgi); background:var(--panel); color:var(--yazi); padding:8px 14px; border-radius:8px; cursor:pointer; }
   button:hover { border-color:#3a424d; }
@@ -36,6 +38,7 @@
   <button id="dur" title="Boşluk tuşu da durdurur">DUR</button>
   <button id="baslat">Başlat</button>
   <label><input type="checkbox" id="tur" checked> yerinde turlar</label>
+  <label title="Yön telefonun jiroskobundan, ilerleme kameradan; işaret sıçramaları yok sayılır"><input type="checkbox" id="jiro" checked> jiroskopla sür</label>
   <button id="gorunum">Bütün harita</button>
   <label>hız <input type="number" id="hiz" value="130" min="90" max="200" step="10"></label>
   <span class="durum" id="durum">bağlanıyor…</span>
@@ -53,7 +56,7 @@
     </div>
   </section>
   <section style="display:grid; gap:12px; min-width:0">
-    <div class="kutu"><h2 id="kamerabaslik">Robotun 360° kamerası</h2><canvas id="video" width="960" height="320" style="display:none"></canvas><img id="kamera" alt="kamera"></div>
+    <div class="kutu"><h2 id="kamerabaslik">Robotun 360° kamerası</h2><div class="goruntu"><canvas id="video" width="960" height="320" style="display:none"></canvas><img id="kamera" alt="kamera"><canvas id="isaretkat" width="960" height="320"></canvas></div></div>
     <div class="kutu"><h2>Sürücü mesajları</h2><pre id="satirlar"></pre></div>
   </section>
 </main>
@@ -84,7 +87,7 @@ function ciz(d) {
     if (p.ad && j < H.rota.length - 1) { c.fillStyle = '#f5d18a'; c.font = '12px Segoe UI'; c.fillText(j + ' ' + p.ad, a + 9, b - 6); } });
   if (d.jiz && d.jiz.length > 1) { c.strokeStyle = 'rgba(255,140,40,.85)'; c.lineWidth = 3; c.setLineDash([6, 5]); c.beginPath(); d.jiz.forEach((p, j) => { const [a, b] = P(p[0], p[1]); j ? c.lineTo(a, b) : c.moveTo(a, b); }); c.stroke(); c.setLineDash([]); }
   if (d.iz && d.iz.length > 1) { c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 4; c.lineJoin = 'round'; c.beginPath(); d.iz.forEach((p, j) => { const [a, b] = P(p[0], p[1]); j ? c.lineTo(a, b) : c.moveTo(a, b); }); c.stroke(); }
-  isaretCiz(P, k, d.poz && (Date.now() / 1000 - d.poz.t) < 2 ? (d.poz.gorulen || []) : []);
+  isaretCiz(P, k, d.poz && (Date.now() / 1000 - d.poz.t) < 2 ? (d.poz.gorulen || []).map(g => Array.isArray(g) ? g[0] : g) : []);
   if (d.jiro) {   // ikinci robot: yönü jiroskoptan (turuncu)
     const q = d.jiro, [a, b] = P(q.x, q.z), yon = q.yaw * Math.PI / 180 - Math.PI / 2, R = Math.max(70, 0.9 * k), ac = 22 * Math.PI / 180;
     const g = c.createRadialGradient(a, b, 4, a, b, R); g.addColorStop(0, q.canli ? 'rgba(255,150,50,.85)' : 'rgba(150,150,150,.6)'); g.addColorStop(1, 'rgba(255,150,50,0)');
@@ -105,6 +108,23 @@ function ciz(d) {
     c.fillStyle = '#fff'; c.beginPath(); c.arc(a, b, 16, 0, 7); c.fill();
     c.fillStyle = eski ? '#8a94a3' : '#1a73e8'; c.beginPath(); c.arc(a, b, 11, 0, 7); c.fill();
   }
+}
+// kamera görüntüsünde robotun o an gördüğü işaretler (konum.py'nin gördükleri: [id, mesafe, yön, y]); eşdikdörtgen:
+// boylam -180..180 (önü ortada, sağa +), enlem -30..75
+const kat = document.getElementById('isaretkat'), kc = kat.getContext('2d');
+function isaretKat(d) {
+  kc.clearRect(0, 0, kat.width, kat.height);
+  const g = d.poz && (Date.now() / 1000 - d.poz.t) < 2 ? (d.poz.gorulen || []) : [];
+  g.forEach(m => {
+    if (!Array.isArray(m)) return;
+    const [id, mes, yon, y] = m, lat = Math.atan2(y, mes) * 180 / Math.PI;   // y: işaret merkezi kameradan yukarı (m)
+    const u = (yon / 360 + 0.5) * kat.width, v = (75 - lat) / 105 * kat.height;
+    const yar = Math.max(10, Math.atan2(0.09, mes) * 180 / Math.PI / 360 * kat.width * 1.25);
+    kc.strokeStyle = '#ffcc33'; kc.lineWidth = 3; kc.strokeRect(u - yar, v - yar, 2 * yar, 2 * yar);
+    const yazi = `${id} · ${mes.toFixed(2)} m`; kc.font = '600 15px Segoe UI';
+    const w = kc.measureText(yazi).width + 10; kc.fillStyle = '#ffcc33'; kc.fillRect(u - w / 2, v - yar - 24, w, 20);
+    kc.fillStyle = '#141719'; kc.textAlign = 'center'; kc.fillText(yazi, u, v - yar - 9); kc.textAlign = 'start';
+  });
 }
 // tarama uygulamasındaki işaret simgesi, büyük: sarı kare, koyu iç, beyaz numara, baktığı yöne sarı çıkıntı.
 // Robot o an görüyorsa çevresinde yanıp sönen sarı halka.
@@ -131,7 +151,7 @@ function isaretCiz(P, k, gorulen) {
 async function yenile() {
   try {
     const d = await (await fetch('/durum')).json();
-    ciz(d);
+    ciz(d); isaretKat(d);
     const p = d.poz, yas = p ? (Date.now() / 1000 - p.t) : null;
     document.getElementById('durum').innerHTML = (d.suruyor ? '<b style="color:#30a46c">sürüyor</b>' : '<b>bekliyor</b>') +
       (p ? ` · x <b>${p.x.toFixed(2)}</b> z <b>${p.z.toFixed(2)}</b> yön <b>${p.yaw.toFixed(0)}°</b> · ${p.evre}` + (yas > 2 ? ` · <b style="color:#e5484d">konum ${yas.toFixed(0)} sn eski</b>` : '') : ' · konum yok');
@@ -150,7 +170,7 @@ document.getElementById('gorunum').onclick = (e) => { takip = !takip; e.target.t
 const dur = () => fetch('/dur', { method: 'POST', body: '{}' });
 document.getElementById('dur').onclick = dur;
 addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); dur(); } });
-document.getElementById('baslat').onclick = () => fetch('/baslat', { method: 'POST', body: JSON.stringify({ tur: document.getElementById('tur').checked, hiz: +document.getElementById('hiz').value }) });
+document.getElementById('baslat').onclick = () => fetch('/baslat', { method: 'POST', body: JSON.stringify({ tur: document.getElementById('tur').checked, jiro: document.getElementById('jiro').checked, hiz: +document.getElementById('hiz').value }) });
 // --- Görüntü: robotun H.264 akışı (sürüş uygulamasının aldığının aynısı), tarayıcıda WebCodecs ile çözülür,
 // WebGL ile çift balık gözünden eşdikdörtgene açılır. Olmazsa yedek: tek tek JPEG kareler.
 const kam = document.getElementById('kamera'), vid = document.getElementById('video');
