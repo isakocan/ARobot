@@ -72,6 +72,44 @@ class XFeat:
         return ia.cpu().numpy(), i1[ia].cpu().numpy()
 
 
+class XFeatKesit(XFeat):
+    """Gemini önerisi (28 Kas): panoramayı ufuk kuşağında örtüşen düz (perspektif) pencerelere böl, XFeat'i her
+    pencerede çalıştır, noktaları yeniden boylam / enleme çevir. Perspektif için eğitilmiş ağ eşdikdörtgendeki
+    bükülmeyi görmez. Her pencere yalnız kendi orta dilimindeki (360 / N derece) noktaları verir: tekrar yok.
+    KESIT_N (6), KESIT_EGIM (derece, yukarı +; 20), KESIT_GORUS (yatay derece; 90)."""
+
+    def __init__(self, nokta=1500):
+        super().__init__(nokta)
+        self.N = int(os.environ.get("KESIT_N", "6")); egim = math.radians(float(os.environ.get("KESIT_EGIM", "20")))
+        gorus = math.radians(float(os.environ.get("KESIT_GORUS", "90")))
+        self.W, self.Hh = 512, 416; f = (self.W / 2) / math.tan(gorus / 2)
+        u, v = np.meshgrid(np.arange(self.W) + 0.5, np.arange(self.Hh) + 0.5)
+        x = (u - self.W / 2) / f; y = -(v - self.Hh / 2) / f; z = np.ones_like(x)
+        n = np.sqrt(x * x + y * y + z * z); x, y, z = x / n, y / n, z / n
+        y2 = y * math.cos(egim) + z * math.sin(egim); z2 = -y * math.sin(egim) + z * math.cos(egim)   # yukarı eğ
+        self.lon0 = np.degrees(np.arctan2(x, z2)); self.lat = np.degrees(np.arcsin(np.clip(y2, -1, 1)))
+        self.harita = []
+        for k in range(self.N):
+            lon = da(self.lon0 + k * 360.0 / self.N)
+            mx = ((lon / 360.0 + 0.5) * GEN).astype(np.float32) % GEN; my = ((UST - self.lat) * PX).astype(np.float32)
+            self.harita.append((mx, my, lon))
+
+    @torch.no_grad()
+    def cikar(self, pan, gor=None, govde=None):
+        kes = np.stack([cv2.remap(pan, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE) for mx, my, _ in self.harita])
+        t = torch.from_numpy(kes).float()[:, None].repeat(1, 3, 1, 1).to(CIHAZ) / 255.0
+        out = self.m.detectAndCompute(t, top_k=int(self.nokta * 1.6 / self.N))
+        L, B, D = [], [], []
+        for k, o in enumerate(out):
+            xy = o["keypoints"].cpu().numpy(); xi = np.clip(xy[:, 0].astype(int), 0, self.W - 1); yi = np.clip(xy[:, 1].astype(int), 0, self.Hh - 1)
+            lon = self.harita[k][2][yi, xi]; lat = self.lat[yi, xi]
+            orta = np.abs(self.lon0[yi, xi]) <= 180.0 / self.N
+            L.append(lon[orta]); B.append(lat[orta]); D.append(o["descriptors"][torch.from_numpy(orta).to(o["descriptors"].device)])
+        lon = np.concatenate(L); lat = np.concatenate(B); d = torch.cat(D)
+        m = nokta_maskesi(lon, lat, gor, govde) & (lat > ALT) & (lat < UST)
+        return dict(lon=lon[m].astype(np.float32), lat=lat[m].astype(np.float32), d=d[torch.from_numpy(m).to(d.device)])
+
+
 def kayma(q, k, ia, ib):
     """Boylam kayması doğrulaması -> (uyan, kayma derece: k'dan q'ya sağa dönüş +, uyan maskesi)"""
     if len(ia) < 6: return 0, 0.0, None

@@ -44,7 +44,7 @@ def uygula(p, d):
     return (p[0] + ileri * s + sag * c, p[1] + ileri * c - sag * s, p[2] + dy)
 
 
-Y = nh.XFeat()
+Y = nh.XFeatKesit() if os.environ.get("KESIT") == "1" else nh.XFeat()   # KESIT=1: ufuk pencereleri (Gemini önerisi)
 
 # ------------------------------------------------------------------ 1. harita
 R, EV, _ = yukle(M)
@@ -135,6 +135,8 @@ def test(ad_h):
     for ad, d in ((ad_h, ey), ("bugunku sistem (isaretli)", en)):
         print("  %-28s yon | %s | %s" % (ad, ozet({i: v for i, v in d.items() if i in YAKIN}, "isaret yakinda"), ozet({i: v for i, v in d.items() if i not in YAKIN}, "isaret uzakta/yok")))
     if ep: print("  harita: yer hatasi (isaretin yakindan gorundugu karelerde, isaret kullanilmadan) ortanca %.2f %%90 %.2f m" % (np.median(ep), np.percentile(ep, 90)))
+    if os.environ.get("KAYDET"):                 # kare -> yön hatası (aynı karelerde yöntem karşılaştırması için)
+        json.dump({"ad": ad_h, "yon": ey, "yakin": sorted(YAKIN)}, open(os.environ["KAYDET"] + "_" + ad_h.split("(")[1].split(")")[0] + ".json", "w"))
 
 
 test("harita (duzeltmeden)")

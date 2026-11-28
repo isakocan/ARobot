@@ -35,6 +35,7 @@ Telefondan sürülen küçük bir ev robotu ve AR oyunu. Oyuncu robotu telefonda
 - **stella_vslam** (OpenVSLAM): denendi, bırakıldı.
 - **ORB** anahtar kareler: aynı gün iyi, farklı günde (ışık değişince) tanıma çok düştü. XFeat aynı testte belirgin iyi.
 - Siluet / ham görüntü benzerliği ile yer tanıma: günler arası tutmadı.
+- **360 görüntüyü ufuk kuşağında 6 düz (perspektif) pencereye bölüp XFeat** (28 Kas, kayıtlarla, ortak karelerde): işaret yakınında daha iyi (yer 17 -> 3 cm, yön 2,1 -> 1,5 derece) ama işaretten uzakta daha kötü (yön ortanca 2,5 -> 3,1, %90 6,4 -> 10,4 derece). Eşdikdörtgen panorama (tavan dahil) uzakta daha iyi; şimdilik panoramada kaldık.
 - Kalıcı IMU ya da yeni sensör eklemek: istemiyoruz (geçici ölçüm için telefon jiroskobu kullanıyoruz).
 
 ## Bilinen sorunlar
