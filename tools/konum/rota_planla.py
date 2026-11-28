@@ -5,12 +5,12 @@ dosyalar. Açık zemin hücreleri (5 cm, "acik" = zemin kanıtı var, engel yok)
 uzak olacak şekilde daraltılır. Rota: 1 numaralı işaretin 1 m önü (başlangıç) -> en uzak noktalar ve diğer işaretlerin
 önü (açık zeminde birbirinden uzak) -> başlangıç. Ayaklar duvardan uzak tutan A* ile çizilir, görüş hattıyla düz
 parçalara indirilir. Çıktı: rota.json (noktalar, ev koordinatı) ve rota.png (onay için resim).
-Kullanım: python rota_planla.py <robot_adresi | ev.json zemin.json> <çıktı_klasörü>   (PAY=0.45, UZAK=4, MOD=test|uzak)"""
+Kullanım: python rota_planla.py <robot_adresi | ev.json zemin.json> <çıktı_klasörü>   (PAY=0.60, UZAK=4, MOD=test|uzak)"""
 import heapq, json, math, os, sys, urllib.request
 import cv2
 import numpy as np
 
-PAY = float(os.environ.get("PAY", "0.45"))       # robot merkezinden engele / bilinmeyene en az (m)
+PAY = float(os.environ.get("PAY", "0.60"))       # robot merkezinden engele / bilinmeyene en az (m)
 UZAK = int(os.environ.get("UZAK", "4"))           # uzak nokta sayısı
 ON = 1.0                                          # işaretin önünde başlangıç uzaklığı (m)
 
@@ -72,11 +72,16 @@ def astar(s, g):
     return yol[::-1]
 
 
-def gorur(p, q):
-    n = int(max(abs(q[0] - p[0]), abs(q[1] - p[1]))) + 1
+GENIS = uzak >= PAY + 0.15                                       # düz kısayollar daha da ortadan geçsin
+
+
+def gorur(p, q, gevsek=False):
+    """p -> q düz çizgisi serbest mi; uçlardan 0,3 m sonrası için GENIS (duvardan +15 cm daha uzak) ister."""
+    n = int(max(abs(q[0] - p[0]), abs(q[1] - p[1]))) + 1; L = math.hypot(q[0] - p[0], q[1] - p[1]) * HC
     for t in np.linspace(0, 1, n + 1):
         c, r = int(round(p[0] + t * (q[0] - p[0]))), int(round(p[1] + t * (q[1] - p[1])))
-        if not serbest[r, c]: return False
+        uc = min(t, 1 - t) * L < 0.3
+        if not (serbest[r, c] if uc or gevsek else GENIS[r, c]): return False
     return True
 
 
@@ -129,10 +134,12 @@ if MOD == "test":
         if birikim > 4.2: break
     son = F; isaret = 1
     for x, z, nx, nz in ornek:
-        q = hucre(x + isaret * 0.45 * nx, z + isaret * 0.45 * nz)
-        if 0 <= q[0] < W and 0 <= q[1] < H and serbest[q[1], q[0]] and gorur(son, q):
-            px_, pz_ = dunya(*q); toplam += math.hypot(px_ - noktalar[-1]["x"], pz_ - noktalar[-1]["z"])
-            noktalar.append(dict(ad="", x=px_, z=pz_, test="zikzak", tur=False)); son = q; isaret = -isaret
+        for sap in (0.45, 0.35, 0.25, 0.18):                                # dar yerde sapma küçülür
+            q = hucre(x + isaret * sap * nx, z + isaret * sap * nz)
+            if 0 <= q[0] < W and 0 <= q[1] < H and serbest[q[1], q[0]] and gorur(son, q, gevsek=True):
+                px_, pz_ = dunya(*q); toplam += math.hypot(px_ - noktalar[-1]["x"], pz_ - noktalar[-1]["z"])
+                noktalar.append(dict(ad="", x=px_, z=pz_, test="zikzak", tur=False)); son = q; isaret = -isaret
+                break
     if son != F: noktalar[-1]["ad"] = "zikzak sonu"
     toplam += ayak(son, bas, "başlangıca dönüş", noktalar); noktalar[-1].update(ad="bitiş (başlangıç)")
 else:
@@ -154,6 +161,18 @@ else:
     noktalar = [dict(ad="başlangıç", x=dunya(*bas)[0], z=dunya(*bas)[1], test="", tur=True)]; onceki = bas; toplam = 0.0
     for ad, h in sira:
         toplam += ayak(onceki, h, ad, noktalar); noktalar[-1]["ad"] = ad; onceki = h
+# 30 cm'den kısa ara parçaları at (sürücü 5 cm'lik parçada boşuna döner); adlı / turlu noktalar kalır
+sade = [noktalar[0]]
+for j in range(1, len(noktalar)):
+    p_ = noktalar[j]; son_ = j == len(noktalar) - 1
+    kisa = math.hypot(p_["x"] - sade[-1]["x"], p_["z"] - sade[-1]["z"]) < 0.3
+    if kisa and not p_["ad"] and not p_.get("tur") and not son_:
+        continue                                                   # PAY 0,6 iken 30 cm kısaltma güvenli
+    if kisa and (p_["ad"] or p_.get("tur") or son_) and not sade[-1]["ad"] and not sade[-1].get("tur") and len(sade) > 1:
+        sade.pop()
+    sade.append(p_)
+noktalar = sade
+toplam = sum(math.hypot(b["x"] - a["x"], b["z"] - a["z"]) for a, b in zip(noktalar, noktalar[1:]))
 on1 = [e for e in isaretler if e["id"] == on[0][0]][0]
 bas_yon = math.degrees(math.atan2(on1["x"] - noktalar[0]["x"], on1["z"] - noktalar[0]["z"]))   # başta işarete bak
 json.dump(dict(pay=PAY, toplam_m=round(toplam, 2), bas_yon=bas_yon, noktalar=noktalar), open(os.path.join(CIK, "rota.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
