@@ -82,7 +82,7 @@ def poz_sorgu():
 
 def guncelle(x, z, yaw, evre, t=None, gorulen=None):
     yaw = (yaw + 180.0) % 360.0 - 180.0
-    J.kamera(x, z, yaw, yakin_isaret=any(isinstance(g_, list) and g_[1] < 1.5 for g_ in (gorulen or [])))
+    J.kamera(x, z, yaw, yakin_isaret=any(isinstance(g_, list) and g_[1] < 2.2 for g_ in (gorulen or [])))
     with kilit:
         D["poz"] = dict(x=x, z=z, yaw=yaw, evre=evre, t=t or time.time(), gorulen=gorulen or [])
         if not D["iz"] or math.hypot(D["iz"][-1][0] - x, D["iz"][-1][1] - z) > 0.03: D["iz"] = (D["iz"] + [(x, z)])[-3000:]
@@ -110,6 +110,7 @@ def kamera():
 # değişiminden (işaret sıçramaları sayılmaz). DUR düğmesi / DUR dosyası her döngüde bakılır.
 ADIM = {"suruyor": False, "no": 0}
 ADIM_HIZ, ADIM_DONUS = int(os.environ.get("ADIM_HIZ", "130")), int(os.environ.get("ADIM_DONUS", "150"))
+HIZ_MS = float(os.environ.get("HIZ_MS", "0.47"))   # m/sn, ADIM_HIZ'da (28 Kas: 1,5 sn -> işaret 1'e uzaklık 2,73 -> 2,03 m)
 
 
 class AdimDur(Exception): pass
@@ -174,18 +175,20 @@ def adim_yap(ayar):
                 bekle(sure, ADIM_DONUS if e > 0 else -ADIM_DONUS, -ADIM_DONUS if e > 0 else ADIM_DONUS)
                 bekle(0.6)
             sonuc.append("döndü: hedef %.0f°, şimdi %.0f° (jiroskop %s)" % (hedef, yon(), "canlı" if J.canli() else "YOK, kamera yönü"))
-        elif ayar.get("tur") == "ileri" and "sn" in ayar:
+        elif ayar.get("tur") == "ileri" and "sn" not in ayar:
+            ayar["sn"] = float(ayar.get("m", 0.3)) / HIZ_MS
+        if ayar.get("tur") == "ileri":
             # süreyle ileri (kamera mesafesine güvenmeden): yön jiroskopla tutulur; sonunda kameranın ölçtüğü yer değişimi
             sn = max(0.2, min(2.5, float(ayar["sn"]))); hedef_y = y0; b = time.time(); yol = 0.0; onceki = p0
             while time.time() - b < sn:
                 e = da(hedef_y - yon()); d = max(-25, min(25, 1.5 * e))
-                bekle(0.1, ADIM_HIZ + d, ADIM_HIZ - d)
+                t_ = time.time(); bekle(0.1, ADIM_HIZ + d, ADIM_HIZ - d); J.ilerle(HIZ_MS * (time.time() - t_))
                 q = kam(); adim_ = math.hypot(q[0] - onceki[0], q[1] - onceki[1])
                 if adim_ < 0.10: yol += adim_
                 onceki = q
             bekle(0.8); q = kam()
-            sonuc.append("%.1f sn ileri: kameranın saydığı %.2f m, baştan sona kamera yer değişimi %.2f m; yön %.0f° -> %.0f°"
-                         % (sn, yol, math.hypot(q[0] - p0[0], q[1] - p0[1]), hedef_y, yon()))
+            sonuc.append("%.1f sn ileri (süreden %.2f m): kameranın saydığı %.2f m, baştan sona kamera yer değişimi %.2f m; yön %.0f° -> %.0f°"
+                         % (sn, HIZ_MS * sn, yol, math.hypot(q[0] - p0[0], q[1] - p0[1]), hedef_y, yon()))
         elif ayar.get("tur") == "ileri":
             m = max(0.05, min(0.8, float(ayar.get("m", 0.3)))); hedef_y = y0; yol = 0.0; onceki = p0
             b = time.time()
@@ -254,7 +257,8 @@ class Jiro:
         self.bias = 0.0; self.sakin = []          # duruşta dönüş hızı örnekleri (sapma)
         self.x = self.z = None; self.kam = None; self.surus = False; self.ayri_bas = None
         self.hakem = True; self.yazildi = 0.0
-        self.duz = None; self.kalkik = False; self.indi_t = None; self.yer_bekle = False    # elle kaldırma: telefon eğimi (robot yerdeyken düz)
+        self.duz = None; self.kalkik = False; self.indi_t = None; self.yer_bekle = False
+        self.sure_mod = False; self.donus_t = 0.0; self.ilerleme_t = 0.0    # elle kaldırma: telefon eğimi (robot yerdeyken düz)
 
     def ornek(self, t, w, g):
         n = math.sqrt(sum(v * v for v in g))
@@ -278,6 +282,7 @@ class Jiro:
             self.duz = [0.98 * self.duz[i] + 0.02 * gu[i] for i in range(3)]   # düz duruş yavaşça güncellenir
         if not self.surus and abs(w[0]) + abs(w[1]) + abs(w[2]) < 0.03:
             self.sakin = (self.sakin + [r])[-300:]; self.bias = sorted(self.sakin)[len(self.sakin) // 2]
+        if abs(r - self.bias) > 0.05: self.donus_t = time.time()
         if self.son_t is not None and 0 < t - self.son_t < 0.5:
             self.yaw += math.degrees((r - self.bias) * (t - self.son_t))
         self.son_t = t; self.son_gelis = time.time(); self.yaz()
@@ -290,9 +295,12 @@ class Jiro:
             if yakin_isaret:
                 self.x, self.z = x, z; self.yer_bekle = False; log("turuncu simge: yer işaretten alındı")
             self.kam = (x, z, yaw); self.yaz(zorla=True); return
-        if not self.surus or self.ofset is None or self.x is None:
+        if self.ofset is None or self.x is None or (yakin_isaret and self.duruyor()):
+            # hizalama yalnız güvenilir anda: işaret yakında (<2 m) ve robot duruyor (ilk açılışta mecburen bir kez)
             self.ofset = da(yaw - self.yaw); self.x, self.z = x, z
-        elif self.kam is not None:
+        elif self.sure_mod:
+            pass                                        # adım sürüşü: ilerleme süreden (ilerle), kamera adımları sayılmaz
+        elif self.surus and self.kam is not None:
             kx, kz, ky = self.kam
             d = (x - kx) * math.sin(math.radians(ky)) + (z - kz) * math.cos(math.radians(ky))
             if math.hypot(x - kx, z - kz) < 0.10:       # büyük adım = işaret düzeltmesi (sıçrama): ilerleme sayılmaz
@@ -313,6 +321,16 @@ class Jiro:
                 self.ayri_bas = None
 
     def yon(self): return da(self.yaw + (self.ofset or 0.0))
+    def duruyor(self): return time.time() - self.donus_t > 1.0 and time.time() - self.ilerleme_t > 1.0
+
+    def ilerle(self, d):
+        """Süreye göre ilerleme (m), jiroskop yönünde."""
+        if self.x is None: return
+        jy = math.radians(self.yon()); self.x += d * math.sin(jy); self.z += d * math.cos(jy); self.ilerleme_t = time.time()
+        with kilit:
+            if not D["jiz"] or math.hypot(D["jiz"][-1][0] - self.x, D["jiz"][-1][1] - self.z) > 0.03:
+                D["jiz"] = (D["jiz"] + [(self.x, self.z)])[-3000:]
+        self.yaz(zorla=True)
     def canli(self): return time.time() - self.son_gelis < 1.5
 
     def yaz(self, zorla=False):
@@ -438,13 +456,13 @@ class Isleyici(BaseHTTPRequestHandler):
         if self.path == "/baslat": self._gonder(200, "application/json", json.dumps({"sonuc": baslat(ayar)}).encode())
         elif self.path == "/dur": self._gonder(200, "application/json", json.dumps({"sonuc": durdur()}).encode())
         elif self.path == "/hizala":   # jiroskop simgesini kameranın şimdiki konum / yönüne hizala
-            J.surus = False; time.sleep(0.5)
+            J.ofset = None; time.sleep(0.5)                      # sonraki kamera konumunda zorla hizalanır
             self._gonder(200, "application/json", json.dumps({"sonuc": J.durum()}).encode())
         elif self.path == "/adim":
             if ADIM["suruyor"] or (D["surec"] is not None and D["surec"].poll() is None):
                 self._gonder(409, "application/json", json.dumps({"sonuc": ["başka sürüş var"]}).encode()); return
             # adımlar boyunca jiroskop simgesi serbest (kameraya yeniden hizalanmaz); /hizala ile yeniden hizalanır
-            ADIM["suruyor"] = True; J.surus = True; J.hakem = False
+            ADIM["suruyor"] = True; J.surus = True; J.hakem = False; J.sure_mod = True
             r = adim_yap(ayar)
             self._gonder(200, "application/json", json.dumps({"sonuc": r}, ensure_ascii=False).encode())
         else: self._gonder(404, "text/plain", b"yok")
