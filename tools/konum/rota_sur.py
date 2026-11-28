@@ -2,12 +2,13 @@
 
 Köprünün UDP sürüş kanalını kullanır (uygulamanın yaptığının aynısı, 20 Hz) ve her pakette konum ister; robotun kendi
 konumuna (işaret + görüntü pusulası + zemin izi) bakarak:
-  1. başta konum kurulana kadar bekler (robot 1 numaralı işarete bakıyor olmalı), isterse yerinde bir tur döner,
-  2. her noktaya önce yerinde döner (yön farkı küçülünce kısa vuruşlarla), sonra yönünü düzelterek ileri gider.
+  1. başta konum kurulana kadar bekler (robot başlangıçta ilk işarete bakıyor olmalı),
+  2. her noktaya önce yerinde döner (yön farkı küçülünce kısa vuruşlarla), sonra yönünü düzelterek ileri gider;
+     "tur" işaretli noktalarda yerinde bir tam tur atar. Kayıtta her satırda hangi test parçasında olduğu yazar.
 GÜVENLİK: herhangi bir tuş ya da Ctrl+C = hemen dur. Konum 1,5 sn gelmezse, robot planlanan çizgiden 0,45 m saparsa,
 bir parça beklenenden uzun sürerse durur ve çıkar. Paket kesilince köprü de motorları ~1 sn içinde durdurur.
 Kayıt: <rota klasörü>/surus_<zaman>.csv
-Kullanım: python rota_sur.py <robot_adresi> <rota_klasörü>   (HIZ=120 ileri PWM, DONUS=150, TUR=1 başta tur, KURU=1 motorsuz)"""
+Kullanım: python rota_sur.py <robot_adresi> <rota_klasörü>   (HIZ=120 ileri PWM, DONUS=150, TUR=0 turları atla, KURU=1 motorsuz)"""
 import csv, json, math, os, socket, sys, time
 try:
     import msvcrt
@@ -104,9 +105,20 @@ def git(a, b):
         bekle(0.1, HIZ + d, HIZ - d)
 
 
+def tam_tur(ad):
+    """Yerinde bir tam tur (sağa), sonra başladığı yöne dön."""
+    evre[0] = ad; print("  " + ad)
+    y0 = poz_bekle()[2]; toplam = 0.0; onceki = y0; b = time.time()
+    while toplam < 350:
+        if time.time() - b > 60: raise Dur("tur 60 sn'de bitmedi")
+        bekle(0.15, DONUS, -DONUS); bekle(0.25)
+        q = poz_bekle(); toplam += abs(da(q[2] - onceki)); onceki = q[2]
+    don(y0)
+
+
 try:
     print("Robot: %s  rota %d nokta, %.1f m  HIZ %d DONUS %d%s. Durdurmak için HERHANGİ BİR TUŞ." % (ADR, len(P), ROTA["toplam_m"], HIZ, DONUS, "  (KURU: motor yok)" if KURU else ""))
-    evre[0] = "bekle"; print("konum bekleniyor (robot 1 numaralı işarete baksın)...")
+    evre[0] = "bekle"; print("konum bekleniyor (robot başlangıçta ilk işarete baksın)...")
     b = time.time()
     while poz() is None:
         bekle(0.2)
@@ -114,18 +126,13 @@ try:
     p = poz(); print("konum: x %.2f z %.2f yön %.0f" % p)
     if math.hypot(p[0] - P[0]["x"], p[1] - P[0]["z"]) > 0.4:
         raise Dur("robot başlangıç noktasından %.2f m uzakta (en çok 0,4)" % math.hypot(p[0] - P[0]["x"], p[1] - P[0]["z"]))
-    if TUR:
-        evre[0] = "tur"; print("yerinde bir tur...")
-        y0 = p[2]; toplam = 0.0; onceki = y0
-        while toplam < 350:
-            bekle(0.15, DONUS, -DONUS); bekle(0.25)
-            q = poz_bekle(); toplam += abs(da(q[2] - onceki)); onceki = q[2]
-        don(y0)
+    if TUR and P[0].get("tur"): tam_tur("tur: " + P[0]["ad"])
     for j in range(1, len(P)):
         a, b_ = (P[j - 1]["x"], P[j - 1]["z"]), (P[j]["x"], P[j]["z"])
-        hedef_no[0] = j; print("-> %d %s (%.2f, %.2f)" % (j, P[j]["ad"], b_[0], b_[1]))
-        evre[0] = "don"; q = poz_bekle(); don(math.degrees(math.atan2(b_[0] - q[0], b_[1] - q[1])))
-        evre[0] = "git"; git(a, b_)
+        et = P[j].get("test", ""); hedef_no[0] = j; print("-> %d %s %s (%.2f, %.2f)" % (j, et, P[j]["ad"], b_[0], b_[1]))
+        evre[0] = "don: " + et; q = poz_bekle(); don(math.degrees(math.atan2(b_[0] - q[0], b_[1] - q[1])))
+        evre[0] = "git: " + et; git(a, b_)
+        if TUR and P[j].get("tur"): tam_tur("tur: " + P[j]["ad"])
     evre[0] = "son"; don(ROTA.get("bas_yon", 0.0)); print("rota bitti")
 except Dur as e:
     print("DURDU:", e)

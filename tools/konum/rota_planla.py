@@ -95,30 +95,65 @@ bas = en_yakin_serbest(on[0][1], on[0][2])
 d = jeodezik(bas); ulasilir = np.isfinite(d)
 hedef = [("isaret %d onu" % i, en_yakin_serbest(x, z)) for i, x, z in on[1:]]
 hedef = [h for h in hedef if ulasilir[h[1][1], h[1][0]]]
-# uzak noktalar: başlangıçtan ve seçilenlerden en uzak ulaşılabilir hücre (jeodezik)
-secilen = [bas] + [h[1] for h in hedef]; mesafe = np.where(ulasilir, d, -1)
-for k in range(UZAK):
-    en = np.full((H, W), np.inf)
-    for s in secilen:
-        en = np.minimum(en, np.hypot(*np.meshgrid(np.arange(W) - s[0], np.arange(H) - s[1])))
-    puan = np.where(ulasilir, en, -1)
-    r, c = np.unravel_index(np.argmax(puan), puan.shape)
-    if puan[r, c] * HC < 0.6: break
-    hedef.append(("uzak %d" % (k + 1), (int(c), int(r)))); secilen.append((int(c), int(r)))
-# sıra: en yakın komşu, başlangıçtan başla, başlangıçta bitir
-sira = []; simdi = bas; kalan = hedef[:]
-while kalan:
-    k = min(range(len(kalan)), key=lambda j: math.hypot(kalan[j][1][0] - simdi[0], kalan[j][1][1] - simdi[1]))
-    sira.append(kalan.pop(k)); simdi = sira[-1][1]
-sira.append(("bitiş (başlangıç)", bas))
-noktalar = [dict(ad="başlangıç", x=dunya(*bas)[0], z=dunya(*bas)[1])]; onceki = bas; toplam = 0.0
-for ad, h in sira:
-    yol = astar(onceki, h)
-    if yol is None: continue
+MOD = os.environ.get("MOD", "test")
+
+
+def ayak(a, b, etiket, noktalar):
+    """a -> b A* ile, düz parçalara indirilmiş; her nokta o parçanın test etiketini taşır. -> uzunluk"""
+    yol = astar(a, b)
+    if yol is None: return 0.0
+    L = 0.0
     for c, r in sadelestir(yol)[1:]:
-        x, z = dunya(c, r); toplam += math.hypot(x - noktalar[-1]["x"], z - noktalar[-1]["z"])
-        noktalar.append(dict(ad="", x=x, z=z))
-    noktalar[-1]["ad"] = ad; onceki = h
+        x, z = dunya(c, r); L += math.hypot(x - noktalar[-1]["x"], z - noktalar[-1]["z"])
+        noktalar.append(dict(ad="", x=x, z=z, test=etiket, tur=False))
+    return L
+
+
+if MOD == "test":
+    # Her parça ayrı bir şeyi sınar: kısa düz (işaret görünürken), yerinde tam tur (işaret yanında / uzakta), uzun düz,
+    # zikzak (bol dönüş), dönüş yolu ve başlangıca dönüş (biriken kaymayı işaret 0 gösterir).
+    uzak_puan = np.where(ulasilir, d, -1); r, c = np.unravel_index(np.argmax(uzak_puan), uzak_puan.shape); F = (int(c), int(r))
+    noktalar = [dict(ad="başlangıç", x=dunya(*bas)[0], z=dunya(*bas)[1], test="", tur=True)]; toplam = 0.0; onceki = bas
+    if hedef:
+        toplam += ayak(onceki, hedef[0][1], "kısa düz (işaret 2'ye)", noktalar); noktalar[-1].update(ad="işaret 2 önü", tur=True); onceki = hedef[0][1]
+    toplam += ayak(onceki, F, "uzun düz", noktalar); noktalar[-1].update(ad="uzak köşe", tur=True)
+    # zikzak: uzak köşeden başlangıca giden yolun ilk ~4 m'si boyunca, yola dik +-0,45 m, 0,7 m arayla
+    geri = astar(F, bas); cizgi = [dunya(*q) for q in sadelestir(geri)] if geri else []
+    ornek = []; birikim = 0.0
+    for (ax, az), (bx, bz) in zip(cizgi, cizgi[1:]):
+        L = math.hypot(bx - ax, bz - az)
+        for t in np.arange(0.7 - (birikim % 0.7), L, 0.7):
+            if birikim + t > 4.2: break
+            ux, uz = (bx - ax) / L, (bz - az) / L; ornek.append((ax + ux * t, az + uz * t, uz, -ux))
+        birikim += L
+        if birikim > 4.2: break
+    son = F; isaret = 1
+    for x, z, nx, nz in ornek:
+        q = hucre(x + isaret * 0.45 * nx, z + isaret * 0.45 * nz)
+        if 0 <= q[0] < W and 0 <= q[1] < H and serbest[q[1], q[0]] and gorur(son, q):
+            px_, pz_ = dunya(*q); toplam += math.hypot(px_ - noktalar[-1]["x"], pz_ - noktalar[-1]["z"])
+            noktalar.append(dict(ad="", x=px_, z=pz_, test="zikzak", tur=False)); son = q; isaret = -isaret
+    if son != F: noktalar[-1]["ad"] = "zikzak sonu"
+    toplam += ayak(son, bas, "başlangıca dönüş", noktalar); noktalar[-1].update(ad="bitiş (başlangıç)")
+else:
+    # uzak noktalar: başlangıçtan ve seçilenlerden en uzak ulaşılabilir hücre (jeodezik)
+    secilen = [bas] + [h[1] for h in hedef]
+    for k in range(UZAK):
+        en = np.full((H, W), np.inf)
+        for s_ in secilen:
+            en = np.minimum(en, np.hypot(*np.meshgrid(np.arange(W) - s_[0], np.arange(H) - s_[1])))
+        puan = np.where(ulasilir, en, -1)
+        r, c = np.unravel_index(np.argmax(puan), puan.shape)
+        if puan[r, c] * HC < 0.6: break
+        hedef.append(("uzak %d" % (k + 1), (int(c), int(r)))); secilen.append((int(c), int(r)))
+    sira = []; simdi = bas; kalan = hedef[:]
+    while kalan:
+        k = min(range(len(kalan)), key=lambda j: math.hypot(kalan[j][1][0] - simdi[0], kalan[j][1][1] - simdi[1]))
+        sira.append(kalan.pop(k)); simdi = sira[-1][1]
+    sira.append(("bitiş (başlangıç)", bas))
+    noktalar = [dict(ad="başlangıç", x=dunya(*bas)[0], z=dunya(*bas)[1], test="", tur=True)]; onceki = bas; toplam = 0.0
+    for ad, h in sira:
+        toplam += ayak(onceki, h, ad, noktalar); noktalar[-1]["ad"] = ad; onceki = h
 on1 = [e for e in isaretler if e["id"] == on[0][0]][0]
 bas_yon = math.degrees(math.atan2(on1["x"] - noktalar[0]["x"], on1["z"] - noktalar[0]["z"]))   # başta işarete bak
 json.dump(dict(pay=PAY, toplam_m=round(toplam, 2), bas_yon=bas_yon, noktalar=noktalar), open(os.path.join(CIK, "rota.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -132,10 +167,12 @@ for ad, c_ in (("engel", (60, 60, 60)), ("duvar", (0, 0, 0))):
         renk[e[m, 1] - z0, e[m, 0] - x0] = c_
 im = cv2.resize(renk[::-1], (W * S, H * S), interpolation=cv2.INTER_NEAREST)
 def px(x, z): c, r = hucre(x, z); return int(c * S + S / 2), int((H - 1 - r) * S + S / 2)
+RENK = {"zikzak": (0, 140, 255), "uzun düz": (40, 40, 220), "başlangıca dönüş": (160, 40, 160)}
 for p, q in zip(noktalar, noktalar[1:]):
-    cv2.arrowedLine(im, px(p["x"], p["z"]), px(q["x"], q["z"]), (40, 40, 220), 3, cv2.LINE_AA, tipLength=0.04)
+    cv2.arrowedLine(im, px(p["x"], p["z"]), px(q["x"], q["z"]), RENK.get(q.get("test"), (40, 160, 40)), 3, cv2.LINE_AA, tipLength=0.04)
 for j, p in enumerate(noktalar):
     cv2.circle(im, px(p["x"], p["z"]), 7, (40, 40, 220), -1)
+    if p.get("tur"): cv2.circle(im, px(p["x"], p["z"]), 16, (40, 40, 220), 2, cv2.LINE_AA)
     if p["ad"] and j < len(noktalar) - 1: cv2.putText(im, "%d %s" % (j, p["ad"].translate(str.maketrans("şçığüöŞÇİĞÜÖ", "sciguoSCIGUO"))), (px(p["x"], p["z"])[0] + 9, px(p["x"], p["z"])[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 20, 120), 2, cv2.LINE_AA)
 for e in isaretler:
     a_ = px(e["x"], e["z"]); b_ = px(e["x"] + 0.3 * math.sin(e["aci"]), e["z"] + 0.3 * math.cos(e["aci"]))
@@ -147,7 +184,7 @@ for k in range(int(z0 * HC) - 1, int(z1 * HC) + 2):
     cv2.line(im, px(x0 * HC, k), px(x1 * HC, k), (225, 225, 225), 1)
 cv2.putText(im, "koyu mavi: robotun merkezi girebilir (engelden %.0f cm uzak), acik mavi: acik zemin, siyah/gri: duvar/engel, 1 m izgara" % (PAY * 100),
             (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
-cv2.putText(im, "rota %.1f m, %d nokta" % (toplam, len(noktalar)), (10, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 20, 120), 2, cv2.LINE_AA)
+cv2.putText(im, "rota %.1f m: yesil kisa duz, kirmizi uzun duz, turuncu zikzak, mor donus; halka = yerinde tam tur" % toplam, (10, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 20, 120), 2, cv2.LINE_AA)
 cv2.imwrite(os.path.join(CIK, "rota.png"), im)
 print("rota: %d nokta, %.1f m, serbest alan %.1f m2 (PAY %.2f m)" % (len(noktalar), toplam, serbest.sum() * HC * HC, PAY))
-for j, p in enumerate(noktalar): print("  %2d %6.2f %6.2f %s" % (j, p["x"], p["z"], p["ad"]))
+for j, p in enumerate(noktalar): print("  %2d %6.2f %6.2f %-22s %s%s" % (j, p["x"], p["z"], p.get("test", ""), p["ad"], "  +tur" if p.get("tur") else ""))
