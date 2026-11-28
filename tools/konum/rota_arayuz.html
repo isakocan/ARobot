@@ -100,9 +100,9 @@ const dur = () => fetch('/dur', { method: 'POST', body: '{}' });
 document.getElementById('dur').onclick = dur;
 addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); dur(); } });
 document.getElementById('baslat').onclick = () => fetch('/baslat', { method: 'POST', body: JSON.stringify({ tur: document.getElementById('tur').checked, hiz: +document.getElementById('hiz').value }) });
-setInterval(() => { document.getElementById('kamera').src = '/kamera.jpg?' + Date.now(); }, 400);
+const kam = document.getElementById('kamera'); kam.onload = kam.onerror = () => setTimeout(() => kam.src = '/kamera.jpg?' + Date.now(), 120); kam.src = '/kamera.jpg?0';
 fetch('/harita').then(r => r.json()).then(h => { kur(h); yenile(); });
-setInterval(yenile, 250);
+setInterval(yenile, 150);
 </script>
 </body>
 </html>

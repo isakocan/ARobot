@@ -19,7 +19,8 @@ ADR, KL = sys.argv[1:3]
 HIZ = int(os.environ.get("HIZ", "130")); DONUS = int(os.environ.get("DONUS", "150"))
 TUR = os.environ.get("TUR", "1") == "1"; KURU = os.environ.get("KURU", "0") == "1"
 ROTA = json.load(open(os.path.join(KL, "rota.json"), encoding="utf-8"))
-DUR_DOSYASI = os.path.join(KL, "DUR")            # rota_arayuz.py DUR düğmesi bu dosyayı yaratır
+DUR_DOSYASI = os.path.join(KL, "DUR")
+CANLI = os.path.join(KL, "canli.json")            # rota_arayuz.py DUR düğmesi bu dosyayı yaratır
 P = ROTA["noktalar"]
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.setblocking(False)
@@ -48,11 +49,20 @@ def gonder(sol, sag):
         k = m.get("konum")
         if isinstance(k, dict):
             son["k"] = k; son["t"] = time.time()
-            if k.get("kare") != son["kare"]: son["kare"] = k.get("kare"); son["taze"] = time.time()   # yeni kare işlendi
+            if k.get("kare") != son["kare"]:
+                son["kare"] = k.get("kare"); son["taze"] = time.time()   # yeni kare işlendi
+                if k.get("var"):                                          # arayüz için anlık konum (gecikmesiz)
+                    try:
+                        with open(CANLI + ".tmp", "w", encoding="utf-8") as f_:
+                            json.dump(dict(x=k["x"], z=k["z"], yaw=k["yaw"], evre=evre[0], t=time.time()), f_)
+                        os.replace(CANLI + ".tmp", CANLI)
+                    except OSError:
+                        pass
     k = son["k"] or {}
     yaz.writerow(["%.2f" % (time.time() - t0), "%.3f" % time.time(), evre[0], hedef_no[0], sol, sag, k.get("var"), k.get("x"), k.get("z"), k.get("yaw"), k.get("sy"), k.get("kaynak")])
     if msvcrt and msvcrt.kbhit():
         msvcrt.getch(); raise Dur("tuşa basıldı")
+    kayit.flush()
     if os.path.exists(DUR_DOSYASI): raise Dur("arayüzden durduruldu")
 
 

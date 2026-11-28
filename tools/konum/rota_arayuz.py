@@ -33,28 +33,28 @@ def poz_sorgu():
     """Sürüş yokken robotun konumu (motor 0, sürüş uygulamasıyla aynı paket)."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(0.3); n = 0
     while True:
-        time.sleep(0.25)
+        time.sleep(0.1)
         if D["surec"] is not None and D["surec"].poll() is None:
-            son = sorted(glob.glob(os.path.join(KL, "surus_*.csv")))
-            if son:
-                try:
-                    with open(son[-1], encoding="utf-8") as f: satir = f.readlines()[-1].split(",")
-                    if satir[6] == "True": guncelle(float(satir[7]), float(satir[8]), float(satir[9]), satir[2])
-                except (OSError, IndexError, ValueError):
-                    pass
+            try:
+                c_ = json.load(open(os.path.join(KL, "canli.json"), encoding="utf-8"))
+                if c_["t"] > (D["poz"] or {}).get("t", 0): guncelle(c_["x"], c_["z"], c_["yaw"], c_["evre"], c_["t"])
+            except (OSError, ValueError, KeyError):
+                pass
             continue
         n += 1
         try:
             s.sendto(json.dumps({"t": "d", "n": n, "sol": 0, "sag": 0, "konum": 1}).encode(), (ADR, 8081))
             k = json.loads(s.recv(65535).decode()).get("konum")
             if k and k.get("var"): guncelle(k["x"], k["z"], k["yaw"], "bekliyor")
+            time.sleep(0.1)
         except (OSError, ValueError):
             pass
 
 
-def guncelle(x, z, yaw, evre):
+def guncelle(x, z, yaw, evre, t=None):
+    yaw = (yaw + 180.0) % 360.0 - 180.0
     with kilit:
-        D["poz"] = dict(x=x, z=z, yaw=yaw, evre=evre, t=time.time())
+        D["poz"] = dict(x=x, z=z, yaw=yaw, evre=evre, t=t or time.time())
         if not D["iz"] or math.hypot(D["iz"][-1][0] - x, D["iz"][-1][1] - z) > 0.03: D["iz"] = (D["iz"] + [(x, z)])[-3000:]
 
 
@@ -69,7 +69,7 @@ def kamera():
                 with kilit: D["kamera"] = j.tobytes(); D["kamera_t"] = time.time()
         except Exception:
             time.sleep(1.0)
-        time.sleep(0.25)
+        time.sleep(0.05)
 
 
 def baslat(ayar):
