@@ -58,7 +58,8 @@ def gonder(sol, sag):
                 if k.get("var"):                                          # arayüz için anlık konum (gecikmesiz)
                     try:
                         with open(CANLI + ".tmp", "w", encoding="utf-8") as f_:
-                            json.dump(dict(x=k["x"], z=k["z"], yaw=k["yaw"], evre=evre[0], t=time.time()), f_)
+                            json.dump(dict(x=k["x"], z=k["z"], yaw=k["yaw"], evre=evre[0], t=time.time(),
+                                           gorulen=[g[0] for g in k.get("gorulen") or []]), f_)
                         os.replace(CANLI + ".tmp", CANLI)
                     except OSError:
                         pass

@@ -19,6 +19,9 @@ import teta
 ROTA = json.load(open(os.path.join(KL, "rota.json"), encoding="utf-8"))
 Z = json.load(open(os.path.join(KL, "zemin.json"), encoding="utf-8"))
 EVJ = json.load(open(os.path.join(KL, "ev.json"), encoding="utf-8"))
+import uygulama_harita
+UYG = uygulama_harita.Harita(os.path.join(KL, "zemin.json"), olcek=80)      # tarama uygulamasının harita görünümü
+UYG_PNG = cv2.imencode(".png", UYG.resim)[1].tobytes()
 MX, MY = teta.es_dikdortgen_haritasi(960, 320, -30.0, 75.0)
 
 
@@ -61,7 +64,7 @@ def poz_sorgu():
         if D["surec"] is not None and D["surec"].poll() is None:
             try:
                 c_ = json.load(open(os.path.join(KL, "canli.json"), encoding="utf-8"))
-                if c_["t"] > (D["poz"] or {}).get("t", 0): guncelle(c_["x"], c_["z"], c_["yaw"], c_["evre"], c_["t"])
+                if c_["t"] > (D["poz"] or {}).get("t", 0): guncelle(c_["x"], c_["z"], c_["yaw"], c_["evre"], c_["t"], c_.get("gorulen"))
             except (OSError, ValueError, KeyError):
                 pass
             continue
@@ -69,16 +72,16 @@ def poz_sorgu():
         try:
             s.sendto(json.dumps({"t": "d", "n": n, "sol": 0, "sag": 0, "konum": 1}).encode(), (ADR, 8081))
             k = json.loads(s.recv(65535).decode()).get("konum")
-            if k and k.get("var"): guncelle(k["x"], k["z"], k["yaw"], "bekliyor")
+            if k and k.get("var"): guncelle(k["x"], k["z"], k["yaw"], "bekliyor", gorulen=[g[0] for g in k.get("gorulen") or []])
             time.sleep(0.1)
         except (OSError, ValueError):
             pass
 
 
-def guncelle(x, z, yaw, evre, t=None):
+def guncelle(x, z, yaw, evre, t=None, gorulen=None):
     yaw = (yaw + 180.0) % 360.0 - 180.0
     with kilit:
-        D["poz"] = dict(x=x, z=z, yaw=yaw, evre=evre, t=t or time.time())
+        D["poz"] = dict(x=x, z=z, yaw=yaw, evre=evre, t=t or time.time(), gorulen=gorulen or [])
         if not D["iz"] or math.hypot(D["iz"][-1][0] - x, D["iz"][-1][1] - z) > 0.03: D["iz"] = (D["iz"] + [(x, z)])[-3000:]
 
 
@@ -140,8 +143,10 @@ class Isleyici(BaseHTTPRequestHandler):
             self._gonder(200, "text/html; charset=utf-8", open(os.path.join(BURASI, "rota_arayuz.html"), encoding="utf-8").read().encode())
         elif self.path == "/harita":
             isaretler = [e if isinstance(e, dict) else dict(id=e[0], x=e[1], z=e[2], aci=e[3]) for e in EVJ["isaretler"]]
-            self._gonder(200, "application/json", json.dumps(dict(hucre=Z.get("hucre", 0.05), acik=Z["acik"], engel=Z.get("engel", []),
-                         rota=ROTA["noktalar"], pay=ROTA.get("pay"), isaretler=isaretler)).encode())
+            self._gonder(200, "application/json", json.dumps(dict(kutu=UYG.kutu(), rota=ROTA["noktalar"], pay=ROTA.get("pay"),
+                         isaretler=isaretler)).encode())
+        elif self.path == "/harita.png":
+            self._gonder(200, "image/png", UYG_PNG)
         elif self.path == "/durum":
             with kilit:
                 c = D["surec"]

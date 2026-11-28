@@ -181,33 +181,24 @@ on1 = [e for e in isaretler if e["id"] == on[0][0]][0]
 bas_yon = math.degrees(math.atan2(on1["x"] - noktalar[0]["x"], on1["z"] - noktalar[0]["z"]))   # başta işarete bak
 json.dump(dict(pay=PAY, toplam_m=round(toplam, 2), bas_yon=bas_yon, noktalar=noktalar), open(os.path.join(CIK, "rota.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
-# resim
-S = 6; im = np.full((H * S, W * S, 3), 255, np.uint8)
-renk = np.full((H, W, 3), 255, np.uint8); renk[acik == 1] = (235, 215, 190); renk[serbest] = (200, 150, 90)
-for ad, c_ in (("engel", (60, 60, 60)), ("duvar", (0, 0, 0))):
-    if Z.get(ad):
-        e = np.array(Z[ad], int).reshape(-1, 2); m = (e[:, 0] - x0 >= 0) & (e[:, 0] - x0 < W) & (e[:, 1] - z0 >= 0) & (e[:, 1] - z0 < H)
-        renk[e[m, 1] - z0, e[m, 0] - x0] = c_
-im = cv2.resize(renk[::-1], (W * S, H * S), interpolation=cv2.INTER_NEAREST)
-def px(x, z): c, r = hucre(x, z); return int(c * S + S / 2), int((H - 1 - r) * S + S / 2)
-RENK = {"zikzak": (0, 140, 255), "uzun düz": (40, 40, 220), "başlangıca dönüş": (160, 40, 160)}
+# resim: tarama uygulamasının harita görünümü (uygulama_harita.py, uygulamanın kendi kodu) + rota + uygulamadaki işaretler
+import uygulama_harita as UH
+UHR = UH.Harita(os.path.join(CIK, "zemin.json"), olcek=110)
+im = UHR.resim.copy(); px = UHR.px
+RENK = {"zikzak": (0, 140, 255), "uzun düz": (60, 60, 235), "başlangıca dönüş": (200, 90, 220)}
 for p, q in zip(noktalar, noktalar[1:]):
-    cv2.arrowedLine(im, px(p["x"], p["z"]), px(q["x"], q["z"]), RENK.get(q.get("test"), (40, 160, 40)), 3, cv2.LINE_AA, tipLength=0.04)
+    cv2.arrowedLine(im, px(p["x"], p["z"]), px(q["x"], q["z"]), (255, 255, 255), 7, cv2.LINE_AA, tipLength=0.0)
+    cv2.arrowedLine(im, px(p["x"], p["z"]), px(q["x"], q["z"]), RENK.get(q.get("test"), (60, 200, 60)), 4, cv2.LINE_AA, tipLength=0.04)
 for j, p in enumerate(noktalar):
-    cv2.circle(im, px(p["x"], p["z"]), 7, (40, 40, 220), -1)
-    if p.get("tur"): cv2.circle(im, px(p["x"], p["z"]), 16, (40, 40, 220), 2, cv2.LINE_AA)
-    if p["ad"] and j < len(noktalar) - 1: cv2.putText(im, "%d %s" % (j, p["ad"].translate(str.maketrans("şçığüöŞÇİĞÜÖ", "sciguoSCIGUO"))), (px(p["x"], p["z"])[0] + 9, px(p["x"], p["z"])[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 20, 120), 2, cv2.LINE_AA)
-for e in isaretler:
-    a_ = px(e["x"], e["z"]); b_ = px(e["x"] + 0.3 * math.sin(e["aci"]), e["z"] + 0.3 * math.cos(e["aci"]))
-    cv2.rectangle(im, (a_[0] - 7, a_[1] - 7), (a_[0] + 7, a_[1] + 7), (0, 0, 0), -1); cv2.arrowedLine(im, a_, b_, (0, 150, 0), 2, tipLength=0.3)
-    cv2.putText(im, "ArUco %d" % e["id"], (a_[0] + 9, a_[1] + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2, cv2.LINE_AA)
-for k in range(int(x0 * HC) - 1, int(x1 * HC) + 2):
-    cv2.line(im, px(k, z0 * HC), px(k, z1 * HC), (225, 225, 225), 1)
-for k in range(int(z0 * HC) - 1, int(z1 * HC) + 2):
-    cv2.line(im, px(x0 * HC, k), px(x1 * HC, k), (225, 225, 225), 1)
-cv2.putText(im, "koyu mavi: robotun merkezi girebilir (engelden %.0f cm uzak), acik mavi: acik zemin, siyah/gri: duvar/engel, 1 m izgara" % (PAY * 100),
-            (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
-cv2.putText(im, "rota %.1f m: yesil kisa duz, kirmizi uzun duz, turuncu zikzak, mor donus; halka = yerinde tam tur" % toplam, (10, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 20, 120), 2, cv2.LINE_AA)
+    cv2.circle(im, px(p["x"], p["z"]), 6, (255, 255, 255), -1, cv2.LINE_AA)
+    if p.get("tur"): cv2.circle(im, px(p["x"], p["z"]), 17, (255, 255, 255), 3, cv2.LINE_AA)
+for j, p in enumerate(noktalar):
+    if p["ad"] and j < len(noktalar) - 1: UH.yazi(im, "%d %s" % (j, p["ad"]), (px(p["x"], p["z"])[0] - 20, px(p["x"], p["z"])[1] + 18), 20, kalin=True)
+UHR.isaretler(im, isaretler, boyut=40)      # işaretler en üstte: yazı / rota altında kalır
+ust = np.full((70, im.shape[1], 3), UH.ARKA, np.uint8)
+UH.yazi(ust, "Rota %.1f m (her yerde engelden en az %.0f cm uzak). Halka: yerinde tam tur." % (toplam, PAY * 100), (12, 6), 20, kalin=True)
+UH.yazi(ust, "yeşil kısa düz   kırmızı uzun düz   turuncu zikzak   mor başlangıca dönüş", (12, 36), 18, (200, 200, 200))
+im = np.vstack([ust, im])
 cv2.imwrite(os.path.join(CIK, "rota.png"), im)
 print("rota: %d nokta, %.1f m, serbest alan %.1f m2 (PAY %.2f m)" % (len(noktalar), toplam, serbest.sum() * HC * HC, PAY))
 for j, p in enumerate(noktalar): print("  %2d %6.2f %6.2f %-22s %s%s" % (j, p["x"], p["z"], p.get("test", ""), p["ad"], "  +tur" if p.get("tur") else ""))
