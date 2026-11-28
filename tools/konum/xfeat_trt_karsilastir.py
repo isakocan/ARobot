@@ -17,10 +17,10 @@ def yukle(ad):
 
 for p in sys.argv[1:]:
     cik = yukle("cikti_%s.json" % p)
-    m.net = lambda _x, c=cik: c
+    m._modules.pop("net", None); object.__setattr__(m, "net", lambda _x, c=cik: c)   # ağ yerine TensorRT çıktısı
     with torch.no_grad():
         o = m.detectAndCompute(x, top_k=1500)[0]
-    m.net = gercek
+    object.__delattr__(m, "net"); m.net = gercek
     a, b = ref["keypoints"].numpy(), o["keypoints"].numpy()
     dd = np.linalg.norm(a[:, None] - b[None], axis=2); j = dd.argmin(1); ayni = dd[np.arange(len(a)), j] < 1.0
     cos = (ref["descriptors"][ayni] * o["descriptors"][j[ayni]]).sum(1).numpy()
