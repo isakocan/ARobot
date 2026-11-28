@@ -70,11 +70,31 @@ function kur(h) {
   tf = { k, x0, z1, px: (x, z) => [(x - x0) * k, (z1 - z) * k] };
   cv.height = Math.ceil((z1 - z0) * k);
 }
-let takip = true;
+let takip = true, elle = null, sonD = null, sonK = 110, sonMerkez = null;
+// harita: sürükle = kaydır, tekerlek = yakınlaştır (görünüm elle kalır); "Robotu takip et" / "Bütün harita" ile çıkılır
+function gorunumAl() {
+  if (elle) return elle;
+  if (takip && sonD && sonD.poz) return { x: sonD.poz.x, z: sonD.poz.z, k: 110 };
+  return { x: tf.x0 + cv.width / 2 / tf.k, z: tf.z1 - cv.height / 2 / tf.k, k: tf.k };
+}
+function olcekAl() { const r = cv.getBoundingClientRect(); return cv.width / r.width; }
+let surukle = null;
+cv.addEventListener('pointerdown', e => { if (!tf) return; elle = gorunumAl(); surukle = { x: e.clientX, y: e.clientY, vx: elle.x, vz: elle.z }; cv.setPointerCapture(e.pointerId); cv.style.cursor = 'grabbing'; guncelDugme(); });
+cv.addEventListener('pointermove', e => { if (!surukle) return; const o = olcekAl();
+  elle.x = surukle.vx - (e.clientX - surukle.x) * o / elle.k; elle.z = surukle.vz + (e.clientY - surukle.y) * o / elle.k; if (sonD) ciz(sonD); });
+cv.addEventListener('pointerup', () => { surukle = null; cv.style.cursor = 'grab'; });
+cv.addEventListener('wheel', e => { if (!tf) return; e.preventDefault(); elle = gorunumAl(); const r = cv.getBoundingClientRect(), o = olcekAl();
+  const mx = (e.clientX - r.left) * o - cv.width / 2, my = (e.clientY - r.top) * o - cv.height / 2;
+  const wx = elle.x + mx / elle.k, wz = elle.z - my / elle.k, f = Math.exp(-e.deltaY * 0.0015);
+  elle.k = Math.max(20, Math.min(400, elle.k * f)); elle.x = wx - mx / elle.k; elle.z = wz + my / elle.k; guncelDugme(); if (sonD) ciz(sonD); }, { passive: false });
+cv.style.cursor = 'grab'; cv.style.touchAction = 'none';
+function guncelDugme() { document.getElementById('gorunum').textContent = elle ? 'Robotu takip et' : (takip ? 'Bütün harita' : 'Robotu takip et'); }
 function ciz(d) {
   if (!H) return;
   let k = tf.k, P = tf.px;
-  if (takip && d.poz) { k = 110; const cx = d.poz.x, cz = d.poz.z, W2 = cv.width / 2, H2 = cv.height / 2;
+  if (elle) { k = elle.k; const W2 = cv.width / 2, H2 = cv.height / 2;      // sürüklenmiş / yakınlaştırılmış görünüm
+    P = (x, z) => [W2 + (x - elle.x) * k, H2 - (z - elle.z) * k]; }
+  else if (takip && d.poz) { k = 110; const cx = d.poz.x, cz = d.poz.z, W2 = cv.width / 2, H2 = cv.height / 2;
     P = (x, z) => [W2 + (x - cx) * k, H2 - (z - cz) * k]; }
   c.fillStyle = '#101216'; c.fillRect(0, 0, cv.width, cv.height);          // uygulamanın panel rengi
   if (zeminResmi.complete && zeminResmi.naturalWidth) {
@@ -151,7 +171,7 @@ function isaretCiz(P, k, gorulen) {
 async function yenile() {
   try {
     const d = await (await fetch('/durum')).json();
-    ciz(d); isaretKat(d);
+    sonD = d; ciz(d); isaretKat(d);
     const p = d.poz, yas = p ? (Date.now() / 1000 - p.t) : null;
     document.getElementById('durum').innerHTML = (d.suruyor ? '<b style="color:#30a46c">sürüyor</b>' : '<b>bekliyor</b>') +
       (p ? ` · x <b>${p.x.toFixed(2)}</b> z <b>${p.z.toFixed(2)}</b> yön <b>${p.yaw.toFixed(0)}°</b> · ${p.evre}` + (yas > 2 ? ` · <b style="color:#e5484d">konum ${yas.toFixed(0)} sn eski</b>` : '') : ' · konum yok');
@@ -166,7 +186,7 @@ async function yenile() {
       yasV == null ? ' · H.264 bekleniyor' : ` · H.264 ${fpsGoster} kare/sn` + (yasV > 2 ? ` (${yasV.toFixed(0)} sn donuk)` : ''));
   } catch (e) { document.getElementById('durum').textContent = 'arayüz sunucusuna ulaşılamıyor'; }
 }
-document.getElementById('gorunum').onclick = (e) => { takip = !takip; e.target.textContent = takip ? 'Bütün harita' : 'Robotu takip et'; };
+document.getElementById('gorunum').onclick = (e) => { if (elle) { elle = null; takip = true; } else takip = !takip; guncelDugme(); };
 const dur = () => fetch('/dur', { method: 'POST', body: '{}' });
 document.getElementById('dur').onclick = dur;
 addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); dur(); } });

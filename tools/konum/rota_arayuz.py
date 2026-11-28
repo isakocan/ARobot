@@ -62,6 +62,7 @@ def poz_sorgu():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(0.3); n = 0
     while True:
         time.sleep(0.1)
+        if ADIM["suruyor"]: continue                     # adım sürüşü kendi paketini yolluyor
         if D["surec"] is not None and D["surec"].poll() is None:
             try:
                 c_ = json.load(open(os.path.join(KL, "canli.json"), encoding="utf-8"))
@@ -101,6 +102,106 @@ def kamera():
         except Exception:
             time.sleep(1.0)
         time.sleep(0.05)
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Adım adım sürüş (POST /adim {"tur": "don", "aci": derece} | {"tur": "ileri", "m": metre}): Claude her adımdan sonra
+# kameraya / haritaya bakıp sonrakine karar verir. Yön jiroskoptan (yoksa kameradan), ilerleme kameranın yer
+# değişiminden (işaret sıçramaları sayılmaz). DUR düğmesi / DUR dosyası her döngüde bakılır.
+ADIM = {"suruyor": False, "no": 0}
+ADIM_HIZ, ADIM_DONUS = int(os.environ.get("ADIM_HIZ", "130")), int(os.environ.get("ADIM_DONUS", "150"))
+
+
+class AdimDur(Exception): pass
+
+
+def adim_kare(ad):
+    try:
+        ham = urllib.request.urlopen("http://%s:8080/kucuk.jpg" % ADR, timeout=3).read()
+        g = cv2.imdecode(np.frombuffer(ham, np.uint8), cv2.IMREAD_COLOR)
+        pan = cv2.remap(g, MX * (g.shape[1] / 1280.0), MY * (g.shape[0] / 720.0), cv2.INTER_LINEAR)
+        yol = os.path.join(KL, "adim", ad + ".jpg"); os.makedirs(os.path.dirname(yol), exist_ok=True)
+        cv2.imwrite(yol, pan); return yol
+    except Exception as e:
+        return "kare alınamadı: %s" % e
+
+
+def adim_yap(ayar):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(0.05)
+    n = [int(time.time() * 10) % 1000000]; son = {"k": None, "t": 0.0, "kamera": None}
+    dur_yolu = os.path.join(KL, "DUR")
+
+    def gonder(sol, sag):
+        n[0] += 1
+        s.sendto(json.dumps({"t": "d", "n": n[0], "sol": int(sol), "sag": int(sag), "konum": 1}).encode(), (ADR, 8081))
+        try:
+            m = json.loads(s.recv(65535).decode()); son["kamera"] = m.get("kamera")
+            k = m.get("konum")
+            if isinstance(k, dict) and k.get("var"):
+                son["k"] = k; son["t"] = time.time()
+                guncelle(k["x"], k["z"], k["yaw"], "adım", gorulen=k.get("gorulen") or [])
+        except (OSError, ValueError):
+            pass
+        if os.path.exists(dur_yolu): raise AdimDur("DUR basıldı")
+        if son["kamera"] not in (None, "aktif", "baslatiliyor"): raise AdimDur("kamera: %s" % son["kamera"])
+
+    def bekle(sn, sol=0, sag=0):
+        b = time.time()
+        while time.time() - b < sn: gonder(sol, sag); time.sleep(0.05)
+
+    def yon():
+        return J.yon() if J.canli() else (son["k"] or {}).get("yaw")
+
+    def kam():
+        k = son["k"]
+        if not k or time.time() - son["t"] > 1.5: raise AdimDur("kamera konumu gelmiyor")
+        return k["x"], k["z"], k["yaw"]
+
+    sonuc = []
+    try:
+        try: os.remove(dur_yolu)
+        except OSError: pass
+        bekle(0.4)
+        y0 = yon(); p0 = kam()
+        if y0 is None: raise AdimDur("yön yok")
+        if ayar.get("tur") == "don":
+            hedef = da(y0 + float(ayar.get("aci", 0)))
+            for _ in range(14):
+                e = da(hedef - yon())
+                if abs(e) < 5: break
+                sure = max(0.06, min(0.35, 0.8 * abs(e) / 80.0))
+                bekle(sure, ADIM_DONUS if e > 0 else -ADIM_DONUS, -ADIM_DONUS if e > 0 else ADIM_DONUS)
+                bekle(0.6)
+            sonuc.append("döndü: hedef %.0f°, şimdi %.0f° (jiroskop %s)" % (hedef, yon(), "canlı" if J.canli() else "YOK, kamera yönü"))
+        elif ayar.get("tur") == "ileri":
+            m = max(0.05, min(0.8, float(ayar.get("m", 0.3)))); hedef_y = y0; yol = 0.0; onceki = p0
+            b = time.time()
+            while yol < m:
+                if time.time() - b > m / 0.12 + 2: raise AdimDur("ilerleme %.2f m'de kaldı (takıldı?)" % yol)
+                e = da(hedef_y - yon()); d = max(-25, min(25, 1.5 * e))
+                bekle(0.1, ADIM_HIZ + d, ADIM_HIZ - d)
+                q = kam(); adim_ = math.hypot(q[0] - onceki[0], q[1] - onceki[1])
+                if adim_ < 0.10: yol += adim_                     # büyük adım = işaret düzeltmesi
+                onceki = q
+            bekle(0.6)
+            sonuc.append("ileri %.2f m (kameraya göre), yön tutuldu %.0f° -> %.0f°" % (yol, hedef_y, yon()))
+        else:
+            bekle(0.5)
+    except AdimDur as e:
+        sonuc.append("DURDU: %s" % e)
+    finally:
+        for _ in range(10):
+            try: gonder(0, 0)
+            except AdimDur: pass
+            time.sleep(0.05)
+        ADIM["suruyor"] = False
+    ADIM["no"] += 1
+    k = son["k"] or {}; j = J.durum() or {}
+    sonuc.append("kamera konumu x %.2f z %.2f yön %.0f | jiroskop simgesi x %.2f z %.2f yön %.0f | görülen %s" % (
+        k.get("x", 0), k.get("z", 0), k.get("yaw", 0), j.get("x", 0), j.get("z", 0), j.get("yaw", 0), k.get("gorulen")))
+    sonuc.append("kare: " + adim_kare("adim_%03d" % ADIM["no"]))
+    for x in sonuc: log("adım %d: %s" % (ADIM["no"], x))
+    return sonuc
 
 
 def baslat(ayar):
@@ -198,6 +299,25 @@ class Jiro:
 J = Jiro()
 
 
+JIRO_OKUYAN = {"p": None, "ad": None}
+
+
+def jiro_bekci():
+    """Veri kesilince (kayıt durdu / yenisi açıldı) telefonda daha yeni kayıt var mı bak; varsa okuyanı kapat ki ona geçsin."""
+    while True:
+        time.sleep(2)
+        p = JIRO_OKUYAN["p"]
+        if p is None or p.poll() is not None or J.canli(): continue
+        try:
+            y = subprocess.run([ADB, "-s", JIRO_CIHAZ, "shell", "ls -t %s | head -1" % JIRO_KLASOR], capture_output=True, text=True, timeout=8).stdout.strip()
+        except Exception:
+            continue
+        if y.startswith("jiro_") and y != JIRO_OKUYAN["ad"]:
+            log("jiroskop: yeni kayıt %s, ona geçiliyor" % y); p.kill()
+        elif time.time() - J.son_gelis > 6:
+            p.kill()                                        # bağlantı kopmuş olabilir: yeniden aç
+
+
 def jiro_oku():
     """Telefondaki en yeni jiroskop kaydını kablosuz adb ile canlı izler (kayıt yenilenirse yenisine geçer)."""
     while True:
@@ -209,6 +329,7 @@ def jiro_oku():
             D["jiro_durum"] = "okunuyor: " + ad
             p = subprocess.Popen([ADB, "-s", JIRO_CIHAZ, "shell", "tail -n 0 -f %s/%s" % (JIRO_KLASOR, ad)],
                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+            JIRO_OKUYAN["p"], JIRO_OKUYAN["ad"] = p, ad
             bakis = time.time()
             for satir in p.stdout:
                 v = satir.strip().split(",")
@@ -280,11 +401,22 @@ class Isleyici(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0); ayar = json.loads(self.rfile.read(n) or b"{}")
         if self.path == "/baslat": self._gonder(200, "application/json", json.dumps({"sonuc": baslat(ayar)}).encode())
         elif self.path == "/dur": self._gonder(200, "application/json", json.dumps({"sonuc": durdur()}).encode())
+        elif self.path == "/hizala":   # jiroskop simgesini kameranın şimdiki konum / yönüne hizala
+            J.surus = False; time.sleep(0.5)
+            self._gonder(200, "application/json", json.dumps({"sonuc": J.durum()}).encode())
+        elif self.path == "/adim":
+            if ADIM["suruyor"] or (D["surec"] is not None and D["surec"].poll() is None):
+                self._gonder(409, "application/json", json.dumps({"sonuc": ["başka sürüş var"]}).encode()); return
+            # adımlar boyunca jiroskop simgesi serbest (kameraya yeniden hizalanmaz); /hizala ile yeniden hizalanır
+            ADIM["suruyor"] = True; J.surus = True; J.hakem = False
+            r = adim_yap(ayar)
+            self._gonder(200, "application/json", json.dumps({"sonuc": r}, ensure_ascii=False).encode())
         else: self._gonder(404, "text/plain", b"yok")
 
 
 threading.Thread(target=poz_sorgu, daemon=True).start()
 threading.Thread(target=jiro_oku, daemon=True).start()
+threading.Thread(target=jiro_bekci, daemon=True).start()
 threading.Thread(target=kamera, daemon=True).start()
 log("arayüz hazır, robot %s" % ADR)
 ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("PORT", "8765"))), Isleyici).serve_forever()
