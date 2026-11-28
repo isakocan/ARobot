@@ -124,7 +124,7 @@ def baslat(ayar):
 # İkinci robot simgesi: yönü jiroskoptan (sürüş başında kameraya hizalanır, sonra serbest), yeri kameranın ileri
 # gidişiyle o yönde ilerletilir. Hakem: sürüşte kamera yönü jiroskoptan HAKEM_DER'den fazla, HAKEM_SN boyunca
 # ayrılırsa sürüş durdurulur.
-ADB = os.environ.get("ADB", r"C:\platform-toolsdb.exe")
+ADB = os.environ.get("ADB", "C:/platform-tools/adb.exe")
 JIRO_CIHAZ = os.environ.get("JIRO_CIHAZ", "172.20.243.17:5555")
 JIRO_KLASOR = "/sdcard/Android/data/com.ekip.artarama/files/olcum"
 HAKEM_DER, HAKEM_SN = float(os.environ.get("HAKEM_DER", "35")), float(os.environ.get("HAKEM_SN", "2.0"))
