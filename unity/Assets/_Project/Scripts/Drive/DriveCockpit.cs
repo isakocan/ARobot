@@ -826,7 +826,6 @@ namespace ARaki.Drive
             // görüntü kalitesi (köprünün o anki bit hızı hedefi; ağ zayıflayınca düşer), fps, veri, sıcaklık.
             // Saat teypte, güç vitesin altındaki şaside.
             infoText.text = VideoQuality(st) + $"  ·  {Mathf.RoundToInt(video.Fps)} fps" +
-                            (video.DecodeMs > 0f ? $"  ·  çözme {video.DecodeMs:0.0} ms" : "") +
                             (st != null && st.veri_kbps > 0 ? $"  ·  {st.veri_kbps / 1000f:0.0} Mbit/s" : "") +
                             (st != null && st.sicaklik > 0f ? $"  ·  {st.sicaklik:0}°C" : "");
             statusText.color = !link.Demo && (link.IsWeak || !link.IsConnected) ? Red : Text;
