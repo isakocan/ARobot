@@ -108,7 +108,7 @@ def kamera():
 # Adım adım sürüş (POST /adim {"tur": "don", "aci": derece} | {"tur": "ileri", "m": metre}): Claude her adımdan sonra
 # kameraya / haritaya bakıp sonrakine karar verir. Yön jiroskoptan (yoksa kameradan), ilerleme kameranın yer
 # değişiminden (işaret sıçramaları sayılmaz). DUR düğmesi / DUR dosyası her döngüde bakılır.
-ADIM = {"suruyor": False, "no": 0}
+ADIM = {"suruyor": False, "no": 0, "yon": os.environ.get("ADIM_YON", "kamera")}   # yön kaynağı: kamera | jiro
 ADIM_HIZ, ADIM_DONUS = int(os.environ.get("ADIM_HIZ", "130")), int(os.environ.get("ADIM_DONUS", "150"))
 HIZ_MS = float(os.environ.get("HIZ_MS", "0.47"))   # m/sn, ADIM_HIZ'da (28 Kas: 1,5 sn -> işaret 1'e uzaklık 2,73 -> 2,03 m)
 
@@ -157,7 +157,13 @@ def adim_yap(ayar):
         while not J.taze(T) and time.time() - b < en_cok: bekle(0.05)
 
     def yon():
-        return J.yon() if J.canli() else (son["k"] or {}).get("yaw")
+        if ADIM["yon"] == "jiro" and J.canli(): return J.yon()
+        k = son["k"]; return da(k["yaw"]) if k else None
+
+    def oturt():
+        """Dönüşten sonra yön otursun: jiroskop için taze veri, kamera için ~0,7 sn (konum gecikmesi)."""
+        if ADIM["yon"] == "jiro": bekle(0.4); jiro_bekle()
+        else: bekle(0.8)
 
     def kam():
         k = son["k"]
@@ -178,8 +184,8 @@ def adim_yap(ayar):
                 if abs(e) < 5: break
                 sure = max(0.06, min(0.35, 0.8 * abs(e) / 80.0))
                 bekle(sure, ADIM_DONUS if e > 0 else -ADIM_DONUS, -ADIM_DONUS if e > 0 else ADIM_DONUS)
-                bekle(0.4); jiro_bekle()
-            sonuc.append("döndü: hedef %.0f°, şimdi %.0f° (jiroskop %s)" % (hedef, yon(), "canlı" if J.canli() else "YOK, kamera yönü"))
+                oturt()
+            sonuc.append("döndü: hedef %.0f°, şimdi %.0f° (yön kaynağı: %s)" % (hedef, yon(), ADIM["yon"]))
         elif ayar.get("tur") == "ileri" and "sn" not in ayar:
             ayar["sn"] = float(ayar.get("m", 0.3)) / HIZ_MS
         if ayar.get("tur") == "ileri":
@@ -477,6 +483,8 @@ class Isleyici(BaseHTTPRequestHandler):
         elif self.path == "/hizala":   # jiroskop simgesini kameranın şimdiki konum / yönüne hizala
             J.ofset = None; time.sleep(0.5)                      # sonraki kamera konumunda zorla hizalanır
             self._gonder(200, "application/json", json.dumps({"sonuc": J.durum()}).encode())
+        elif self.path == "/adim_yon":                # {"yon": "kamera" | "jiro"}
+            ADIM["yon"] = ayar.get("yon", "kamera"); self._gonder(200, "application/json", json.dumps({"yon": ADIM["yon"]}).encode())
         elif self.path == "/adim":
             if ADIM["suruyor"] or (D["surec"] is not None and D["surec"].poll() is None):
                 self._gonder(409, "application/json", json.dumps({"sonuc": ["başka sürüş var"]}).encode()); return
