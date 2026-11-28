@@ -82,7 +82,7 @@ def poz_sorgu():
 
 def guncelle(x, z, yaw, evre, t=None, gorulen=None):
     yaw = (yaw + 180.0) % 360.0 - 180.0
-    J.kamera(x, z, yaw, yakin_isaret=any(isinstance(g_, list) and g_[1] < 2.2 for g_ in (gorulen or [])))
+    J.kamera(x, z, yaw, isaret_m=min([g_[1] for g_ in (gorulen or []) if isinstance(g_, list)] or [99.0]))
     with kilit:
         D["poz"] = dict(x=x, z=z, yaw=yaw, evre=evre, t=t or time.time(), gorulen=gorulen or [])
         if not D["iz"] or math.hypot(D["iz"][-1][0] - x, D["iz"][-1][1] - z) > 0.03: D["iz"] = (D["iz"] + [(x, z)])[-3000:]
@@ -151,6 +151,11 @@ def adim_yap(ayar):
         b = time.time()
         while time.time() - b < sn: gonder(sol, sag); time.sleep(0.05)
 
+    def jiro_bekle(en_cok=3.0):
+        """Şimdiye kadarki jiroskop verisi gelene kadar (motor 0) bekle."""
+        T = time.time() - 0.05; b = time.time()
+        while not J.taze(T) and time.time() - b < en_cok: bekle(0.05)
+
     def yon():
         return J.yon() if J.canli() else (son["k"] or {}).get("yaw")
 
@@ -163,7 +168,7 @@ def adim_yap(ayar):
     try:
         try: os.remove(dur_yolu)
         except OSError: pass
-        bekle(0.4)
+        bekle(0.4); jiro_bekle()
         y0 = yon(); p0 = kam()
         if y0 is None: raise AdimDur("yön yok")
         if ayar.get("tur") == "don":
@@ -173,7 +178,7 @@ def adim_yap(ayar):
                 if abs(e) < 5: break
                 sure = max(0.06, min(0.35, 0.8 * abs(e) / 80.0))
                 bekle(sure, ADIM_DONUS if e > 0 else -ADIM_DONUS, -ADIM_DONUS if e > 0 else ADIM_DONUS)
-                bekle(0.6)
+                bekle(0.4); jiro_bekle()
             sonuc.append("döndü: hedef %.0f°, şimdi %.0f° (jiroskop %s)" % (hedef, yon(), "canlı" if J.canli() else "YOK, kamera yönü"))
         elif ayar.get("tur") == "ileri" and "sn" not in ayar:
             ayar["sn"] = float(ayar.get("m", 0.3)) / HIZ_MS
@@ -258,9 +263,19 @@ class Jiro:
         self.x = self.z = None; self.kam = None; self.surus = False; self.ayri_bas = None
         self.hakem = True; self.yazildi = 0.0
         self.duz = None; self.kalkik = False; self.indi_t = None; self.yer_bekle = False
-        self.sure_mod = False; self.donus_t = 0.0; self.ilerleme_t = 0.0    # elle kaldırma: telefon eğimi (robot yerdeyken düz)
+        self.sure_mod = False; self.donus_t = 0.0; self.ilerleme_t = 0.0
+        self.saat_farki = None; self.son_utc = 0.0; self.fark_t = 0.0    # elle kaldırma: telefon eğimi (robot yerdeyken düz)
 
-    def ornek(self, t, w, g):
+    def taze(self, T):
+        """PC saatiyle T anına kadarki jiroskop örnekleri geldi mi (kablosuz adb topluca / geç getirebiliyor)."""
+        return self.saat_farki is not None and self.son_utc + self.saat_farki >= T
+
+    def ornek(self, t, w, g, utc=None):
+        if utc is not None:
+            simdi = time.time(); fark = simdi - utc        # telefon saati farkı + aktarım gecikmesi; en küçüğü = saat farkı
+            if self.saat_farki is None or fark < self.saat_farki: self.saat_farki = fark
+            elif simdi - self.fark_t > 30: self.saat_farki += 0.01; self.fark_t = simdi   # saat kayarsa yavaşça bırak
+            self.son_utc = utc
         n = math.sqrt(sum(v * v for v in g))
         if n < 0.5: return
         r = sum(w[i] * g[i] for i in range(3)) / n        # robotun yaw hızı, sağa + (rad/sn; 28 Kas kaydıyla bulundu)
@@ -287,7 +302,8 @@ class Jiro:
             self.yaw += math.degrees((r - self.bias) * (t - self.son_t))
         self.son_t = t; self.son_gelis = time.time(); self.yaz()
 
-    def kamera(self, x, z, yaw, yakin_isaret=False):
+    def kamera(self, x, z, yaw, isaret_m=99.0):
+        yakin_isaret = isaret_m < 1.2                    # yer için: kamera yeri yalnız yakın işaretle güvenilir
         # sürüş yokken iki simge çakışık (hizalama); sürüşte jiroskop simgesi kameranın ileri gidişiyle ilerler
         if self.kalkik:                                  # elde: tekerlek ilerlemesi sayılmaz
             self.kam = (x, z, yaw); return
@@ -295,9 +311,12 @@ class Jiro:
             if yakin_isaret:
                 self.x, self.z = x, z; self.yer_bekle = False; log("turuncu simge: yer işaretten alındı")
             self.kam = (x, z, yaw); self.yaz(zorla=True); return
-        if self.ofset is None or self.x is None or (yakin_isaret and self.duruyor()):
-            # hizalama yalnız güvenilir anda: işaret yakında (<2 m) ve robot duruyor (ilk açılışta mecburen bir kez)
-            self.ofset = da(yaw - self.yaw); self.x, self.z = x, z
+        if self.ofset is None or self.x is None:
+            self.ofset = da(yaw - self.yaw); self.x, self.z = x, z          # ilk açılış / elle hizala
+        elif isaret_m < 2.2 and self.duruyor():
+            # robot dururken: yön işaretten (2,2 m'ye kadar güvenilir); yer yalnız işaret 1,2 m'den yakınsa
+            self.ofset = da(yaw - self.yaw)
+            if yakin_isaret: self.x, self.z = x, z
         elif self.sure_mod:
             pass                                        # adım sürüşü: ilerleme süreden (ilerle), kamera adımları sayılmaz
         elif self.surus and self.kam is not None:
@@ -388,7 +407,7 @@ def jiro_oku():
             for satir in p.stdout:
                 v = satir.strip().split(",")
                 if len(v) >= 8:
-                    try: J.ornek(float(v[1]), [float(v[2]), float(v[3]), float(v[4])], [float(v[5]), float(v[6]), float(v[7])])
+                    try: J.ornek(float(v[1]), [float(v[2]), float(v[3]), float(v[4])], [float(v[5]), float(v[6]), float(v[7])], float(v[0]))
                     except ValueError: pass
                 if time.time() - bakis > 5:                       # daha yeni kayıt açıldı mı
                     bakis = time.time()
