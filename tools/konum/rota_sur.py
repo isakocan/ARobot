@@ -24,7 +24,7 @@ P = ROTA["noktalar"]
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.setblocking(False)
 n = 0; son = {"t": 0.0, "k": None}
 kayit = open(os.path.join(KL, "surus_%s.csv" % time.strftime("%H%M%S")), "w", newline="")
-yaz = csv.writer(kayit); yaz.writerow(["t", "evre", "hedef", "sol", "sag", "var", "x", "z", "yaw", "sy", "kaynak"])
+yaz = csv.writer(kayit); yaz.writerow(["t", "utc", "evre", "hedef", "sol", "sag", "var", "x", "z", "yaw", "sy", "kaynak"])
 t0 = time.time(); evre = ["bekle"]; hedef_no = [0]
 
 
@@ -48,7 +48,7 @@ def gonder(sol, sag):
         if isinstance(k, dict):
             son["k"] = k; son["t"] = time.time()
     k = son["k"] or {}
-    yaz.writerow(["%.2f" % (time.time() - t0), evre[0], hedef_no[0], sol, sag, k.get("var"), k.get("x"), k.get("z"), k.get("yaw"), k.get("sy"), k.get("kaynak")])
+    yaz.writerow(["%.2f" % (time.time() - t0), "%.3f" % time.time(), evre[0], hedef_no[0], sol, sag, k.get("var"), k.get("x"), k.get("z"), k.get("yaw"), k.get("sy"), k.get("kaynak")])
     if msvcrt and msvcrt.kbhit():
         msvcrt.getch(); raise Dur("tuşa basıldı")
 
