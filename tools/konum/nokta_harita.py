@@ -194,6 +194,7 @@ class Harita:
         lo, la = tahmin(P, *p); u = np.hypot(da(lo - lon), la - lat) < 2.0
         if u.sum() < en_az: return None
         p = coz(P[u], lon[u], lat[u], *p)
+        self.son = (lon[u], lat[u])          # uyan noktalar (görsel için)
         return float(p[0]), float(p[1]), float(p[2]), int(u.sum()), len(aday)
 
     def duzelt(self, s_aci=0.5, tur=2, yazdir=True, s_enlem=None, onsel_k=1.0):  # 26 Kas: s_enlem 2 / onsel_k 0.3 denendi, daha kötü

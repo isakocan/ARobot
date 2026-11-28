@@ -840,7 +840,8 @@ namespace ARaki.Drive
                             m != null && m.ariza ? "Motor sürücüsü arıza bildiriyor" :
                             st?.kamera == "yok" ? "Kamera bulunamadı: kapandı ya da kablo çıktı (ısınmış olabilir)" :
                             st != null && st.sicaklik >= 80f ? $"Jetson çok ısındı: {st.sicaklik:0}°C" :
-                            st?.konum != null && st.konum.yaklas ? (st.konum.var ? "Yön emin değil: işarete yakından ve karşıdan bak" : "Konum için işarete yaklaş") : "";
+                            drive.DevMode && st?.konum != null && st.konum.yaklas ?   // konum ipucu yalnız Dev modunda
+                             (st.konum.var ? "Yön emin değil: işarete yakından ve karşıdan bak" : "Konum için işarete yaklaş") : "";
             centerText.text = video.HasFrame ? "" : link.Demo ? "Kayıtlı görüntü yükleniyor" :
                               !link.IsConnected ? (string.IsNullOrEmpty(link.SearchText) ? "Robota bağlanılıyor" : Capital(link.SearchText)) : "Görüntü bekleniyor";
 
