@@ -173,6 +173,18 @@ def adim_yap(ayar):
                 bekle(sure, ADIM_DONUS if e > 0 else -ADIM_DONUS, -ADIM_DONUS if e > 0 else ADIM_DONUS)
                 bekle(0.6)
             sonuc.append("döndü: hedef %.0f°, şimdi %.0f° (jiroskop %s)" % (hedef, yon(), "canlı" if J.canli() else "YOK, kamera yönü"))
+        elif ayar.get("tur") == "ileri" and "sn" in ayar:
+            # süreyle ileri (kamera mesafesine güvenmeden): yön jiroskopla tutulur; sonunda kameranın ölçtüğü yer değişimi
+            sn = max(0.2, min(2.5, float(ayar["sn"]))); hedef_y = y0; b = time.time(); yol = 0.0; onceki = p0
+            while time.time() - b < sn:
+                e = da(hedef_y - yon()); d = max(-25, min(25, 1.5 * e))
+                bekle(0.1, ADIM_HIZ + d, ADIM_HIZ - d)
+                q = kam(); adim_ = math.hypot(q[0] - onceki[0], q[1] - onceki[1])
+                if adim_ < 0.10: yol += adim_
+                onceki = q
+            bekle(0.8); q = kam()
+            sonuc.append("%.1f sn ileri: kameranın saydığı %.2f m, baştan sona kamera yer değişimi %.2f m; yön %.0f° -> %.0f°"
+                         % (sn, yol, math.hypot(q[0] - p0[0], q[1] - p0[1]), hedef_y, yon()))
         elif ayar.get("tur") == "ileri":
             m = max(0.05, min(0.8, float(ayar.get("m", 0.3)))); hedef_y = y0; yol = 0.0; onceki = p0
             b = time.time()
@@ -241,11 +253,25 @@ class Jiro:
         self.bias = 0.0; self.sakin = []          # duruşta dönüş hızı örnekleri (sapma)
         self.x = self.z = None; self.kam = None; self.surus = False; self.ayri_bas = None
         self.hakem = True; self.yazildi = 0.0
+        self.duz = None; self.kalkik = False; self.indi_t = None    # elle kaldırma: telefon eğimi (robot yerdeyken düz)
 
     def ornek(self, t, w, g):
         n = math.sqrt(sum(v * v for v in g))
         if n < 0.5: return
         r = sum(w[i] * g[i] for i in range(3)) / n        # robotun yaw hızı, sağa + (rad/sn; 28 Kas kaydıyla bulundu)
+        gu = [v / n for v in g]
+        if self.duz is None: self.duz = gu
+        egim = math.degrees(math.acos(max(-1.0, min(1.0, sum(gu[i] * self.duz[i] for i in range(3))))))
+        if egim > 12 or abs(n - 1.0) > 0.35:                # yerdeki robot bu kadar eğilmez: elle kaldırıldı
+            if not self.kalkik: log("robot kaldırıldı (eğim %.0f°): turuncu simge yere konunca kameraya hizalanacak" % egim)
+            self.kalkik = True; self.indi_t = None
+        elif self.kalkik:
+            if self.indi_t is None: self.indi_t = time.time()
+            elif time.time() - self.indi_t > 1.5:
+                self.kalkik = False; self.ofset = None; self.x = None     # sonraki kamera konumunda yeniden hizalanır
+                log("robot yere kondu: turuncu simge kameraya hizalanıyor")
+        elif abs(w[0]) + abs(w[1]) + abs(w[2]) < 0.03:
+            self.duz = [0.98 * self.duz[i] + 0.02 * gu[i] for i in range(3)]   # düz duruş yavaşça güncellenir
         if not self.surus and abs(w[0]) + abs(w[1]) + abs(w[2]) < 0.03:
             self.sakin = (self.sakin + [r])[-300:]; self.bias = sorted(self.sakin)[len(self.sakin) // 2]
         if self.son_t is not None and 0 < t - self.son_t < 0.5:
